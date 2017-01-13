@@ -1,0 +1,144 @@
+Restore del catálogo directamente de los Volum files
+====================================================
+
+Scenario: la base de datos de bácula en impala quedo totalmente corrupta. La 
+única opción es recuperar el último catálogo bueno directamente del Volum File
+en el cual se van haciendo los backups del catálogo (el catálogo es un dump
+del mysql de la base de datos de bacula).
+
+1.- Localizar los volum files en los que se guardó el último backup del catálogo.
+Los localicé recupando el último mail que envió bácula informando de que el 
+backup del catálogo había sido correcto (linea Volume Name (s) :):
+
+ Volume name(s): Catalog8089|Catalog8090|Catalog0002|Catalog0574|Catalog0575|Catalog0580|Catalog0581|Catalog0582|Catalog0593|Catalog0594|Catalog0595|Catalog1030|Catalog1057|Catalog1058|Catalog1059|Catalog1060|Catalog1061|Catalog1064|Catalog1065|Catalog1066|Catalog1067|Catalog1068|Catalog1096
+
+2.- Uso el comando bls para ver efectivamente tengo aquí el catàlogo (miro de 
+momento solo el primer volumen):
+
+[root@epsilon bacula]# bls /backup/bacula/impala/Catalog8089
+bls: butil.c:287 Using device: "/backup/bacula/impala" for reading.
+22-Apr 15:41 bls JobId 0: Ready to read from volume "Catalog8089" on device "CatalogSDev" (/backup/bacula/impala).
+bls JobId 4358: -rw-------   1 root     root     24343631093 2014-04-15 23:45:50  /usr/local/bacula-5.2.12/var/bacula/working/bacula.sql
+22-Apr 15:41 bls JobId 4358: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog8089"
+22-Apr 15:41 bls JobId 4358: End of all volumes.
+1 files found.
+[root@epsilon bacula]# 
+
+También se puede usar esta nomenclaura:
+
+ # bls -V Catalog8089 /backup/bacula/impala
+
+(bls -V <volumname> <device-name>)
+
+3.- Construyo el fichero .bsr que será donde le indicaré a bextract la lista de
+volumenes que me ha de descomprimir. Me hizo falta hacer servir este fichero .bsr
+ya que el catálogo era un único fichero repartido en varios volúmenes. Si fuera
+únicamente un único volúmen, se puede hacer asaco con el bextract sin necesidad
+de usar un fichero .bsr:
+
+[root@epsilon bacula]# cat restore-backup-catalog.bsr 
+Volume = Catalog8089|Catalog8090|Catalog0002|Catalog0574|Catalog0575|Catalog0580|Catalog0581|Catalog0582|Catalog0593|Catalog0594|Catalog0595|Catalog1030|Catalog1057|Catalog1058|Catalog1059|Catalog1060|Catalog1061|Catalog1064|Catalog1065|Catalog1066|Catalog1067|Catalog1068|Catalog1096
+VolSessionId = 61
+VolSessionTime = 1397033864 
+[root@epsilon bacula]# 
+
+La información de VolSessionID y VolSessionTime lo saco de la ejecución anterior
+de bls con el primer volúmen (bls /backup/bacula/impala/Catalog8089)
+
+Despues de tener que hacer esto para recuperar el backup, se modificó bácula
+para que autogener el fichero .bsr de cada backup que es guardo en impala en:
+
+/usr/local/bacula/var/bacula/bootstrap
+
+Al acabar de hacerse cada backup, estos ficheros son copiados en epsilon en:
+
+/backup/bacula/bootstrap-files
+
+Con estos ficheros podemos recuperar un backup sin tener el catálogo.
+
+4.- Me aseguro de que todo va a ir bien con este fichero .bsr, por lo que 
+primero lo pruebo con el comando bls:
+
+[root@epsilon bacula]# bls -b restore-backup-catalog.bsr /backup/bacula/impala
+bls: butil.c:287 Using device: "/backup/bacula/impala" for reading.
+22-Apr 15:47 bls JobId 0: Ready to read from volume "Catalog8089" on device "CatalogSDev" (/backup/bacula/impala).
+bls JobId 4358: -rw-------   1 root     root     24343631093 2014-04-15 23:45:50  /usr/local/bacula-5.2.12/var/bacula/working/bacula.sql
+22-Apr 15:47 bls JobId 4358: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog8089"
+22-Apr 15:47 bls JobId 4358: Ready to read from volume "Catalog8090" on device "CatalogSDev" (/backup/bacula/impala).
+22-Apr 15:47 bls JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog8090"
+22-Apr 15:47 bls JobId 0: Ready to read from volume "Catalog0002" on device "CatalogSDev" (/backup/bacula/impala).
+22-Apr 15:47 bls JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog0002"
+22-Apr 15:47 bls JobId 0: Ready to read from volume "Catalog0574" on device "CatalogSDev" (/backup/bacula/impala).
+22-Apr 15:47 bls JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog0574"
+22-Apr 15:47 bls JobId 0: Ready to read from volume "Catalog0575" on device "CatalogSDev" (/backup/bacula/impala).
+...
+...
+...
+22-Apr 15:48 bls JobId 0: Ready to read from volume "Catalog1096" on device "CatalogSDev" (/backup/bacula/impala).
+22-Apr 15:48 bls JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog1096"
+22-Apr 15:48 bls JobId 0: End of all volumes.
+1 files found.
+[root@epsilon bacula]# 
+
+Parece que el fichero .bsr està bien.
+
+5.- Ahora ya ejecuto el bextract y recupero el catálogo usando el .bsr:
+
+[root@epsilon bacula]# bextract -b restore-backup-catalog.bsr /backup/bacula/impala /tmp
+bextract: butil.c:287 Using device: "/backup/bacula/impala" for reading.
+22-Apr 15:17 bextract JobId 0: Ready to read from volume "Catalog8089" on device "CatalogSDev" (/backup/bacula/impala).
+bextract JobId 0: -rw-------   1 root     root     24343631093 2014-04-15 23:45:50  /tmp/usr/local/bacula-5.2.12/var/bacula/working/bacula.sql
+22-Apr 15:17 bextract JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog8089"
+22-Apr 15:17 bextract JobId 0: Ready to read from volume "Catalog8090" on device "CatalogSDev" (/backup/bacula/impala).
+22-Apr 15:17 bextract JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog8090"
+...
+...
+22-Apr 15:18 bextract JobId 0: Ready to read from volume "Catalog1068" on device "CatalogSDev" (/backup/bacula/impala).
+22-Apr 15:18 bextract JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog1068"
+22-Apr 15:18 bextract JobId 0: Ready to read from volume "Catalog1096" on device "CatalogSDev" (/backup/bacula/impala).
+22-Apr 15:18 bextract JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog1096"
+22-Apr 15:18 bextract JobId 0: End of all volumes.
+1 files restored.
+[root@epsilon bacula]#
+
+Los fichero extraidos los deja en /tmp + path-del-fichero, osease, en nuestro caso del catálogo:
+
+/tmp/usr/local/bacula-5.2.12/var/bacula/working/bacula.sql
+
+NOTAS: En teoría, el comando bextract se debería de poder hacer pasando los
+volúmens por linea de comando sin necesidad de usar el fichero .bsr pero a mi
+no me funcionó debido a que la lista de volumenes que le pasaba era demasiado 
+larga (el bextract no se que quejó de este hecho pero el bls si). Al pasar
+las lista de volúmenes directamente como parámetro, hemos de poner la '\' delante
+de la barra vertical '|':
+
+bextract /backup/bacula/impala/Catalog8089\|Catalog8090\|Catalog0002\|Catalog0574\|Catalog0575\|Catalog0580\|Catalog0581\|Catalog0582\|Catalog0593\|Catalog0594\|Catalog0595\|Catalog1030\|Catalog1057\|Catalog1058\|Catalog1059\|Catalog1060\|Catalog1061\|Catalog1064\|Catalog1065\|Catalog1066\|Catalog1067\|Catalog1068\|Catalog1096 /tmp
+
+o:
+
+bextract -V Catalog8089\|Catalog8090\|Catalog0002\|Catalog0574\|Catalog0575\|Catalog0580\|Catalog0581\|Catalog0582\|Catalog0593\|Catalog0594\|Catalog0595\|Catalog1030\|Catalog1057\|Catalog1058\|Catalog1059\|Catalog1060\|Catalog1061\|Catalog1064\|Catalog1065\|Catalog1066\|Catalog1067\|Catalog1068\|Catalog1096 /backup/bacula/impala /tmp
+
+6.- Si queremos extraer solo varios ficheros y no todo el contenido del 
+volumen/es, creamos un fichero con la lista de ficheros a recuperar:
+
+# cat list-files
+/usr/local/apache2
+/home/miguels
+/data/databases
+
+y se lo pasamos a bextract usando el modificador -i:
+
+bextract -i list-files -b restore-backup-catalog.bsr /backup/bacula/impala /tmp
+
+
+
+
+
+
+
+
+
+
+
+
+

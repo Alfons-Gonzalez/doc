@@ -1,0 +1,833 @@
+
+0.- Scenario
+1.- Instalacion del StorageDaemon en pandora
+2.- Configuración de los  Storage Devices en pandora (StorageDaemon)
+3.- Configuración de los Storage Daemon en Impala (Director)
+4.- Checkear que tenemos acceso a la librería (sin usar bacula)
+5.- Checkear que bácula puede trabajar con la librería
+6.- Problemo: no desmonta la cinta
+7.- Update slots
+8.- Configuracion de los Jobs con webmin
+9.- Inicializar cintas
+10.- Etiquetar cintas usando su código de barras
+11.- Pasos a serguir para hacer los backups semanales
+12.- Algunos comandos útiles con bconsole
+
+
+0.- Scenario
+============
+
+Teniendo ya montada la infraestructura de backup con bácula en la cual:
+
+impala: Bacula Director con la base de datos
+epsilon: Bacula Storage Daemon a disco
+<grib-servers>: Bacula File Daemon (clientes de los que se hacen backup a disco
+en la cabina MD3200 de epsilon.
+
+Vamos a añadir la capacidad de hacer ahora también backup en cinta usando la
+cabina MSL2024 de dos drives que está conectada a pandora.
+
+Para poder hacerlo, hemos de montar otro Bacula Storage Daemon en pandora
+configurado para poder trabajar con la librería.
+
+
+1.- Instalacion del SD en pandora
+=================================
+
+
+# ./configure --prefix=/usr/local/bacula-fd-sd-5.2.12 --with-mysql=/usr/local/mysql --enable-batch-insert --enable-conio --enable-smartalloc --enable-build-dird=no
+
+# make
+
+# make info
+
+# make install-autostart
+
+#  ln -s /usr/local/bacula-fd-sd-5.2.12 /usr/local/bacula-fd-sd
+
+
+Y para finalizar, instalamos en pandora webmin (mirar como se instaló en impala
+y epsion).
+
+2.- Configuración del SD en pandora
+===================================
+
+Configuramos el Storage Daemon de la siguiente manera: 
+
+/usr/local/bacula-fd-sd/etc/bacula-sd.conf
+
+--> Definición del storage daemon en si
+
+Storage {                             # definition of myself
+  Name = pandora.imim.es-sd
+  SDPort = 9103                  # Director's port
+  WorkingDirectory = "/usr/local/bacula-fd-sd-5.2.12/var/bacula/working"
+  Pid Directory = "/var/run"
+  Maximum Concurrent Jobs = 20
+}
+
+--> Director con el que conectará
+
+Director {
+  Name = impala.imim.es-dir
+  Password = "gvoQSs3jPZB5ESdzHIfrflm4W6oNqhQryEEecEaN8w7N"
+}
+
+Director {
+  Name = impala.imim.es-mon
+  Password = "E/nxQfqk6TA70m3QWk2Ts1+5/izHR6G89wkLgOUTHIR9"
+  Monitor = yes
+}
+
+Ahora toca definir la librería. Se compone de dos partes: la librería (bácula
+la llama Autochanger) y los Drives. Uno de los drives está comentado ya que no
+estaba funcionando en el momento de realizar la configuración:
+
+Autochanger {
+  Name = MSL2024
+#  Device = Drive-1
+  Device = Drive-2
+  Changer Device = /dev/sg4
+  Changer Command = "/usr/local/bacula-fd-sd-5.2.12/etc/mtx-changer %c %o %S %a %d"
+        # %c = changer device
+        # %o = command (unload|load|loaded|list|slots)
+        # %S = slot index (1-based)
+        # %a = archive device (i.e., /dev/sd* name for tape drive)
+        # %d = drive index (0-based)
+}
+
+#Device {
+#  Name = Drive-1
+#  Drive Index = 0
+#  Media Type = LTO-5
+#  Archive Device = /dev/st0
+#  AutomaticMount = no
+#  AlwaysOpen = no
+#  Maximum Concurrent Jobs = 1
+#  RemovableMedia = yes
+#  RandomAccess = no
+#  AutoChanger = yes
+#  #
+#  # Enable the Alert command only if you have the mtx package loaded
+#  # Note, apparently on some systems, tapeinfo resets the SCSI controller
+#  #  thus if you turn this on, make sure it does not reset your SCSI
+#  #  controller.  I have never had any problems, and smartctl does
+#  #  not seem to cause such problems.
+#  #
+#  Alert Command = "sh -c 'tapeinfo -f %c |grep TapeAlert|cat'"
+#  # If you have smartctl, enable this, it has more info than tapeinfo
+##  Alert Command = "sh -c 'smartctl -H -l error %c'"
+#}
+
+Device {
+  Name = Drive-2
+  Drive Index = 1
+  Media Type = LTO-5
+  Archive Device = /dev/st1
+  AutomaticMount = no
+  AlwaysOpen = no
+  Maximum Concurrent Jobs = 1;
+  RemovableMedia = yes;
+  RandomAccess = no;
+  AutoChanger = yes
+  # Enable the Alert command only if you have the mtx package loaded
+  Alert Command = "sh -c 'tapeinfo -f %c |grep TapeAlert|cat'"
+  # If you have smartctl, enable this, it has more info than tapeinfo
+#  Alert Command = "sh -c 'smartctl -H -l error %c'"
+}
+
+--> Y por último, la gestión de mensajes:
+
+Messages {
+  Name = Standard
+  director = impala.imim.es-dir = all
+}
+
+Reiniciamos los servicios de bácula en pandora para que cargue estos cambios.
+
+2.1.- Explicación de los parametros
+===================================
+
+
+- En el fichero de configuracion del Storage Daemon:
+
+
+a) Autochanger section
+
+Device = Drive-1
+Device = Drive-2
+
+	Definición de los dos drives que componen la librería (el uno no 
+	funcinaba, de ahí que esté comentado).
+
+Changer Device = /dev/sg4
+
+	Se indica quien es el dispositivo asociado a la librería.
+
+Changer Command = "/usr/local/bacula-fd-sd-5.2.12/etc/mtx-changer %c %o %S %a %d"
+
+	Utilidad que hace sevir bácula para trabajar con las cintas. Es un 
+	script que usa la herramienta del sistema operativo mtx. Se puede
+	indicar que use otra que nos interese más. Tiene un fichero de
+	configuración en el mismo path que se llama mtx-changer.conf. Dentro
+	del script tenemos un pequeño help para saber para que sirve cada
+	parámetro (lo podemos usar como una herramienta más desde linea de 
+	comandos). 
+
+
+b) Drive section:
+
+Drive Index = 1 
+
+	Si dos drives o más, como es nuestro caso, indicamos el orden de 
+	preferencia (el primer drive sería el index 0 y el segundo drive el 1).
+
+AutomaticMount = no
+
+	Que no monte nada automáticamente. Montar quiere decir cargar una cinta 
+	en un drive (esta explicación es cosecha propia, no he encontrado la 
+	explicación correcta de este parámetro en la web de bácula, grrr).
+
+AlwaysOpen = no
+
+	Si 'yes', conseguimos que cuando acabe un backup, el drive no
+	quede liberado y quede posicionado al final de la cinta, listo para el 
+	siguiente backup. Si es 'no', al acabar de escribir rebobina la cinta y 
+	deja el drive liberado por lo que en el siguiente backup se tendrá que 
+	ir al final de la cinta para poder epezar a escribir. Es mejor 'no' ya 
+	que de esta manera, cada vez que haga falta un cambio de cintas no hace 
+	falta nuestra intervencińo.
+
+Maximum Concurrent Jobs = 1
+
+	Al poner que solo un job, al tratarse de una librería con dos drives, se 
+	consigue que el siguiente trabajo vaya a parar al otro drive por que 
+	este ya ha alcanzado su Maximum Current Jobs (esto se podrá acabar de 
+	probar cuando funcionen los dos drives).
+
+RemovableMedia = yes
+
+	Para indicar a bácula que es un dispositivo que puede estar no presente 
+	siempre: Tapes, DVD. Ponemos que 'no' si por ejemplo fuese un disco (p.e. 
+	epsilon).
+
+RandomAccess = no
+
+	Se ha de indicar 'yes' si el medio es un DVD, USB o disco. Si son tapes 
+	hemos de poner no. 
+
+AutoChanger = yes
+
+	Si el dispositivo pertenece a un cargador automático (es un drive que 
+	pertenece a una librería) hemos de poner 'yes'. Esto implica que ha de 
+	existir un recurso del tipo Autochanger y que se ha de especificar 
+	la directiva Changer Device para saber a que recurso Autochanger esta 
+	este drive asociado.
+
+
+3.- Configuración de los Storage Daemon en Impala (Bacula Director)
+===================================================================
+
+Definimos el acceso al Autochanger en el Director (impala.imim.es) añadiendo 
+estas líneas (lo podemos hacer con la interfície del webmin):
+
+Storage {
+  Name = TapeLibrarySDae
+  Password = gvoQSs3jPZB5ESdzHIfrflm4W6oNqhQryEEecEaN8w7N
+  Address = pandora.imim.es
+  SDPort = 9103
+  Device = MSL2024
+  Media Type = LTO-5
+  Maximum Concurrent Jobs = 20
+  Autochanger = yes
+}
+
+También creamos el acceso a los drives, que como se verá más adelante nos
+harán falta para ciertas operaciones que no chutan si se hacen sobre el 
+Autochanger (el del Drive-1 esta comentado pq este drive no está operativo):
+
+Storage {
+  Name = TapeDrive2SDae
+  Password = gvoQSs3jPZB5ESdzHIfrflm4W6oNqhQryEEecEaN8w7N
+  Address = pandora.imim.es
+  SDPort = 9103
+  Device = Drive-2
+  Media Type = LTO-5
+  Maximum Concurrent Jobs = 20
+}
+
+# Storage {
+#  Name = TapeDrive1SDae
+#  Password = gvoQSs3jPZB5ESdzHIfrflm4W6oNqhQryEEecEaN8w7N
+#  Address = pandora.imim.es
+#  SDPort = 9103
+#  Device = Drive-1
+#  Media Type = LTO-5
+#  Maximum Concurrent Jobs = 20
+#}
+
+
+Reiniciamos el director en impala para que cargue estos cambios.
+
+3.1- Explicación de los parámetros
+==================================
+
+Media Type = LTO5
+
+	Aquí indicamos que se trata de un tipo de dispotivito LTO-5, es decir, un
+	dispositivo de cintas.
+
+Autochanger = yes
+
+	Indicamos que se trata de un dispositivo que tiene un autocargador 
+	(la librería).
+
+Device = MSL2024
+
+	Dispositivo del Storage Daemon con el que está asociado. Se creo tanto 
+	un Storage que en lazaba con la librería que estaba definida en el 
+	storage daemon (MSL2024) como con los drives (Drive-1, Drive-2) ya que 
+	para ciertas operaciones como hacer un umount era necesario acceder 
+	directamente al drive.
+
+
+4.- Checkear que tenemos acceso a la librería 
+==============================================
+
+En un principio ya tenemos la infraestructura necesaria para poder empezar a 
+probar tanto la librería como los drives. Todas estas operaciones que haremos
+a nivel de S.O., las hemos de hacer sin ningún software accediendo a los 
+dispositivos, ni bácula-sd ni arkeia (han de estar ambos servicios parados)
+
+Primero hemos de comprobar que tengamos las herramientas instaladas para poder
+trabajar con las cintas:
+
+yum install mt-st.x86_64 
+yum install mtx.x86_64
+
+4.1.- Testear los drives
+------------------------
+
+Lo ideal sería primero probar que los drives funcionan. Lo podemos hacer
+lanzando directamente un tar contra el dispositivo:
+
+# tar cvf /dev/nst1 .
+
+y luego recuperamos lo que allí hemos metido:
+
+# mkdir restore-test
+# cd restore-test
+# mt -f /dev/nst1 rewind	
+# tar xvf /dev/nst1
+
+
+NOTA: La docu de bácula recomienda hacer servir los dispositivos nst en vez 
+de los st.
+
+4.2.- Testear la libreria
+-------------------------
+
+Hacemos algunas pruebas con el comando mtx:
+
+a.- Miramos que hay en los slots:
+
+[root@pandora ~]# mtx -f /dev/sg4 status
+  Storage Changer /dev/sg4:2 Drives, 24 Slots ( 1 Import/Export )
+Data Transfer Element 0:Empty
+Data Transfer Element 1:Full (Storage Element 5 Loaded):VolumeTag = APL615L5                        
+      Storage Element 1:Full :VolumeTag=APL620L5                        
+      Storage Element 2:Full :VolumeTag=APL614L5                        
+      Storage Element 3:Full :VolumeTag=APL613L5                        
+      Storage Element 4:Empty
+      Storage Element 5:Empty
+      Storage Element 6:Empty
+      Storage Element 7:Empty
+      Storage Element 8:Empty
+      Storage Element 9:Empty
+      Storage Element 10:Empty
+      Storage Element 11:Full :VolumeTag=CLNU00L1                        
+      Storage Element 12:Empty
+      Storage Element 13:Empty
+      Storage Element 14:Empty
+      Storage Element 15:Empty
+      Storage Element 16:Empty
+      Storage Element 17:Empty
+      Storage Element 18:Empty
+      Storage Element 19:Empty
+      Storage Element 20:Empty
+      Storage Element 21:Empty
+      Storage Element 22:Empty
+      Storage Element 23:Empty
+      Storage Element 24 IMPORT/EXPORT:Empty
+[root@pandora ~]# 
+
+4.3.- Testear con la utilidad de bácula (mtx-changer)
+-----------------------------------------------------
+
+OK, parece que la cosa va bien. Ahora probamos si con la herramienta de 
+bácula que se llama mtx-changer podemos trabajar con la librería. Tal y como
+se explicó con anterioridad, esta herramienta hace servir el comando 'mtx'.
+
+a. Preguntar cuantos slots tiene la librería:
+
+[root@pandora ~]# /usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 slots 0 /dev/nst11 0
+24
+
+b.- Preguntamos si hay alguna cinta cargada:
+
+[root@pandora ~]# /usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 loaded 0 /dev/nst11 0
+0
+
+c.- OK, no hay ninguna. Vamos a ver que tenemos en la librería: 
+
+[root@pandora ~]# /usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 list 0 /dev/nst1 0
+1:APL620L5
+2:APL614L5
+3:APL613L5
+11:CLNU00L1
+5:APL615L5
+
+d.- Ahora vamos a cargar una cinta
+
+/usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 load 2 /dev/nst1 0
+Loading media from Storage Element 2 into drive 0...done
+
+e.- Y ahora miramos si esta cinta está en el drive (contesta que hay lo que
+estaba en el slot 2)
+
+[root@pandora ~]# /usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 loaded 0 /dev/nst11 0
+2
+
+f.- Todo bien. Ahora descargamos esta cinta.
+
+[root@pandora ~]# /usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 unload 2 /dev/nst1 0
+Unloading drive 0 into Storage Element 2...done
+
+NOTA: Todo esto lo podemos hacer con el comanto mtx, de hecho, mtx-changer es 
+un script que hace servir este comando para trabajar con las cintas.
+
+
+5.- Checkear que bácula puede trabajar con la librería
+======================================================
+
+Ahora usaremos el comando btape de bácula que sirve, entre otras cosas, para
+checkear una cinta y los drives. Hacemos un test con este comando:
+
+a. Cargamos una cinta en un drive:
+
+[root@pandora ~]# /usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 load 5 /dev/nst1 1
+Loading media from Storage Element 5 into drive 1...done
+
+b.- Ejectamos el comando btape y hacemos un test (entramos en una consola donde
+el prompt es un aterisco y si nos fijamos en la 5ª linea de lo que se muestra
+abajo, lo que hacemos es escribir el comando 'test' y return.
+
+[root@pandora ~]# /usr/local/bacula-fd-sd/sbin/btape -c /usr/local/bacula-fd-sd/etc/bacula-sd.conf /dev/nst1
+Tape block granularity is 1024 bytes.
+btape: butil.c:290 Using device: "/dev/nst1" for writing.
+btape: btape.c:477 open device "Drive-2" (/dev/nst1): OK
+*test
+
+  === Write, rewind, and re-read test ===
+
+I'm going to write 10000 records and an EOF
+then write 10000 records and an EOF, then rewind,
+and re-read the data to verify that it is correct.
+
+This is an *essential* feature ...
+
+btape: btape.c:1157 Wrote 10000 blocks of 64412 bytes.
+btape: btape.c:609 Wrote 1 EOF to "Drive-2" (/dev/nst1)
+btape: btape.c:1173 Wrote 10000 blocks of 64412 bytes.
+
+
+=== End Forward space files test ===
+
+...
+...
+...
+
+Ah, I see you have an autochanger configured.
+To test the autochanger you must have a blank tape
+ that I can write on in Slot 1.
+
+Do you wish to continue with the Autochanger test? (y/n): y
+
+
+=== Autochanger test ===
+
+3301 Issuing autochanger "loaded" command.
+Slot 5 loaded. I am going to unload it.
+3302 Issuing autochanger "unload 5 1" command.
+
+...
+...
+...
+
+Vemos que hay un punto en el que nnos pregunta si queremos checkear el 
+autochanger (la librería). Para ello nos pide tener en el slot1 una cinta que 
+pueda borrar.
+
+Si todo va bien ya tenemos todo listo para poder empezar a trabajar con la 
+librería usando bácula.
+
+6.- Problemo: no desmonta la cinta
+==================================
+
+Después de una operación con la cual ha sido necesario cargar una cinta en 
+alguno de los drives, by default, esta cinta no es descargada. Después de mirar
+por foros como se podía resolver este inconvenite no encontré ningún paràmetro
+configurable para poder decir a bácula que hiciese un unload de las cintas al
+acabar. En los foros se sugerían dos posibles solucionas:
+
+a) Script que se ejecuta al acabar el backup que hace el umount de la
+cinta.
+
+b) Job de baja prioridad que ejecuta junto al resto de jobs. Este job no hace 
+backup de nada, únicamente ejecuta al acabar el script del apartado a). Al ser de
+baja prioridad nos aseguramos de que hara el umount cuando todos los jobs de 
+backup hayan acabado. 
+
+Como solo tendremos un job, se opta por la primera solución.
+
+El script que hace el umount es el siguiente:
+
+
+[root@impala etc]# cat umount-tape.sh 
+#!/bin/sh
+/usr/local/bacula/etc/bconsole <<END_OF_DATA
+unmount storage=TapeDrive2SDae
+END_OF_DATA
+
+y está en: 
+
+[root@impala etc]# pwd
+/usr/local/bacula/etc
+
+Un pequeño detalle: como se puede ver, el storage lo hago sobre el Storage 
+Daemon que está asociado al device del Drive (TapeDrive2SDae), si lo miraba de 
+hacer usando el Storage Daemon que está asociado al Autochanger (TapeLibrarySDae) 
+no funcionaba, me daba un error. Siempre que quiero hacer algo con las cintas, 
+especialmente cuando es usando la consola de Bacula, he de hacer servir el Storage 
+Device de los drive, para pocas operaciones me sirve el Device que apunta 
+directamente al cargador (TapeLibrarySDae). Eso si, para lanzar los backup jobs 
+si que hago sevir el que apunta al Autochanger ya que entiendo que cuando tengamos
+los dos drives operativos este será capaz de ir enviando los jobs a un drive o a 
+otro, según toque. No descarto que esto me pase por que haya algo que no esté 
+bien configurado.
+
+NOTA: Para que al hacer un restore también desmonte la cinta, hemos de indicar
+este script en el apartado After Job en el job RestoreFile (es el job by default
+que tiene bácula para poder hacer los restores).
+
+
+7.- Update Slots
+================
+
+Cada vez que se cambien las cintas para hacer el backup semanal, hay que ejecutar
+el comando 'update slots' en la consola de bácula para que este cambio de cintas 
+se refleje en el catálolo. Si no lo hacemos así, bácula no sabe que tiene cintas 
+nuevas y las irá ha hacer servir como si fueran las del pack antiguo. El
+comando es el siguiente (si no se indicar el storage nos lo pregunta):
+
+* update slots storage=TapeLibrarySDae
+
+Para evitar tener que ejecutar este comando en cada cambio de juego de cintas, 
+hay un script que se ejecuta justo antes de ejecutar el backup a cinta. El 
+scripta está en impala junto con el script que se asegura que se desmonta la 
+cinta después de cada backup. Se llama 'update-slots.sh':
+
+[root@impala etc]# ll /usr/local/bacula/etc/update-slots.sh 
+-rwxr-xr-x 1 root root 105 Jun 17 12:34 /usr/local/bacula/etc/update-slots.sh
+
+y su contenido:
+
+[root@impala etc]# cat /usr/local/bacula/etc/update-slots.sh
+#!/bin/sh
+
+/usr/local/bacula/etc/bconsole <<END_OF_DATA
+update slots storage=TapeLibrarySDae
+END_OF_DATA
+[root@impala etc]# 
+
+También añado la ejecución de este script en el job de restore.
+
+8.- Configuracion de los Jobs con webmin
+=========================================
+
+Hasta aquí lo que teníamos creados eran los dispositivos que enlazan con el
+hardware. Para poder empezar a poner el label a las cintas necesitamos tener
+creados el pool, por lo que antes de hacer nada más vamos a configurar 
+los jobs, pool, etc. 
+
+De momento tenemos configurados los dispositivos que son el Autochanger y el 
+Device que están definidos en el Bacula Storage Daemon de pandora y sus 
+correspondientes dispositivos en el Bacula Director de Impala (ver puntos 2 y 3) 
+y hemos visto que por lo menos, a nivel de S.O. podemos trabjar con la librería.
+
+Nos conectamos al wemin de impala y vamos haciendo:
+
+d) Storage Daemons: Ya los tenemos creados del paso 3.
+
+a) Backup Clients: No hace falta, ya están todos los clientes dados de alta
+(haremos backup en cinta de los que ya teníamos definido en disco)
+
+b) File Set: Se define un file set llamado BackupTotape que hace backup
+de todos los labos (datos de usuario) más el directorio /backup:
+
+/backup
+/cadd
+/cbbl
+/cgl
+/cslab
+/genomics
+/ibi
+/multiscale
+/sbi
+/soft
+
+Signature: MD5
+Compression: Default (que es lo mismo que no compresion, ya se hará por hw la
+             librería)
+
+c) Backup Schedules: Hacemos servir el ciclo semanal que se modificó para que 
+cada fin de semana haya siempre un total (antes hacía un total el primer fin
+de semana y el resto del mes diferenciales)-
+
+d) Volum Pools: Se crea un Pool llamado WeeklyTapePool:
+
+Volum Pool Type: Backup
+Volume Retention Period: 3 months
+Prune expired volumes: yes
+Máximum jobs per volume: unlimited
+
+e) Backup Job: El job que hará el backup en cinta se ha llamado 
+WeeklyTapeBackup:
+
+Default type: Stand-alone job
+Job Type: Backup
+Client to backup: pandora.imim.es-fd
+Backup on schedule: WeeklyCycle
+Volume poll: WeeklyTapePool
+Backup priority: Default
+Backup Level: <Default>
+File set to backup: BackupToTape
+Destinatin storage device: TapeLibrarySDae
+Destinatino for messages Standard
+Command afger job: /usr/local/bacula/etc/umount-tape.sh
+
+Aquí es donde hemos indicado que hay que ejecutar el script umount-tape.sh para
+que cada vez que se termine de hace un backup se desmonte la cinta, y el 
+update-slots.sh, para que actulice en el catálogo la lista de cintas. Si 
+tubiéramos más jobs de backups en cinta igual sería más conveniente buscar otra 
+manera de hacer esto.
+
+NOTA Hemos de tener en cuenta que ahora un volumen no es un fichero, es una 
+cinta LTO-5
+
+9.- Inicializar cintas
+======================
+
+Ahora que ya tenemos el pool configurado ya podemos iniciar el proceso de 
+inicializar cintas.
+
+1.- Borramos las cintas (esto elimina cualquier antiguo label)
+
+   (primero hemos de poner una cinta en el drive. Esta acción o bien la hacemos
+   usando la web de gestión de la librería o con el comando mtx-changer de
+   bácula, o con el comando mtx del Sistema Operativo, tal y como se muestra
+   en el apartado 2). Con cada una de las cintras en el drive vamos ejecutando
+   los siguientes comandos (OJO: Antes de ejecutar estos comandos hemos de parar 
+   el bácula ya que sino el comando mt nos dará un error diciendo que no es 
+   accesible el drive):
+
+   - Si usamos el Drive-1
+   mt -f /dev/nst1 rewind
+   mt -f /dev/nst1 weof
+ 
+  - Si usamos el Drive-2
+   mt -f /dev/nst0 rewind
+   mt -f /dev/nst0 weof
+
+Sacamos la cinta del drive, colocamos la siguient cinta en el drive y volvemos
+a ejecutar estos comandos con la nueva cinta. Repetimos el proceso hasta que 
+estén todas borradas.
+
+10.- Etiquetar cintas usando su código de barras
+===============================================
+
+Una vez tengamos las cintas inicializadas hacemos lo siguiente (ya con bácula-sd
+arrancado):
+
+1.- Entramos en la console de bacula:
+
+[root@impala etc]# /usr/local/bacula/etc/bconsole 
+Connecting to Director localhost:9101
+1000 OK: impala.imim.es-dir Version: 5.2.12 (12 September 2012)
+Enter a period to cancel a command.
+*
+
+2.- Ejecutamos este comando (indiamos el Storage Daemon asociaso a la librería).
+Cuando nos pregunte por el Pool hemos de elegir de la lista el Pool de las 
+cintas que és WeeklyTapePool :
+	
+* label barcodes storage="TapeDrive2SDae"
+
+OJO: no recuerdo si este comando funcionaba haciendo referencia al Autochanger.
+
+Si solo queremos etiquetar una cinta podemos indicar el slot en el cual se 
+encuentra:
+
+* label barcodes storage="TapeDrive2SDae" slot=2
+
+10.1 - Error 'Please mount Volume "XXX" or label a new one for'
+===============================================================
+
+Aveces, depués de que pandora haya perdido la conexión con el robot de cintas,
+una vez que volvemos a tener al bácula funcionando, se queja de que el label
+de las cintas o de alguna de las cintas no es el correcto y acaba dando un error
+como este:
+
+2013-07-28 12:14:02   pandora.imim.es-sd JobId 1739: Please mount Volume "APL614L5" or label a new one for:
+    Job:          WeeklyTapeBackup.2013-07-26_23.05.00_24
+    Storage:      "Drive-2" (/dev/nst1)
+    Pool:         WeeklyTapePool
+    Media type:   LTO-5
+
+Para volver a etiquetas la cinta correctamente:
+
+a.- Eliminamos la cinta del catálogo desde la consola. OJO, esto elimina todos 
+los backups de los ficheros que estaban dentro de la cinta !!
+
+	# /usr/local/bacula-fd-sd/etc/bconsole
+	* delete volume=APL614L5
+
+	This command will delete volume APL600L5
+	and all Jobs saved on that volume from the Catalog
+	Are you sure you want to delete Volume "APL600L5"? (yes/no):
+
+b.- Seguimos los pasos explicaos en este punto 9 y 10 para eliminar cualquier 
+rastro de label y para poner el nuevo label pasado en el código de barras.
+	
+ATENCION: ESTO BORRA EL CONTENIDO DE LAS CINTAS !!
+
+11.- Pasos a seguir para hacer los backups semanales
+=====================================================
+
+Estos son los pasos a realiar para hacer los backups en cinta semanales:
+
+1.- Cambiar las cintas, guardando las cintas del último backup en el armario
+ignífugo del SRI y subiendo al despacho 4.81 las que se reciclarán la semana
+siguiente (vaya, lo de siempre).
+
+2.- Averiguar que cintas son. Usando el bconsole lo podemos saber con el
+comando:
+
+./bconsole
+*status storage=TapeLibrarySDae slots
+...
+...
+...
+*quit
+
+4.- Reciclamos las cintas usando webacula (http://impala.imim.es/webacula):
+
+- Vamos a Pool/volume
+- seleccionamos el pool de las cintas: WeeklyTapePool
+- Seleccionamos una a una las cintas y en Status les ponemos Recicle y guardamos
+los cambios con Submit Form.
+
+12.- Algunos comandos útiles con bconsole
+========================================
+
+Podemos usar bácula en linea de comandos sin tener que llegar a usar webmin
+ni ninguna otra interficie gráfica usando bconsole. De hecho, resulta muy
+útil conocer algunos comandos básicos con la consola ya que no es posible
+hacer con webmin todas las operaciones posibles que nos ofrece la cosola.
+Algunos comandos que fui haciendo servir y que los encontré útiles:
+
+* prune: a nivel de files, jobs o volúmenes, revisa si hay jobs, files o 
+	volúmenes que ya han expirado y los elimina del catálogo. pe, si
+	en un cliente hemos puesto que guarde los jobs durante un més, con este
+	comando eliminamos los jobs o files o volumenes (o todo) de este cliente
+	que tienen más de un més.
+
+* unmount storage=TapeDrive2SDae --> Desmonta la cinta que hay en el drive 2
+
+* list media pool=WeeklyTapePool --> Muestra todas las cintas e info sobre 
+  				     ellas, su uso, etc. Si slot = 0, quire
+				     decir que no está en la librería.
+
+* status storage=TapeLibrarySDae slots  --> Que cintas estan cargadas en el robot.
+
+Entrando en la consola y ejecutando 'help' vemos una lisa con todos los 
+comandos (no son muchos pero si los necesarios). Para saber más sobre un comando
+hemos de ejecutar 'help <nombre-comando>':
+
+[root@pandora etc]# /usr/local/bacula-fd-sd/etc/bconsole 
+Connecting to Director impala.imim.es:9101
+1000 OK: impala.imim.es-dir Version: 5.2.12 (12 September 2012)
+Enter a period to cancel a command.
+*help
+  Command       Description
+  =======       ===========
+  add           Add media to a pool
+  autodisplay   Autodisplay console messages
+  automount     Automount after label
+  cancel        Cancel a job
+  create        Create DB Pool from resource
+  delete        Delete volume, pool or job
+  disable       Disable a job
+  enable        Enable a job
+  estimate      Performs FileSet estimate, listing gives full listing
+  exit          Terminate Bconsole session
+  gui           Non-interactive gui mode
+  help          Print help on specific command
+  label         Label a tape
+  list          List objects from catalog
+  llist         Full or long list like list command
+  messages      Display pending messages
+  memory        Print current memory usage
+  mount         Mount storage
+  prune         Prune expired records from catalog
+  purge         Purge records from catalog
+  python        Python control commands
+  quit          Terminate Bconsole session
+  query         Query catalog
+  restore       Restore files
+  relabel       Relabel a tape
+  release       Release storage
+  reload        Reload conf file
+  run           Run a job
+  status        Report status
+  setdebug      Sets debug level
+  setip         Sets new client address -- if authorized
+  show          Show resource records
+  sqlquery      Use SQL to query catalog
+  time          Print current time
+  trace         Turn on/off trace to file
+  unmount       Unmount storage
+  umount        Umount - for old-time Unix guys, see unmount
+  update        Update volume, pool or stats
+  use           Use catalog xxx
+  var           Does variable expansion
+  version       Print Director version
+  wait          Wait until no jobs are running
+
+When at a prompt, entering a period cancels the command.
+
+*help status
+  Command       Description
+  =======       ===========
+  status        Report status
+
+Arguments:
+	all | dir=<dir-name> | director | client=<client-name> | storage=<storage-name> slots | days=nnn
+
+When at a prompt, entering a period cancels the command.
+
+*quit
+[root@pandora etc]# 
+
+
+

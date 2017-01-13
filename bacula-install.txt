@@ -1,0 +1,835 @@
+Notas:
+
+- Test the tray monitor? Not compild
+- Test the bwx-console? Not compiled
+
+--with-dump-email=$USER@your-site.com \
+--with-job-email=$USER@your-site.com \
+--with-smtp-host=mail.your-site.com
+
+No lo he usado, ¿se ha de poner para que envie mail?
+
+OJO con  WorkingDirectory = "/usr/local/bacula-5.2.12/var/bacula/working" que está en los ficheros de configuración: 
+¿que pasa si la partición está llena? ¿ocupa mucho espacio este workingdirectory?
+
+-----------
+
+0.- Preámbulo
+==========
+
+La idea es que en pandora estén estos tres daemons:
+
+Director 
+FileDaemon (FD)
+StorageDaemon (SD)
+
+Además del dataserver.
+
+Ya que tanto el catálogo, como la cabina de cintas como el storage estará en
+la misma máquina, pero pueden estar por separado, en diferentes máquinas
+
+Luego, cada máquina de la que se hará backup tendrá que tener un cliente. Este cliente es el 
+
+FileDaemon (FD)
+
+De momento, tanto el Admin Workstation estará en Pandora aunque nos podemos
+plantear que esté en cappra o moebius
+
+También se puede poner un Tray Monitor en el escritorio de cappra para que se puedan ver los avisos y el estado de los backup's (¿es necesario?
+
+Por último, se instalrá también en pandora una web con la que se podrá consultar el estado de los backups.
+
+
+- Download bacula from:
+
+http://sourceforge.net/projects/bacula/files/bacula/5.2.12/
+
+http://www.bacula.org/
+
+- Bacula necesita una base de datos donde guardar el catálogo. Nosotros 
+usaremos mysql por lo que antes de nada lo hemos de instalar.
+
+2.- Dependencies (Centos 6.3)
+=============================
+
+to encript and compress and decompress features
+yum install zlib zlib-devel
+yum install lzo lzo-devel
+yum install openssl openssl-devel
+
+to graphic tools:
+yum install qwt qwt-devel
+instalo en /usr/local qt-4.8.x ya que bat pide un qt > 4.7.4 y by default, 
+centos 6.3 lleva un 4.6.x
+
+to webadmin
+instalo php9+apache+mysql (el mysql hará falta para el catálogo)
+
+3.- build and install
+======================
+
+to the configure instructions be able to find qmake:
+export PATH=/usr/lib64/qt4/bin:$PATH
+
+Este seria un configure recomendable, solo soporte para qt y tray-monitor:
+
+./configure --prefix=/usr/local/bacula-5.2.12 --with-mysql=/usr/local/mysql --enable-batch-insert --enable-conio --enable-smartalloc --enable-bat --enable-tray-monitor
+
+make
+
+make install
+
+- Si solo queremos instalar el Director Daemon y el File Daemon por que el 
+Storage Daemon va en otro host, añadimos:
+
+--enable-build-stored=no
+
+y donde vayamos a instalar el Storage Daemon, para evitar tener el director:
+
+--enable-build-dird=no
+
+
+NOTA: tiene un make unistall y make uninstall-autostart.
+
+IMPORTANTE !!: Si no se indica lo contrario en el configure, el proceso de compilación e instalación gener aunos random password que son los que harán
+servir los diferentes daemons para comunicarse entre ellos. Se pueden cambiar
+a mano editando y modificando los ficheros de configuración (apartado 6).
+
+3.1.- Create database
+----------------------
+
+cd /usr/local/bacula-5.2.12/etc
+
+./grant_mysql_privileges -u root -p
+./create_mysql_database -u root -p
+./make_mysql_tables -u root -p
+
+
+3.2- Start
+-----------
+
+cd /usr/local/bacula-5.2.12/sbin
+./bacula start
+
+Starting the Bacula Storage daemon
+Starting the Bacula File daemon
+Starting the Bacula Director daemon
+
+to autoboot
+
+(from source directory)
+ make install-autostart
+
+3.2.1 Puertos
+
+Bacula-Director: 9101/tcp
+Bacula-FileDaemon: 9102/tcp
+Bacula-StorageDaemon: 9103/tcp
+
+3.3.- Database password
+------------------------
+
+La base de datos se creo con el dbname y el dbuser que usar bácula por defecto:
+
+dbname: bacula
+dbuser: bacua
+
+La constraseña se entro a mano en el fichero de configuración:
+
+/usr/local/bacula-5.2.12/etc/bacula-dir.conf
+
+# Generic catalog service
+Catalog {
+  Name = MyCatalog
+# Uncomment the following line if you want the dbi driver
+# dbdriver = "dbi:mysql"; dbaddress = 127.0.0.1; dbport =
+  dbname = "bacula"; dbuser = "bacula"; dbpassword = "AdminBacula"
+}
+
+3.4.- Iptables
+---------------
+
+Abrimos para el daemons de bácula que necesitas se accedidos desde los clientes (Bacula Storage Daemon: 9103) y el 80 para la web.
+
+Luego los clientes, tendrán que tener abierto el puerto del Bacula File Daemon: 9102.
+
+3.5.- email
+-------------
+
+3.5.1.- Envio de mails dentro de la red del IMIM
+-------------------------------------------------
+
+Para que bacual nos envie mail, editamos el fichero 
+
+/usr/local/bacula-5.2.12/etc/badura-dir.conf
+
+# Reasonable message delivery -- send most everything to email address
+#  and to the console
+Messages {
+  Name = Standard
+#
+# NOTE! If you send to two email or more email addresses, you will need
+#  to replace the %r in the from field (-f part) with a single valid
+#  email address in both the mailcommand and the operatorcommand.
+#  What this does is, it sets the email address that emails would display
+#  in the FROM field, which is by default the same email as they're being
+#  sent to.  However, if you send email to more than one address, then
+#  you'll have to set the FROM address manually, to a single address.
+#  for example, a 'no-reply@mydomain.com', is better since that tends to
+#  tell (most) people that its coming from an automated source.
+
+#
+  mailcommand = "/usr/local/bacula-5.2.12/sbin/bsmtp -h hermes2.fimim.cat -f \"\(Bacula\) \<%r\>\" -s \"Bacula: %t %e of %c %l\" %r"
+  operatorcommand = "/usr/local/bacula-5.2.12/sbin/bsmtp -h hermes2.fimim.cat -f \"\(Bacula\) \<%r\>\" -s \"Bacula: Intervention needed for %j\" %r"
+  mail = itgrib@imim.es = all, !skipped
+  operator = itgrib@imim.es = mount
+  console = all, !skipped, !saved
+#
+# WARNING! the following will create a file that you must cycle from
+#          time to time as it will grow indefinitely. However, it will
+#          also keep all your messages if they scroll off the console.
+#
+  append = "/usr/local/bacula-5.2.12/var/bacula/working/bacula.log" = all, !skipped
+  catalog = all
+}
+
+
+#
+# Message delivery for daemon messages (no job).
+Messages {
+  Name = Daemon
+  mailcommand = "/usr/local/bacula-5.2.12/sbin/bsmtp -h hermes2.fimim.cat -f \"\(Bacula\) \<%r\>\" -s \"Bacula daemon message\" %r"
+  mail = itgrib@imim.es = all, !skipped
+  console = all, !skipped, !saved
+  append = "/usr/local/bacula-5.2.12/var/bacula/working/bacula.log" = all, !skipped
+}
+
+
+3.5.2.- Envio de mails en la red UPF
+------------------------------------
+
+Una vez pasamos a red UPF tuvimos que cambiar el sistema de envio de mails ya que
+no era posible usar como SMTP a hermes2.fimim.cat. Como alternativa, decidimos 
+usar gmail para el envio de estos mails. Una de de las características de gmail 
+es que se ha de usar tls y que se ha de especificar user y password. Como la 
+herramienta que viene con bacula para el envio de mail no permite esto hemos de 
+buscar una alternativa. La alternativa es una herramienta llamada sendEmail 
+la cual vemos que usa mucha gente con bacula.
+
+- sendEmail
+-----------
+
+Esta herramienta esta hecha en perl la bajamos de aquí:
+
+http://caspian.dotconf.net/menu/Software/SendEmail/
+
+Requiere que instalemos los módulos de SSL para perl Net::SSLeay IO::Socket::SSL
+y para que pueda funcionar con las versiones de SSL del perl de impala (v5.10.1)
+hemos de editar la linea 1907 del fichero sendEmail y hacer este cambio:
+
+'SSLv3 TLSv1' => 'SSLv3'
+
+Copiamos esta herramienta en /usr/local/bin y generamos este script 
+
+/usr/local/bacula/etc/baculaEmail
+
+que es quien hara el envio del mail usando sendEmail. El codigo de este script es:
+
+[root@impala ~]# cat /usr/local/bacula/etc/baculaEmail 
+#!/bin/bash
+
+# PARA QUE FUNCIONE sendEmail SE TUBO QUE MODIFICAR EL CODIGO DE ESTE SCRIPT DE PERL:
+# /usr/bin/sendemail on line 1907, modify 'SSLv3 TLSv1' to 'SSLv3' 
+
+SMTP_SERVER=smtp.gmail.com
+USER=miguelangel.sanchez@upf.edu
+PASSWORD=******
+SENDER=itgrib@imim.es
+SUBJECT=$1
+RECIPIENTS=$2
+ 
+/usr/local/bin/sendEmail -q -s $SMTP_SERVER -o tls=yes -xu $USER -xp $PASSWORD -f $SENDER -u $SUBJECT -t $RECIPIENTS
+[root@impala ~]# 
+
+Como este script tiene la contraseña para conectar gmail se hace que solo sea 
+visible para el usuario root:
+
+-rwx------ 1 root root 413 Dec 16 17:26 /usr/local/bacula/etc/baculaEmail
+
+Ya solo nos queda modificar el fichero de bacula-dir.cfg para que use sendEmail
+y el script baculaEmail:
+
+Messages {
+  Name = Standard
+#
+# NOTE! If you send to two email or more email addresses, you will need
+#  to replace the %r in the from field (-f part) with a single valid
+#  email address in both the mailcommand and the operatorcommand.
+#  What this does is, it sets the email address that emails would display
+#  in the FROM field, which is by default the same email as they're being
+#  sent to.  However, if you send email to more than one address, then
+#  you'll have to set the FROM address manually, to a single address.
+#  for example, a 'no-reply@mydomain.com', is better since that tends to
+#  tell (most) people that its coming from an automated source.
+
+#
+
+  mailcommand = "/usr/local/bacula/etc/baculaEmail \"[Bacula] %t %e of %c %l\" \"%r\""
+  operatorcommand = "/usr/local/bacula/etc/baculaEmail \"[Bacula] Intervention needed for %j\" \"%r\""
+
+  mail = itgrib@imim.es = all, !skipped
+  operator = itgrib@imim.es = mount
+
+  console = all, !skipped, !saved
+#
+# WARNING! the following will create a file that you must cycle from
+#          time to time as it will grow indefinitely. However, it will
+#          also keep all your messages if they scroll off the console.
+#
+  append = "/usr/local/bacula-5.2.12/var/bacula/working/bacula.log" = all, !skipped
+  catalog = all, !skipped, !saved
+}
+
+Messages {
+  Name = Daemon
+
+  mailcommand = "/usr/local/bacula/etc/baculaEmail \"[Bacula] Daemon alert message\" \"%r\""
+
+  mail = itgrib@imim.es = all, !skipped
+
+  console = all, !skipped, !saved
+  append = "/usr/local/bacula-5.2.12/var/bacula/working/bacula.log" = all, !skipped
+}
+
+
+4.- BAT (Graphic Bacula Administration Tools)
+=============================================
+
+Hay varias pero por la documentación que leí es la más completa y la que más
+se posibilidades de configuración dá. Para hacer más virguerias, usar el
+modo de comandos.
+
+cd /usr/local/bacula-5.2.12/sbin
+./bat
+
+
+5.- Bacula-Web
+==============
+
+Su funcionalidad es darnos gráficas y estadísticas sobre los backups.
+
+- download from:
+
+http://www.bacula-web.org/
+
+- We have to have compiled php with GD support, gettext, and pdo support:
+
+ ./configure --with-mysql=/usr/local/mysql --with-apxs2=/usr/local/apache2/bin/apxs --prefix=/usr/local/php-5.4.7 --with-gd --with-gettext --with-pdo-mysql=/usr/local/mysql
+
+
+1. Untar  
+
+# tar -xzf bacula-web-version_number.tar.gz -C /usr/local/apache2/htdocs/bacula-web
+
+2.-
+ # cd /usr/local/apache2/htdocs/bacula-web
+ # chown -Rv apache:apache ./bacula-web
+ # chmod -Rv u=rx,g=rx,o=rx ./bacula-web
+
+3.- 
+
+ # cd application/config
+ # cp -v config.php.sample config.php
+ # chown -v apache: config.php
+
+4.- Now we have to do some changes in the config.php. Basically, we have
+to indicate how to connect to the database where the catalog is.
+
+//MySQL bacula catalog
+$config[0]['label'] = 'Backup Server';
+$config[0]['host'] = 'localhost';
+$config[0]['login'] = 'bacula';
+$config[0]['password'] = 'AdminBacula';
+$config[0]['db_name'] = 'bacula';
+$config[0]['db_type'] = 'mysql';
+$config[0]['db_port'] = '3306';
+
+5.- Now, we can check if the BaculaWeb is working:
+
+https://pandora.imim.es/bacula-web
+
+Note: It is possible to configure multiple catalogs (see http://www.bacula-web.org/configuring.html)
+
+6.- Config Files
+================
+
+Están en /usr/local/bacula-5.2.12/etc.
+
+Están junto con una serie de script que sirven para cargar la base de datos con
+sus tablas, grants, etc en mysql y más cosas. Básicamente, lo importante (o
+eso creo yo):
+
+bacula-dir.conf: Configuración del Director Daemon. Aquí se configuran los jobs,
+clientes, schedule, catálogo, Storage or Tape Drive, y alguna cosilla más (creo
+que todo esto se puede hacer desde el BAT)
+
+bacula-sd.conf: Configuración del Storage Daemon. Aquí se configuran las 
+características del storage device, la conexión con el director y más cosillas.
+
+bacula-fd.conf: Configuración del File Director, o lo que es lo mismo, que va
+a ser el fichero de configuracíon de los clientes. básicamente, aquí se pone como conectar con el director y alguna cosilla más.
+
+bat.conf: configuración del BAT, diria que no hay que configurar nada.
+
+bconsole.conf: configuración de la consola, tiene lo mismo que el bat.conf.
+
+7.- Generación automática de volúmenes
+======================================
+
+
+8.- Reciclar volúmenes 
+======================
+
+
+
+7.- Build and install client
+=============================
+
+Configuramos, compilamos e instalamos bácula en un cliente haciendo servir la
+misma línea de config que hemos usado para el servidor pero quitando los flags
+que hacen referencia a mysql y añadiendo el flag --enable-client-only para que
+solo gener el Bacula File Daemon. A modo de pureba, también añadí directamente
+en la linea de config la configuración de la dirección de mail y el smtp (si
+no se hace así, se puede luego añadir en el fichero de configuración 
+bacula-fd.conf tal y como explico más arriba):
+
+# ./configure --prefix=/usr/local/bacula-5.2.12 --enable-client-only --enable-batch-insert --enable-conio --enable-smartalloc --with-dump-email=itgrib@imim.es --with-job-email=itgrib@imim.es --with-smtp-host=hermes2.fimim.cat
+
+Creo que no hace falta poner todo lo de la dirección de mail ya que en el fichero
+de configuración no hace referencia a esta dirección de mail. Por lo tanto, el
+configure quedaría así:
+
+# ./configure --prefix=/usr/local/bacula-5.2.12 --enable-client-only --enable-batch-insert --enable-conio --enable-smartalloc
+
+# make
+# make install
+
+Para arrancar el servicio:
+
+/usr/local/bacula-5.2.12/sbin/bacula start
+
+Y para que se inicie al arrancar el sistema (instalar el script de inicio del 
+servicio en el sistema):
+
+
+
+De momento, el único método para añadir este nuevo cliente al Bacula Director es
+haciéndolo a mano.
+
+a.- En el cliente: básicamente le decimos donde está el DirectorDaemon y el 
+StorageDaemon en el fichero 
+
+/usr/local/bacula-5.2.12/etc/bacula-fd.conf
+
+
+1.- Indicamos donde está el director. Ponemos la contraseña para que se pueda
+conectar (es la contraseña que aparece en la definición del cliente en el 
+fichero bacula-dir.conf del servidor donde está instalado del DirectorDaemon, 
+osease, pandora): 
+
+Director {
+  Name = epsilon.imim.es-dir
+  Password = "mJWTrBG4hCqT659iCLFsUkNJl/UUz0lI9JO9iiGltx/B2"
+}
+
+2.- Ahora indicamos lo mismo para dar acceso al TryMonitor (no creo que lo hagamos
+servir):
+
+Director {
+  Name = epsilon.imim.es-mon
+  Password = "rKtIkSJivSEOatkjr2FFxcC1QyZ6K5ntvaQHDGbwtP4F"
+  Monitor = yes
+}
+
+3.- Configuramos el servicio en el cliente:
+
+FileDaemon {                          # this is me
+  Name = cappra.imim.es-fd
+  FDport = 9102                  # where we listen for the director
+  WorkingDirectory = /usr/local/bacula-5.2.12/var/bacula/working
+  Pid Directory = /var/run
+  Maximum Concurrent Jobs = 20
+}
+
+
+4.- Y los mensajes que le serán pasador al Director para que este los envie:
+
+Messages {
+  Name = Standard
+  director = epsilon.imim.es-dir = all, !skipped, !restored
+}
+
+NOTA: Es muy importante poner bien las contraseñas, sin ellas, no se podrá
+conectar el cliente con el director.
+
+El fichero queda así:
+
+[root@cappra etc]# cat bacula-fd.conf
+#
+# Default  Bacula File Daemon Configuration file
+#
+#  For Bacula release 5.2.12 (12 September 2012) -- redhat 
+#
+# There is not much to change here except perhaps the
+# File daemon Name to
+#
+
+#
+# List Directors who are permitted to contact this File daemon
+#
+Director {
+  Name = epsilon.imim.es-dir
+  Password = "mJWTrBG4hCqT659iCLFsUkNJl/UUz0lI9JO9iiGltx/B2"
+}
+
+#
+# Restricted Director, used by tray-monitor to get the
+#   status of the file daemon
+#
+Director {
+  Name = epsilon.imim.es-mon
+  Password = "rKtIkSJivSEOatkjr2FFxcC1QyZ6K5ntvaQHDGbwtP4F"
+  Monitor = yes
+}
+
+#
+# "Global" File daemon configuration specifications
+#
+FileDaemon {                          # this is me
+  Name = cappra.imim.es-fd
+  FDport = 9102                  # where we listen for the director
+  WorkingDirectory = /usr/local/bacula-5.2.12/var/bacula/working
+  Pid Directory = /var/run
+  Maximum Concurrent Jobs = 20
+}
+
+# Send all messages except skipped files back to Director
+Messages {
+  Name = Standard
+  director = epsilon.imim.es-dir = all, !skipped, !restored
+}
+
+También es recomendable configurar el fichero de bconsole.conf
+
+/usr/local/bacula-5.2.12/etc/bconsole.conf
+
+Ponemos la misma info del director que hemos puesto en el fichero bacula-fd.conf:
+
+
+#
+# Bacula User Agent (or Console) Configuration File
+#
+
+Director {
+  Name = epsilon.imim.es-dir
+  DIRport = 9101
+  address = delta
+  Password = "mJWTrBG4hCqT659iCLFsUkNJl/UUz0lI9JO9iiGltx/B2"
+}
+
+Así desde el cliente podremos usar el comando bconsole para verificar que todo
+funciona bien.
+
+b.- Y ahora toca configurar el DirectorDaemon para definir que tiene un nuevo
+cliente con el que ha de trabajar:
+
+Client {
+  Name = cappra.imim.es-fd
+  Address = cappra
+  FDPort = 9102
+  Catalog = MyCatalog
+  Password = "mJWTrBG4hCqT659iCLFsUkNJl/UUz0lI9JO9iiGltx/B2"         # password for FileDaemon 2
+  File Retention = 30 days            # 30 days
+  Job Retention = 6 months            # six months
+  AutoPrune = yes                     # Prune expired Jobs/Files
+}
+
+NOTA: Ojo a la contraseña, ha de ser la misma que la que hemos definido en
+el cliente, en el apartado donde ponemos quien es el DirectorDaemon.
+
+IMPORTANTE: HAY QUE REINICIAR EL SERVICIO DEL DIRECTOR PARA QUE LEA ESTOS 
+CAMBIOS !!!!
+
+
+8.- Bweb (No me gusta !!)
+=========
+
+Apache ha de tener soporte para cgi escritas en perl:
+
+a. Download perl apache module
+
+	http://perl.apache.org/download/index.html
+
+b.- yum install perl-ExtUtils-Embed
+c.- tar xvzf mod_perl-2.0-current.tar.gz
+    cd mod_perl-2.0.7/
+    perl Makefile.PL MP_APXS=/usr/local/apache2/bin/apxs MP_APR_CONFIG=/usr/local/apr-1.4.6/bin/apr-1-config
+    (en impala: perl Makefile.PL MP_APXS=/usr/local/apache2/bin/apxs)/
+    make
+    make install
+
+OJO: No pude compilar este módulo para apache 2.4.x, tube que instalar
+apache 2.2.x
+
+d. Configurar apache para que sepa ejecutar cgi en perl:
+
+	AddHandler cgi-script .cgi .pl
+	LoadModule perl_module        modules/mod_perl.so
+	
+
+Ahora instalamos bweb:
+
+1.- Instalamos todos los módulos de perl necesarios:
+
+DBI
+DBD::mysql
+GD
+GD::Graph
+HTML::Template
+CGI
+Expect
+Time::ParseDate
+Date::Calc
+LWP
+
+2.- Download bweb sources
+
+git clone git://bacula.git.sourceforge.net/gitroot/bacula/bacula
+cd bacula/gui/bweb
+
+3.- Copy the bweb Perl library into your PERL5 INC path:
+
+  perl Makefile.PL
+  make install
+
+4.- Copy the bweb perl program to your cgi location:
+
+  (estan en el directori bacula/gui/bweb)
+  mkdir -m 755 /usr/local/apache2/cgi-bin/bweb
+  install -m 755 -o root -g root  cgi/*.pl /usr/local/apache2/cgi-bin/bweb
+
+5.- Get a config file:
+
+  mkdir -m 755 /etc/bacula
+  chown root:bacula /etc/bacula
+  echo '$VAR1 = { template_dir => "/usr/share/bweb/tpl" };' > /etc/bacula/bweb.conf
+ chown apache /etc/bacula/bweb.conf
+
+¡¡ IMPORTANTE !!: El path de la variable 'template_dir' ha de coincidir con el
+path donde copiemos los template en el pasi siguiente, en el 6. 
+
+6.- Copy the bweb template file
+
+ mkdir -p /usr/share/bweb/tpl/en
+ install -m 644 -o root -g root  lang/en/tpl/*.tpl /usr/share/bweb/tpl/en
+	
+7.- Copy the bweb graphics elements (bweb elements must reside in /bweb
+
+  mkdir /var/www/bweb
+  install -m 644 -o root -g root  bweb/html/*.{js,png,css,gif,ico,html} /var/www/bweb
+
+8.- Be sure the user who run apache is able to read and execute the bconsole binary and able to read the bconsole.conf file!
+
+	# ln -s /usr/local/bacula-5.2.12/sbin/* /usr/local/bin
+	# which bconsole | xargs chmod 755
+	
+9.- Configure apache:
+
+# bweb configuration
+# ==================
+
+<Directory /usr/local/apache2/cgi-bin/bweb>
+        Options +ExecCGI -MultiViews +SymLinksIfOwnerMatch
+
+# use this to be more safe (htpasswd -c /etc/bacula/bweb.htpasswd admin)
+#        AuthType Basic
+#        AuthName Bweb
+#        AuthUserFile /etc/bacula/bweb.htpasswd
+#        Require valid-user
+
+        AllowOverride None
+</Directory>
+
+Alias /bweb/fv /var/spool/bweb
+<Directory "/var/spool/bweb">
+    Options None
+    AllowOverride AuthConfig
+    Order allow,deny
+    Allow from all
+</Directory>
+
+#Alias /bweb /usr/share/bweb/html
+#<Directory "/usr/share/bweb/html">
+<Directory "/usr/local/apache2/htdocs/bweb">
+    Options None
+    AllowOverride AuthConfig
+    Order allow,deny
+    Allow from all
+</Directory>
+
+10.- Creamos el directorio /var/spool/bweb:
+
+XXXX
+XXXX
+XXXX
+
+10.- Enter in the web page to configure the mysql connection:
+
+http://http://172.20.16.24/bweb
+
+
+Configuration
+SQL Connection 	
+DBI: 	DBI:mysql:database=bacula
+user: 	bacula
+password: 	xxxxx
+General Options 	
+email_media: 	itgrib@imim.es
+Bweb Configuration 	
+config_file: 	/etc/bacula/bweb.conf
+graph_font: 	/usr/share/fonts/truetype/ttf-bitstream-vera/Vera.ttf
+fv_write_path: 	/var/spool/bweb
+stat_job_table: 	Job
+bconsole: 	/usr/local/bin/bconsole -n -c /usr/local/bacula-5.2.12/etc/bconsole.conf
+wiki_url: 	
+template_dir: 	/usr/share/bweb/tpl
+language: 	en
+default_age: 	7d
+display_log_time: 	0
+security: 	0
+security acl: 	0
+debug: 	0
+
+11.- Ahora tocaría instalar brestore, de momento no lo instalo, voy a probar 
+otro web interface
+
+9.- brestore
+============
+
+Es necesario para que bweb pueda hacer un restore. Está dentro del .tar.gz
+que nos hemos bajado para instalar bweb:
+
+Instalamos los siguientes módulos de perl:
+
+perl -MCPAN -e shell
+install Gtk2
+install Expect
+install Gtk2::GladeXML
+install LWP
+install DBD::mysql
+install Gtk2::Ex::FileLocator::FileChooser
+
+NOTA: Como dependencias, se tendrá que instalar en el sistema gtk2, gtk2-devel, 
+glib2, glib2-devel, glibmm24, libglade2, libglade2-devel, pango, pango-devel,  
+cairo, cairo-devel.
+
+mkdir -p /usr/local/brestore
+install -m 644 -o root -g root brestore.glade /usr/local/brestore
+install -m 755 -o root -g root brestore.pl /usr/bin
+Añado esta info a /root/.brestore.conf, ¿ha de estar aquí? !!!!!
+
+$parameters = {
+                'glade_file' => '/usr/local/brestore/brestore.glade',
+                'mozilla' => 'firefox',
+                'bconsole' => 'http://impala.imim.es/cgi-bin/bweb/bconsole.pl',
+                'bweb' => 'http://impala.imim.es/cgi-bin/bweb/bweb.pl',
+                'username' => 'bacula',
+                'connection_string' => 'DBI:mysql:database=bacula;host=localhost;port=3306',
+                'password' => 'FullS3curity',
+                'bsr_dest' => '',
+                'see_all_versions' => '',
+                'debug' => 1,
+                'use_ok_bkp_only' => '',
+                'default_restore_job' => 'RestoreFiles'
+              };
+
+
+Añadir esta linea al httpd.conf en el apartado <IfModule mime_module>
+
+Action text/brestore brestore.pl
+
+He visto que también se puede poner en /etc/mime.conf, pero creo que esto no es 
+correcto por una respuesta de un foro.
+
+9.- webacula
+============
+
+Más o menos nos viene a dar la mismas funcionalidades que bweb, pero este me
+gustó más. Me pareció una herramienta muy útil. Igual que bweb, no permite
+configurar bácula: ni los fileset, ni los volúmenes, ni los daemons, ni los 
+jobs (si que permite consultarlos, lanzarlos, pararlos, etc). 
+
+Instalación
+
+
+10.- Webmin 
+===========
+
+By default, lleva incorporado un módulo para poder gestionar bácula. Con esta
+herramienta si que podremos configurar de un modo gráfico y mucho más friendly
+todos los daemons de bácula. Esta muy bien. Lo único que no acaba de ser muy
+completo es el consultar el histórico de backups, hacer restores (no da 
+muchas opciones), ver lista de ficheros de los que se han hecho backups, ver
+que volumenes (ficheros que contienen un backup) ha usado cada backup. Para
+todo esto, va muy bien webacula.
+
+Moraleja: ¡¡ Combinar el uso de webmin con webacula !!
+
+Instalación:
+
+11.- Mysql backup
+=================
+
+Idea: El server tendrá un script que hará mysqldumps de las bases de datos. Este
+script lo lanza bácula antes de hacer el backup del server y una vez acabados 
+los dumps, bácula hace backup del directorio donde se han guardado.
+
+
+1.- Guardamos en el home de roor un ficherito con la contraseña de root de
+mysql:
+
+[root@cappra sbin]# vi /root/.my.cnf 
+[client]
+user=root
+password=no_tocar
+protocol=tcp
+
+[root@cappra sbin]# chmod 400 /root/.my.cnf
+
+2.- Creamos el script que va ha hacer los dumps:
+
+[root@cappra sbin]# cat /usr/local/sbin/mysqldumps 
+#!/bin/bash
+
+BACKUPLOCATION=/var/local/mysqldumps
+
+mkdir -p $BACKUPLOCATION
+
+# back up all the mysql databases, into individual files so we can later restore
+# them separately if needed.
+/usr/local/mysql/bin/mysql --defaults-extra-file=/root/.my.cnf -B -N -e "show databases" | while read db
+do
+   BACKUPFILE=$BACKUPLOCATION/$db.sql
+   echo "Backing up $db into $BACKUPFILE"
+   /usr/local/mysql/bin/mysqldump --defaults-extra-file=/root/.my.cnf $db | gzip > $BACKUPFILE.gz
+done
+
+[root@cappra sbin]# chmod 500 /usr/local/sbin/mysqldumps 
+[root@cappra sbin]# chown root:root /usr/local/sbin/mysqldumps 
+
+3.- Ahora solo tenemos que generar un nuevo job en bácula para este server que 
+hará backup del directorio /var/local/mysqldumps y en el cual le indicaremos
+que antes de hacer el backup ejecute este script (Command before job (on client))
+
+
+

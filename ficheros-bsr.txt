@@ -1,0 +1,121 @@
+
+Ficheros .bsr
+=============
+
+0.- Introducción 
+1.- Configurar bácula para que genere los .bsr
+2.- Recuperación de backups usando los ficheros .bsr
+
+
+0.- Introducción
+----------------
+2.- Recuperación de backups usando los ficheros .bsr
+Los ficheros .bsr (bootstrap record) son unos ficheros de texto que puede generar 
+bácula después de cada backup que contine suficiente información como para 
+poder hacer un restore de un backup sin necesidad de tener el catálogo disponible.
+
+Estos ficheros se usaron para recuperar en una ocasión el catálogo de bácula que
+había quedado corrupto.
+
+1.- Configurar bácula para que genere los .bsr
+----------------------------------------------
+
+Para que bácula genere este fichero, se añadió esta línea a la plantilla del
+job 'JobDefs' en el fichero 'bacula-dir.conf' en impala:
+
+Write Bootstrap = "/usr/local/bacula-5.2.12/var/bacula/bootstrap/%j-%i.bsr"
+
+Donde:
+%j = Unique Job name (lleva incorado la fecha del job)
+%i = Job Id
+
+Queda tal que así: 
+
+BackupCatalog.2014-05-07_23.10.00_53-4500.bsr
+
+%j -> BackupCatalog.2014-05-07_23.10.00_53-4500
+%i -> 4500
+
+Y a continuación se configuraron todos los trabajos de backup para que heredasen
+las directivas de la plantilla JobDefs. De esta manera, una directiva que esté
+definida en esta plantilla pero que no lo esté en en job, este la hereda. Si la
+directiva está en ambos sitios, plantilla y job, tiene preferencia la del job
+(la de la plantilla queda anulada).
+
+Los ficheros .bsr se guardan en impala, en el directorio:
+
+/usr/local/bacula-5.2.12/var/bacula/bootstrap
+
+Y par que haya otra copia de estos ficheros y que estén en la cabina de epsilon
+que es donde se guardan los backups, en el mismo trabajo JobDefs se añade esta
+linea:
+
+Run After Job = /usr/local/bacula/etc/copy-bootstrap.sh
+
+que hace que al acabar el job backup que se ejecute un script que copia los .bsr
+a:
+
+epsilon:/backup/bacula/bootstrap-file
+
+El contenido del script es:
+
+#!/bin/sh
+
+# ==================================================================
+# Script que copia los ficheros .bsr a epsilon
+# Con estos ficheos, podemos recuperar el último backup de un
+# job sin tener el catálogo. De gran ayuda en caso de megadesastre.
+# ==================================================================
+
+SOURCEDIR=/usr/local/bacula/var/bacula/bootstrap
+DESTINATIONDIR=/backup/bacula/bootstrap-files
+BACKSERVER="epsilon.imim.es"
+USER="backup"
+
+rsync -avr $SOURCEDIR/*.bsr $USER@$BACKSERVER:$DESTINATIONDIR
+
+# Borramos los ficheros .bsr antiguos (en teoría, solo mantenemos backups de un mes)
+
+OLD_FILES=`find $SOURCEDIR -ctime +30`
+rm -f $OLD_FILES 
+
+2.- Recuperación de backups usando los ficheros .bsr
+----------------------------------------------------
+
+Para recuperar un backup haciendo servir este fichero .bsr, se usa el comando
+bextract (también explicado en documentación 'restore-catalog-using-bextract.txt':
+
+[root@epsilon ~]# cd /backup/bacula/bootstrap-files
+[root@epsilon bootstrap-files]# bextract -b BackupCatalog.2014-05-07_23.10.00_53-4500.bsr /backup/bacula/impala /backup/bacula/RESTORE
+bextract: butil.c:287 Using device: "/backup/bacula/impala" for reading.
+08-May 13:25 bextract JobId 0: Ready to read from volume "Catalog5300" on device "CatalogSDev" (/backup/bacula/impala).
+bextract JobId 0: -rw-------   1 root     root     23327135787 2014-05-07 23:38:24  /backup/bacula/RESTORE/usr/local/bacula-5.2.12/var/bacula/working/bacula.sql
+08-May 13:25 bextract JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog5300"
+...
+...
+...
+08-May 13:27 bextract JobId 0: Ready to read from volume "Catalog5302" on device "CatalogSDev" (/backup/bacula/impala).
+08-May 13:27 bextract JobId 0: End of Volume at file 0 on device "CatalogSDev" (/backup/bacula/impala), Volume "Catalog5302"
+08-May 13:27 bextract JobId 0: End of all volumes.
+1 files restored.
+[root@epsilon bootstrap-files]# ll -h /backup/bacula/RESTORE/usr/local/bacula-5.2.12/var/bacula/working/bacula.sql 
+-rw------- 1 root root 22G May  7 23:38 /backup/bacula/RESTORE/usr/local/bacula-5.2.12/var/bacula/working/bacula.sql
+[root@epsilon bootstrap-files]#
+
+Y si lo que queremos es, por ejemplo, recuperar solo el directorio de apache de
+un servidow web (por ejemplo, de nemo), hemos de buscar de los últimos bsr, el 
+que corresponda al últmo total (lo pone en la primea linea del fichero .bsr).
+Una vez localizado, generamos un fichero que contenga los ficheros/directorios
+a recuperar (en nuestro caso /usr/local/apache2):
+
+[root@epsilon bootstrap-files]# cat filelist 
+/usr/local/apache2
+
+y lo usamos para recuperar este directorio delos volúmenes:
+
+bextract -i filelist -b Nemo.2014-05-02_23.05.00_22-4470.bsr /backup/bacula/nemo /backup/bacula/RESTORE
+
+Una vez hecho esto, deberíamos de ejecutar este mismo comando pero indicadno los
+ficheros .bsr de los incrementales que se hicieron sobre este total.
+
+

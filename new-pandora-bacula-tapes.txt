@@ -1,0 +1,831 @@
+reinstalacio bacula fd i sd a pandora despres de l'upgrade
+
+1.- instalacio del client
+
+
+[root@pandora bacula-5.2.12]# ./configure --prefix=/usr/local/bacula-fd-sd-5.2.12 --with-mysql --enable-batch-insert --enable-conio --enable-smartalloc --enable-build-dird=no 
+
+...
+Large file support:	     yes
+   Bacula conio support:     no 
+   readline support:	     no 
+   TCP Wrappers support:     no 
+   TLS support: 	     yes
+   Encryption support:	     yes
+   ZLIB support:	     yes
+   LZO support: 	     no
+   enable-smartalloc:	     yes
+   enable-lockmgr:	     no
+   bat support: 	     no
+   enable-gnome:	     no 
+   enable-bwx-console:	     no 
+   enable-tray-monitor:      no
+   client-only: 	     no
+   build-dird:		     no
+   build-stored:	     yes
+   Plugin support:	     yes
+   AFS support: 	     no
+   ACL support: 	     no
+   XATTR support:	     yes
+   Python support:	     no 
+   systemd support:	     no 
+   Batch insert enabled:     MySQL
+
+[root@pandora bacula-5.2.12]#
+
+[root@pandora bacula-5.2.12]# make
+[root@pandora bacula-5.2.12]# make install
+[root@pandora bacula-5.2.12]# make install-autostart
+[root@pandora bacula-5.2.12]#  ln -s /usr/local/bacula-fd-sd-5.2.12 /usr/local/bacula-fd-sd
+[root@pandora bacula-5.2.12]# 
+
+
+2.- config del fd 
+editem el fitxer /usr/local/bacula-fd-sd/etc/bacula-fd.conf de pandora i canviemel nom del director pel de impala i la contrasenya que ja tenia definida a impala:
+
+[root@pandora bacula-5.2.12]# cat /usr/local/bacula-fd-sd/etc/bacula-fd.conf 
+#
+# Default  Bacula File Daemon Configuration file
+#
+#  For Bacula release 5.2.12 (12 September 2012) -- redhat 
+#
+# There is not much to change here except perhaps the
+# File daemon Name to
+#
+
+#
+# List Directors who are permitted to contact this File daemon
+#
+Director {
+  Name = impala.imim.es-dir
+  #Password = "QXyDplo8yO6JwJoEmNSINLD+tRIqn8M2LLHbr6zGwdhh"
+  # el de sota es el que ja existeix a impala de l'antic pandora.imim.es-fd
+   Password = "B4bn/YZbH4jLIw1ljXPWCgfLXXc/bq6nWoC6jJiw3orp"
+}
+
+#
+# Restricted Director, used by tray-monitor to get the
+#   status of the file daemon
+#
+Director {
+  Name = impala.imim.es-mon
+  Password = "e7YVS7F0qeoX/sQ8fkxXfeimbULs/DFehu0j2IxU7Ydk"
+  Monitor = yes
+}
+
+#
+# "Global" File daemon configuration specifications
+#
+FileDaemon {                          # this is me
+  Name = pandora.imim.es-fd
+  FDport = 9102                  # where we listen for the director
+  WorkingDirectory = /usr/local/bacula-fd-sd-5.2.12/var/bacula/working
+  Pid Directory = /var/run
+  Maximum Concurrent Jobs = 20
+}
+
+# Send all messages except skipped files back to Director
+Messages {
+  Name = Standard
+  director = impala.imim.es-dir = all, !skipped, !restored
+}
+
+------------------------eof----------------------------
+
+engeguem el servei:
+
+[root@pandora bacula-5.2.12]# service bacula-fd start
+
+i comprovem desde el webmin d'impala que podem connectar: anem a backup clients, pandora.imim.es-fd, show status:
+---------
+Status from pandora.imim.es-fd : Version: 5.2.12 (12 September 2012) x86_64-unknown-linux-gnu redhat
+
+Running Backup Jobs
+No backup jobs are currently running.
+
+Completed Backup Jobs
+No backup jobs have been run.
+--------------
+
+3.- Config del sd de pandora 
+
+Com la comunicacio entre impala-dir i pandora-sd es fa via webmin, cal instal.lar el webmin a pandora
+
+3.1 instalacio de webmin 
+
+agafo la mateixa versio que hi havia a l'antiga pandora:
+[root@epsilon pandora-root]# scp webmin-1.610.tar.gz root@pandora:~/
+root@pandora's password: 
+webmin-1.610.tar.gz                           100%   21MB  20.5MB/s   00:00    
+[root@epsilon pandora-root]# 
+
+instal.lem via cpan a pandora els moduls de perl
+DBI
+DBD::mysql
+
+[root@pandora ~]# cd /usr/local/
+[root@pandora local]# tar -zxvf /root/webmin-1.610.tar.gz 
+[root@pandora local]# cd webmin-1.610/
+[root@pandora webmin-1.610]# 
+[root@pandora webmin-1.610]# ./setup.sh 
+***********************************************************************
+*            Welcome to the Webmin setup script, version 1.610        *
+***********************************************************************
+Webmin is a web-based interface that allows Unix-like operating
+systems and common Unix services to be easily administered.
+
+Installing Webmin in /usr/local/webmin-1.610 ...
+
+***********************************************************************
+Webmin uses separate directories for configuration files and log files.
+Unless you want to run multiple versions of Webmin at the same time
+you can just accept the defaults.
+
+Config file directory [/etc/webmin]: 
+
+admin, no-tocar
+
+acabada la instalacio em connecto a 
+
+http://pandora.imim.es:10000/
+
+i veiem
+
+System hostname 	pandora.imim.es (193.146.190.5)
+Operating system 	CentOS Linux 6.5
+Webmin version 	1.610
+Time on system 	Wed Aug 6 09:58:28 2014
+Kernel and CPU 	Linux 2.6.32-431.23.3.el6.x86_64 on x86_64
+Processor information 	Intel(R) Xeon(R) CPU L5335 @ 2.00GHz, 4 cores
+System uptime 	22 hours, 35 minutes
+Running processes 	279
+CPU load averages 	4.76 (1 min) 4.17 (5 mins) 3.78 (15 mins)
+CPU usage 	10% user, 3% kernel, 68% IO, 20% idle
+Real memory 	3.74 GB total, 437.45 MB used
+Virtual memory 	7.81 GB total, 0 bytes used
+Local disk space 	9.69 TB total, 2.44 TB used
+Package updates 	All installed packages are up to date
+
+
+o sigui que el webmin ja esta instal.lat ok
+
+
+
+3.2- config sd bacula
+
+al fitxer /usr/local/bacula-fd-sd/etc/bacula-sd.conf
+
+
+canvio les linees de la llista de directors per a que sigui impala:
+
+#
+# List Directors who are permitted to contact Storage daemon
+#
+Director {
+  Name = impala.imim.es-dir
+  # Password = "85NoKk0XCL95On53NUw/9cpVfriT2qgcFgJCyLO0x2r8"
+  # el que tenia abans es el de sota
+  Password = "gvoQSs3jPZB5ESdzHIfrflm4W6oNqhQryEEecEaN8w7N"
+}
+
+#
+# Restricted Director, used by tray-monitor to get the
+#   status of the storage daemon
+#
+Director {
+  Name = impala.imim.es-mon
+  #Password = "m0vMmBHvZmC6R/3K5DMgHAyPPSBkIry7RZL2tRaIFW/J"
+  Password = "E/nxQfqk6TA70m3QWk2Ts1+5/izHR6G89wkLgOUTHIR9"
+  Monitor = yes
+}
+
+---i tambe la def de la llibreria---
+# afegit by alfons a veure si veu be la llibreria
+
+Autochanger {
+  Name = MSL2024
+  Device = Drive-1
+  Device = Drive-2
+  Changer Device = /dev/sg4
+  Changer Command = "/usr/local/bacula-fd-sd-5.2.12/etc/mtx-changer %c %o %S %a %d"
+        # %c = changer device
+        # %o = command (unload|load|loaded|list|slots)
+        # %S = slot index (1-based)
+        # %a = archive device (i.e., /dev/sd* name for tape drive)
+        # %d = drive index (0-based)
+}
+# i els drives
+Device {
+  Name = Drive-1
+  Drive Index = 1
+  Media Type = LTO-5
+  Archive Device = /dev/st0
+  AutomaticMount = no
+  AlwaysOpen = no
+  Maximum Concurrent Jobs = 1;
+  RemovableMedia = yes;
+  RandomAccess = no;
+  AutoChanger = yes
+  # Enable the Alert command only if you have the mtx package loaded
+  Alert Command = "sh -c 'tapeinfo -f %c |grep TapeAlert|cat'"
+  # If you have smartctl, enable this, it has more info than tapeinfo
+#  Alert Command = "sh -c 'smartctl -H -l error %c'"
+}
+Device {
+  Name = Drive-2
+  Drive Index = 1
+  Media Type = LTO-5
+  Archive Device = /dev/st1
+  AutomaticMount = no
+  AlwaysOpen = no
+  Maximum Concurrent Jobs = 1;
+  RemovableMedia = yes;
+  RandomAccess = no;
+  AutoChanger = yes
+  # Enable the Alert command only if you have the mtx package loaded
+  Alert Command = "sh -c 'tapeinfo -f %c |grep TapeAlert|cat'"
+  # If you have smartctl, enable this, it has more info than tapeinfo
+#  Alert Command = "sh -c 'smartctl -H -l error %c'"
+}
+
+----i els missatges han d'anar a impala
+
+# Send all messages to the Director,
+# mount messages also are sent to the email address
+#
+Messages {
+  Name = Standard
+  director = impala.imim.es-dir = all
+}
+----------------eof----------
+
+per saber els devices que son, al dmesg:
+
+scsi 1:0:0:0: Sequential-Access HP       Ultrium 5-SCSI   Y5BW PQ: 0 ANSI: 6
+scsi 2:0:0:0: Sequential-Access HP       Ultrium 5-SCSI   Y5BW PQ: 0 ANSI: 6
+scsi 2:0:0:1: Medium Changer    HP       MSL G3 Series    5.00 PQ: 0 ANSI: 5
+
+sd 0:2:0:0: Attached scsi generic sg1 type 0
+st 1:0:0:0: Attached scsi generic sg2 type 1 ----> un drive
+st 2:0:0:0: Attached scsi generic sg3 type 1 ----> un drive
+ch 2:0:0:1: Attached scsi generic sg4 type 8 ----> llibreria
+sr 3:0:0:0: Attached scsi generic sg5 type 5
+------------
+
+[root@pandora ~]# service bacula-sd start
+Starting Bacula Storage services:                          [  OK  ]
+[root@pandora ~]# 
+
+test que tenim acces a la llibreria
+
+
+[root@pandora ~]# yum install mtx mt-st
+
+[root@pandora ~]#  mtx -f /dev/sg4 status
+  Storage Changer /dev/sg4:2 Drives, 24 Slots ( 1 Import/Export )
+Data Transfer Element 0:Empty
+Data Transfer Element 1:Empty
+      Storage Element 1:Full :VolumeTag=CLNU00L1                        
+      Storage Element 2:Empty
+      Storage Element 3:Empty
+      Storage Element 4:Full :VolumeTag=APL615L5                        
+      Storage Element 5:Full :VolumeTag=APL614L5                        
+      Storage Element 6:Full :VolumeTag=APL613L5                        
+      Storage Element 7:Full :VolumeTag=APL620L5                        
+      Storage Element 8:Empty
+      Storage Element 9:Empty
+      Storage Element 10:Empty
+      Storage Element 11:Empty
+      Storage Element 12:Full :VolumeTag=APL616L5                        
+      Storage Element 13:Full :VolumeTag=APL619L5                        
+      Storage Element 14:Full :VolumeTag=APL618L5                        
+      Storage Element 15:Full :VolumeTag=APL617L5                        
+      Storage Element 16:Empty
+      Storage Element 17:Empty
+      Storage Element 18:Empty
+      Storage Element 19:Empty
+      Storage Element 20:Empty
+      Storage Element 21:Empty
+      Storage Element 22:Empty
+      Storage Element 23:Empty
+      Storage Element 24 IMPORT/EXPORT:Empty
+[root@pandora ~]# 
+
+Testear con la utilidad de bácula (mtx-changer)
+
+preguntem quants slots hi ha:
+
+[root@pandora ~]# /usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 slots 0 /dev/nst11 0
+24
+[root@pandora ~]# 
+
+preguntem si hi ha alguna cinta carregada:
+
+[root@pandora ~]# /usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 loaded 0 /dev/nst11 0
+0
+[root@pandora ~]# 
+
+mirem que hi ha a la llibreria:
+[root@pandora ~]#  /usr/local/bacula-fd-sd/etc/mtx-changer /dev/sg4 list 0 /dev/nst1 0
+1:CLNU00L1
+4:APL615L5
+5:APL614L5
+6:APL613L5
+7:APL620L5
+12:APL616L5
+13:APL619L5
+14:APL618L5
+15:APL617L5
+[root@pandora ~]# 
+
+
+al bacula-dir.conf d'impala (el director) descomentem les linees que feien referencia al segon drive (que no xutava) i reengeguem el servei
+
+[root@impala etc]# vi bacula-dir.conf 
+[root@impala etc]# service bacula-dir restart
+Stopping Bacula Director services:                         [  OK  ]
+Starting Bacula Director services:                         [  OK  ]
+[root@impala etc]# 
+
+Ara mirem si desde el bacula d'impala ho veiem be:
+
+
+[root@impala ~]# /usr/local/bacula/etc/bconsole
+Connecting to Director localhost:9101
+1000 OK: impala.imim.es-dir Version: 5.2.12 (12 September 2012)
+Enter a period to cancel a command.
+*status storage=TapeLibrarySDae slots
+Automatically selected Catalog: MyCatalog
+Using Catalog "MyCatalog"
+Enter autochanger drive[0]: 
+Connecting to Storage daemon TapeLibrarySDae at pandora.imim.es:9103 ...
+3306 Issuing autochanger "slots" command.
+Device "MSL2024" has 24 slots.
+Connecting to Storage daemon TapeLibrarySDae at pandora.imim.es:9103 ...
+3306 Issuing autochanger "list" command.
+ Slot |   Volume Name    |   Status  |     Media Type       |      Pool          |
+------+------------------+-----------+----------------------+--------------------|
+    1 |         CLNU00L1 |  Cleaning |                      |     WeeklyTapePool |
+    2 |                  |           |                      |                    |
+    3 |                  |           |                      |                    |
+    4 |         APL615L5 |   Recycle |                LTO-5 |     WeeklyTapePool |
+    5 |         APL614L5 |    Append |                LTO-5 |     WeeklyTapePool |
+    6 |         APL613L5 |      Full |                LTO-5 |     WeeklyTapePool |
+    7 |         APL620L5 |      Full |                LTO-5 |     WeeklyTapePool |
+    8 |                  |           |                      |                    |
+    9 |                  |           |                      |                    |
+   10 |                  |           |                      |                    |
+   11 |                  |           |                      |                    |
+   12 |         APL616L5 |   Recycle |                LTO-5 |   TapeHistoricPool |
+   13 |         APL619L5 |   Recycle |                LTO-5 |   TapeHistoricPool |
+   14 |         APL618L5 |   Recycle |                LTO-5 |   TapeHistoricPool |
+   15 |         APL617L5 |   Recycle |                LTO-5 |   TapeHistoricPool |
+   16 |                  |           |                      |                    |
+   17 |                  |           |                      |                    |
+   18 |                  |           |                      |                    |
+   19 |                  |           |                      |                    |
+   20 |                  |           |                      |                    |
+   21 |                  |           |                      |                    |
+   22 |                  |           |                      |                    |
+   23 |                  |           |                      |                    |
+   24 |                  |           |                      |                    |
+*quit
+[root@impala ~]#
+
+ok...
+
+3.3 Connexio desde el webmin d'impala al webmin de pandora:
+
+dona un error: Error - Missing Content-Type Header
+
+Mirant els logs:
+
+[root@pandora ~]# tail /var/webmin/miniserv.error 
+[06/Aug/2014:09:57:17 +0200] miniserv.pl started
+[06/Aug/2014:09:57:17 +0200] Using MD5 module Digest::MD5
+[06/Aug/2014:09:57:17 +0200] Perl module Authen::PAM needed for PAM is not
+installed : Can't locate Authen/PAM.pm in @INC (@INC contains:
+/usr/local/webmin-1.610 /usr/local/lib64/perl5 /usr/local/share/perl5
+/usr/lib64/perl5/vendor_perl /usr/share/perl5/vendor_perl /usr/lib64/perl5
+/usr/share/perl5 .) at (eval 12) line 1.
+BEGIN failed--compilation aborted at (eval 12) line 1.
+
+[06/Aug/2014:09:57:31 +0200] [172.20.16.25] Bad Request
+[06/Aug/2014:09:58:06 +0200] [172.20.16.221] /left.css : File not found
+Use of uninitialized value $mode in chop at
+/usr/local/webmin-1.610/webmin/webmin-lib.pl line 1619.
+[06/Aug/2014:11:05:29 +0200] [172.20.16.25] Bad Request
+[root@pandora ~]#
+
+Fem:
+
+[root@pandora ~]# perl -MCPAN -e shell
+Terminal does not support AddHistory.
+
+cpan shell -- CPAN exploration and modules installation (v1.9402)
+Enter 'h' for help.
+
+cpan[1]> install Authen::PAM
+
+segueix sense funcionar...
+
+al webmin de impala:
+
+[root@impala ~]# tail -3 /var/webmin/miniserv.error 
+[06/Aug/2014:15:00:34 +0200] [172.20.16.221] /left.css : File not found
+Use of uninitialized value $headline in substitution (s///) at
+/usr/local/webmin-1.610/servers/link.cgi line 124.
+[06/Aug/2014:15:49:18 +0200] [172.20.16.221] /servers/link.cgi/1369218245/ :
+Missing Content-Type Header
+[root@impala ~]# 
+
+
+em conecto al webmin de pandora directament.
+Falta configuirar el modul del bacula:
+
+database settings:
+
+MySQL
+user:bacula
+pass:Full-S3curity
+bacula database server: impala.imim.es
+
+File settings:
+
+Bacula configuration directory:  /usr/local/bacula-fd-sd/etc/
+Full path to bextract command : /usr/local/bacula-fd-sd/sbin/bextract	
+Full path to bls command : /usr/local/bacula-fd-sd/sbin/bls
+Full path to btape command : /usr/local/bacula-fd-sd/sbin/btape
+
+save
+
+el webmin sembla que l'ha pillat...pero es queda sense respondre quan vaig a _
+
+http://pandora.imim.es:10000/
+system --> bacula backup system
+
+paro el webmin i el torno a engegar:
+
+[root@pandora ~]# /etc/webmin/restart
+Stopping Webmin server in /usr/local/webmin-1.610
+Starting Webmin server in /usr/local/webmin-1.610
+Pre-loaded WebminCore
+[root@pandora ~]# 
+
+
+
+mirant els logs veig que hi ha un error alguin lloc on el bacula pensa que el
+director es pandora i no impala. trobo el fixter bconsole.conf
+i modifico el contingut amb el del backup de l'antiga pandora:
+
+Director {
+  Name = impala.imim.es-dir
+  DIRport = 9101
+  address = impala.imim.es
+  Password = "yTtXfCmmAHENMCxvwFrnyZWR6EEvYCC53BYmk2yQnCu2"
+}
+
+reengego el bacula i el webmin:
+
+[root@pandora etc]# service bacula-fd restart
+Stopping Bacula File services:                             [  OK  ]
+Starting Bacula File services:                             [  OK  ]
+[root@pandora etc]# service bacula-sd restart
+Stopping Bacula Storage services:                          [  OK  ]
+Starting Bacula Storage services:                          [  OK  ]
+[root@pandora etc]# /etc/webmin/restart 
+Stopping Webmin server in /usr/local/webmin-1.610
+Starting Webmin server in /usr/local/webmin-1.610
+Pre-loaded WebminCore
+[root@pandora etc]# 
+
+
+desde pandora ja funciona.
+
+desde impala em segueix donant l'error:
+
+Error - Missing Content-Type Header
+
+a pandora:
+
+[root@pandora etc]# cd /var/webmin/
+[root@pandora webmin]# tail miniserv.error
+08/Aug/2014:09:01:29 +0200] miniserv.pl started
+[08/Aug/2014:09:01:29 +0200] Using MD5 module Digest::MD5
+[08/Aug/2014:09:01:29 +0200] PAM authentication enabled
+[08/Aug/2014:09:02:46 +0200] [172.20.16.25] Bad Request
+[08/Aug/2014:09:03:42 +0200] [172.20.16.25] Bad Request
+[08/Aug/2014:09:04:25 +0200] [172.20.16.25] Bad Request
+[08/Aug/2014:09:04:43 +0200] [172.20.16.25] Bad Request
+
+finalment ho trobo: a la config del webmin d'impala, on te definits els
+storage daemons (epsilon, pandora i sanger) edito la configuracio de pandora i
+desactivo SSL server) 
+
+ja funciona la connectivitat de webmin entre impala i pandora.
+
+  
+
+4.- test de fer un backup a cinta
+
+canvio les cintes
+
+[root@impala ~]# bconsole
+Connecting to Director localhost:9101
+1000 OK: impala.imim.es-dir Version: 5.2.12 (12 September 2012)
+Enter a period to cancel a command.
+*status storage=TapeLibrarySDae slots
+Automatically selected Catalog: MyCatalog
+Using Catalog "MyCatalog"
+Connecting to Storage daemon TapeLibrarySDae at pandora.imim.es:9103 ...
+Enter autochanger drive[0]: 
+Connecting to Storage daemon TapeLibrarySDae at pandora.imim.es:9103 ...
+3306 Issuing autochanger "slots" command.
+Device "MSL2024" has 24 slots.
+Connecting to Storage daemon TapeLibrarySDae at pandora.imim.es:9103 ...
+3306 Issuing autochanger "list" command.
+ Slot |   Volume Name    |   Status  |     Media Type       |      Pool
+|
+------+------------------+-----------+----------------------+--------------------|
+    1 |         CLNU00L1 |  Cleaning |                      |
+WeeklyTapePool |
+    2 |                  |           |                      |
+|
+    3 |                  |           |                      |
+|
+    4*|         APL600L5 |      Full |                LTO-5 |
+WeeklyTapePool |
+    5*|         APL601L5 |      Full |                LTO-5 |
+WeeklyTapePool |
+    6*|         APL602L5 |    Append |                LTO-5 |
+WeeklyTapePool |
+    7*|         APL603L5 |   Recycle |                LTO-5 |
+WeeklyTapePool |
+    8 |                  |           |                      |
+|
+    9 |                  |           |                      |
+|
+   10 |                  |           |                      |
+|
+   11 |                  |           |                      |
+|
+   12 |         APL616L5 |   Recycle |                LTO-5 |
+TapeHistoricPool |
+   13 |         APL619L5 |   Recycle |                LTO-5 |
+TapeHistoricPool |
+   14 |         APL618L5 |   Recycle |                LTO-5 |
+TapeHistoricPool |
+   15 |         APL617L5 |   Recycle |                LTO-5 |
+TapeHistoricPool |
+   16 |                  |           |                      |
+|
+   17 |                  |           |                      |
+|
+   18 |                  |           |                      |
+|
+   19 |                  |           |                      |
+|
+   20 |                  |           |                      |
+|
+   21 |                  |           |                      |
+|
+   22 |                  |           |                      |
+|
+   23 |                  |           |                      |
+|
+   24 |                  |           |                      |
+|
+You have messages.
+*quit
+[root@impala ~]#
+
+
+a webacula recyclo les de weeklytapepool
+
+torno a mirar i ara:
+
+  4*|         APL600L5 |   Recycle |                LTO-5 |     WeeklyTapePool
+|
+    5*|         APL601L5 |   Recycle |                LTO-5 |
+WeeklyTapePool |
+    6*|         APL602L5 |   Recycle |                LTO-5 |
+WeeklyTapePool |
+    7*|         APL603L5 |   Recycle |                LTO-5 |
+WeeklyTapePool |
+
+activo el backup de cintes pel cap de setmana amb el wemin d'impala.
+
+----------
+
+funciona...a mitges...hi ha hagut els següents errors:
+
+014-08-09 07:00:11   pandora.imim.es-fd JobId 5374:      /cadd/users is a
+different filesystem. Will not descend from /cadd into it.
+2014-08-09 07:00:11 pandora.imim.es-fd JobId 5374: Could not stat "/cbbl":
+ERR=No such file or directory
+
+2014-08-09 07:00:11   pandora.imim.es-fd JobId 5374:      /cgl/users is a
+different filesystem. Will not descend from /cgl into it.
+2014-08-09 07:00:11   pandora.imim.es-fd JobId 5374:      /cslab/users is a
+different filesystem. Will not descend from /cslab into it.
+2014-08-09 07:00:11   pandora.imim.es-fd JobId 5374:      /genomics/users is a
+different filesystem. Will not descend from /genomics into it.
+2014-08-09 07:00:11   pandora.imim.es-fd JobId 5374:      /ibi/users is a
+different filesystem. Will not descend from /ibi into it.
+2014-08-09 07:00:11 pandora.imim.es-fd JobId 5374: Could not stat
+"/multiscale": ERR=No such file or directory
+
+2014-08-09 07:00:11   pandora.imim.es-fd JobId 5374:      /sbi/users is a
+different filesystem. Will not descend from /sbi into it.
+2014-08-09 07:00:11 pandora.imim.es-fd JobId 5374: Could not stat "/soft":
+ERR=No such file or directory 
+------------
+Modifico el fileset del webmin per treure /soft,/cbbl i /multiscale i
+modoficar els /ibi --> /ibi/users ,etc..
+
+Funciona.
+
+6.- test de restore desde cinta.
+
+desde el webmin de impala selecciono:
+
+restore job, escullo el darrer weeklytapebackup, 1 fixer
+(/backup/nemo/web/apache.Aug.06.tgz)
+del TapeLibrarySDae
+li dic que faci el restore al /tmp de impala
+...
+
+OK: [root@impala ~]# ls /tmp/bacula-restores/backup/nemo/web/apache.Aug.06.tgz 
+/tmp/bacula-restores/backup/nemo/web/apache.Aug.06.tgz
+
+
+
+----------------
+
+Problem: al rebootar pandora canvia el dev (ja no veu la llibreria com
+/dev/sg4 i per tant no funcionarien els backups)
+
+[root@impala ~]# bconsole 
+Connecting to Director localhost:9101
+1000 OK: impala.imim.es-dir Version: 5.2.12 (12 September 2012)
+Enter a period to cancel a command.
+*status storage=TapeLibrarySDae slots
+Automatically selected Catalog: MyCatalog
+Using Catalog "MyCatalog"
+Connecting to Storage daemon TapeLibrarySDae at pandora.imim.es:9103 ...
+Enter autochanger drive[0]: 
+Connecting to Storage daemon TapeLibrarySDae at pandora.imim.es:9103 ...
+3306 Issuing autochanger "slots" command.
+Device "MSL2024" has 0 slots.
+No slots in changer to scan.
+
+A pandora mirem com el veu:
+
+[root@pandora ~]# dmesg |grep "type 8" 
+ch 1:0:0:1: Attached scsi generic sg2 type 8
+[root@pandora ~]#  mtx -f /dev/sg2 status
+  Storage Changer /dev/sg2:2 Drives, 24 Slots ( 1 Import/Export )
+Data Transfer Element 0:Empty
+Data Transfer Element 1:Empty
+      Storage Element 1:Full :VolumeTag=CLNU00L1                        
+      Storage Element 2:Empty
+      Storage Element 3:Empty
+      Storage Element 4:Full :VolumeTag=APL600L5                        
+      Storage Element 5:Full :VolumeTag=APL601L5                        
+      Storage Element 6:Full :VolumeTag=APL602L5                        
+      Storage Element 7:Full :VolumeTag=APL603L5                        
+      Storage Element 8:Empty
+      Storage Element 9:Empty
+      Storage Element 10:Empty
+      Storage Element 11:Empty
+      Storage Element 12:Full :VolumeTag=APL616L5                        
+      Storage Element 13:Full :VolumeTag=APL619L5                        
+      Storage Element 14:Full :VolumeTag=APL618L5                        
+      Storage Element 15:Full :VolumeTag=APL617L5                        
+      Storage Element 16:Empty
+      Storage Element 17:Empty
+      Storage Element 18:Empty
+      Storage Element 19:Empty
+      Storage Element 20:Empty
+      Storage Element 21:Empty
+      Storage Element 22:Empty
+      Storage Element 23:Empty
+      Storage Element 24 IMPORT/EXPORT:Empty
+[root@pandora ~]# 
+
+o sigui que cal canviar a la config del bacula /dev/sg4 per /dev/sg2
+
+(al fitxer /usr/local/bacula-fd-sd/etc/bacula-sd.conf de pandora)
+
+[root@pandora ~]# service bacula-sd restart
+Stopping Bacula Storage services:                          [  OK  ]
+Starting Bacula Storage services:                          [  OK  ]
+[root@pandora ~]# 
+
+i ja esta:
+
+[root@impala ~]# bconsole 
+Connecting to Director localhost:9101
+1000 OK: impala.imim.es-dir Version: 5.2.12 (12 September 2012)
+Enter a period to cancel a command.
+*status storage=TapeLibrarySDae slots
+Automatically selected Catalog: MyCatalog
+Using Catalog "MyCatalog"
+Enter autochanger drive[0]: 
+Connecting to Storage daemon TapeLibrarySDae at pandora.imim.es:9103 ...
+3306 Issuing autochanger "slots" command.
+Device "MSL2024" has 24 slots.
+Connecting to Storage daemon TapeLibrarySDae at pandora.imim.es:9103 ...
+3306 Issuing autochanger "list" command.
+ Slot |   Volume Name    |   Status  |     Media Type       |      Pool
+|
+------+------------------+-----------+----------------------+--------------------|
+    1 |         CLNU00L1 |  Cleaning |                      |
+WeeklyTapePool |
+    2 |                  |           |                      |
+|
+    3 |                  |           |                      |
+|
+    4 |         APL600L5 |      Full |                LTO-5 |
+WeeklyTapePool |
+    5 |         APL601L5 |      Full |                LTO-5 |
+WeeklyTapePool |
+    6 |         APL602L5 |      Full |                LTO-5 |
+WeeklyTapePool |
+    7 |         APL603L5 |      Full |                LTO-5 |
+WeeklyTapePool |
+    8 |                  |           |                      |
+|
+    9 |                  |           |                      |
+|
+   10 |                  |           |                      |
+|
+   11 |                  |           |                      |
+|
+   12 |         APL616L5 |   Recycle |                LTO-5 |
+TapeHistoricPool |
+   13 |         APL619L5 |   Recycle |                LTO-5 |
+TapeHistoricPool |
+   14 |         APL618L5 |   Recycle |                LTO-5 |
+TapeHistoricPool |
+   15 |         APL617L5 |   Recycle |                LTO-5 |
+TapeHistoricPool |
+   16 |                  |           |                      |
+|
+   17 |                  |           |                      |
+|
+   18 |                  |           |                      |
+|
+   19 |                  |           |                      |
+|
+   20 |                  |           |                      |
+|
+   21 |                  |           |                      |
+|
+   22 |                  |           |                      |
+|
+   23 |                  |           |                      |
+|
+   24 |                  |           |                      |
+|
+You have messages.
+*
+------------------------------
+
+
+Haig de mirar com fer que el /dev/sg? de la llibreria sigui sempre el mateix
+(per evitar que amb un reboot no controlat de pandora deixin de funcionar els
+backups)
+
+
+instal.lo lsscsi (util per llistar devices scsi)
+
+[root@pandora ~]# lsscsi -g
+[0:0:0:0]    tape    HP       Ultrium 5-SCSI   Y5BW  /dev/st0   /dev/sg0
+[1:0:0:0]    tape    HP       Ultrium 5-SCSI   Y5BW  /dev/st1   /dev/sg1
+[1:0:0:1]    mediumx HP       MSL G3 Series    5.00  /dev/sch0  /dev/sg2
+[2:0:32:0]   enclosu DP       BACKPLANE        1.05  -         /dev/sg3
+[2:2:0:0]    disk    DELL     PERC 6/i         1.11  /dev/sda   /dev/sg4
+[3:0:0:0]    cd/dvd  HL-DT-ST DVD-ROM GDR-T10N 1.02  /dev/sr0   /dev/sg5
+[5:0:0:0]    disk    DELL     MD3000i          0670  /dev/sdb   /dev/sg6
+[5:0:0:1]    disk    DELL     MD3000i          0670  /dev/sdc   /dev/sg7
+[5:0:0:2]    disk    DELL     MD3000i          0670  /dev/sdd   /dev/sg8
+[5:0:0:3]    disk    DELL     MD3000i          0670  /dev/sde   /dev/sg9
+[5:0:0:4]    disk    DELL     MD3000i          0670  /dev/sdf   /dev/sg10
+[5:0:0:5]    disk    DELL     MD3000i          0670  /dev/sdg   /dev/sg11
+[5:0:0:31]   disk    DELL     Universal Xport  0670  -         /dev/sg12
+
+
+Provare a definir la llibreria com /dev/sch0 i no com /dev/sg2 al bacula:
+
+Ho canvio a /usr/local/bacula-fd-sd-5.2.12/etc/bacula-sd.conf i reengego el
+bacula-sd, mirem si a impala li ha sentat be:
+
+nope....
+
+haig de tornar a canviar-ho i deixar /dev/sg2....seguim mirant...
+
+
+
+
+

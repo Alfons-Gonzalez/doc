@@ -1,0 +1,433 @@
+Escenario:
+
+- impala: máquina virtual que sirve el Director Daemon con la base de datos
+del catálogo (mysql). Además tiene instalada la web webacula, baculaweb y un
+webmin desde el cual podemos gestionar bácula.
+
+- epsilon: máquina física que tiene conectada la cabina donde se van a ir 
+guardando los backups. 
+
+Es recomentable primer instalar el Storge Daemon pero primero, hemos de tener
+el mysql en impala que es donde se va a guardar el catálogo.
+
+Epsilon con Storage Daemon
+==========================
+ 
+NOTA: En epsilon se habia instalado un bacula con todos los daemons con el
+que se hicieron pruebas, por lo que tenía instalados todos los paquetes
+necesarios para ello (lista de yums de configuración de impala y puede que
+algo mas).
+
+1.- Instalación del storage daemon de bácula
+
+$ ./configure --prefix=/usr/local/bacula-sd-5.2.12 --with-mysql=/usr/local/mysql --enable-batch-insert --enable-conio --enable-smartalloc --enable-build-dird=no
+
+make 
+
+make install
+
+make install-autostart
+
+--enable-build-dird=no: Para que no instale el director.
+
+2.- Los script para la creación de la base de datos de bacula se instalaron en
+epsilon ya que es aquí donde está el Storge Daemon. El por qué es adí, ni idea. 
+Entonces, teniendo en cuenta este detalle, desde epsilon se lanzan los script 
+que van a crear las bases de datos debacula en el mysql de impala:
+
+cd /usr/local/bacula-sd
+
+./create_mysql_database -u root -p -h 172.20.16.25
+./make_mysql_tables -u root -p -h 172.20.16.25
+./grant_mysql_privileges -u root -p -h 172.20.16.25
+
+El tercer comando me fallaba así que lo hice a mano conectando con el mysql en
+impala:
+
+grant all privileges on bacula.* to bacula@localhost identified by 'Full-S3curity';
+
+
+Maquina virtual con la base de datos del catálogo y el director de bacula
+=========================================================================
+
+Preparamos esta máquina virtual. Disco virtual de 45 GB con 
+unos 6Gb de swap y 4 GB para la RAM. Configuración típica: ntp, selinux off,
+revisar iptables, hosts.deny y allow, etc.
+
+1.- Instalo qt-4.8.3. Es para bat. Se puede prescindir de esto, no creo que 
+usemos bat (entorno gráfico que permite hacer cuatro cosas)
+
+2.- Instalaciones con yum:
+
+yum install ncurses-devel
+yum install ncurses
+yum install ncurses-libs
+yum install yum provides xml2-config
+yum install libxml2 libxml2-devel
+yum install zlib zlib-devel
+yum install lzo lzo-devel
+yum install openssl openssl-devel
+yum install qwt qwt-devel
+yum install zlib zlib-devel
+yum install lzo lzo-devel
+yum install openssl openssl-devel
+yum install qwt qwt-devel
+yum install gd gd-devel
+
+3.- Insalo apache + mysql + php
+
+- En apache, será necesario el mod_rewrite para webacula.
+
+- Configure de php (gd y gettext supongo que eran necesarias para webacula
+y baculaweb pero no estoy seguro al 100%):
+
+./configure --with-mysql=/usr/local/mysql --with-apxs2=/usr/local/apache2/bin/apxs --prefix=/usr/local/php-5.4.7 --with-gd --with-gettext --with-pdo-mysql=/usr/local/mysql
+
+4.- iptables con todos los puertos para bacula, bbdd, webmin, etc:
+
+-A INPUT -s 172.20.16.0/22 -m tcp -p tcp --dport 22 -j ACCEPT
+# Acceso a mysql (bacula catalogo)
+-A INPUT -s 172.20.16.25 -m tcp -p tcp --dport 3306 -j ACCEPT
+# Acceso a bacula director-daemon
+-A INPUT -s 172.20.16.0/24 -m tcp -p tcp --dport 9101 -j ACCEPT
+-A INPUT -s 193.146.190.0/24 -m tcp -p tcp --dport 9101 -j ACCEPT
+# baculaweb y web-bacula
+-A INPUT -s 172.20.16.222 -m tcp -p tcp --dport 80 -j ACCEPT
+-A INPUT -s 172.20.16.221 -m tcp -p tcp --dport 80 -j ACCEPT
+# Webmin
+-A INPUT -s 172.20.16.222 -m tcp -p tcp --dport 10000 -j ACCEPT
+-A INPUT -s 172.20.16.221 -m tcp -p tcp --dport 10000 -j ACCEPT
+
+4.- Instalación de bacula (sin Storage Daemon que estara en epsilon con la 
+cabina)
+
+./configure --prefix=/usr/local/bacula-5.2.12 --with-mysql=/usr/local/mysql --enable-batch-insert --enable-conio --enable-smartalloc --enable-bat --enable-tray-monitor --enable-build-stored=no
+
+make
+
+make install
+
+make install-autostart
+
+NOTA: El tray-monitor no hace falta. El resto de cosas:
+
+-enable-batch-insert: This option enables batch inserts of the attribute records 
+(default) in the catalog database, which is much faster (10 times or more) than 
+without this option for large numbers of files. However, this option will 
+automatically be disabled if your SQL libraries are not thread safe. If you 
+find that batch mode is not enabled on your Bacula installation, then your 
+database most likely does not support threads. --> Acabo de ver que esta opcion
+esta enbled by default
+
+--enable-conio: Tells Bacula to enable building the small, light weight readline 
+replacement routine. It is generally much easier to configure than readline, 
+although, like readline, it needs either the termcap or ncurses library.
+
+--enable-smartalloc: This enables the inclusion of the Smartalloc orphaned 
+buffer detection code. This option is highly recommended. Because we never build 
+without this option, you may experience problems if it is not enabled. In this 
+case, simply re-enable the option. We strongly recommend keeping this option 
+enabled as it helps detect memory leaks. This configuration parameter is used 
+while building Bacula.
+
+--enable-bat: build the Bacula Administration Tool (bat) GUI Console interface 
+to Bacula. It is necessary you have Qt4 >= 4.3 installed on your computer
+
+--enable-tray-monitor: Diria que es un plugin que se puede poner en la barra
+de herramientas de gnome para ver como van los backups/restores, lo dicho antes, 
+que no hacía ninguna falta. 
+
+--enable-build-stored=no: Para no instalar el Storage Daemon.
+
+5.- Configuración de bácula
+
+5.1 Conexión con la BBDD del catálogo:
+
+- Indicamos en el director donde está la base de datos con el catálogo. 
+Previamente habremos creado la base de datos de bácula (se hace desde epsion que 
+es donde está el Storage Daemon). Para esto, editamos 
+el fichero /usr/local/bacula/etc/bacula-dir.conf y:
+
+Catalog {
+  Name = MyCatalog
+# Uncomment the following line if you want the dbi driver
+  dbdriver = "dbi:mysql"; dbaddress = 127.0.0.1; dbport = 3306
+  dbname = "bacula"; dbuser = "bacula"; dbpassword = "FullS3curity"
+}
+
+5.2 Conexión con el Storage Daemon en epsilon
+
+- Y una vez ya instalado el Storage Daemon en epsilon (como se hace esto está
+en la segunda parte de este documento), hemos de hacer que se
+vea con el Director de impala. Básicamente es cuestión de contraseñas y puertos
+abiertos:
+
+a. Puertos necesarios:
+
+Storage Daemon: 9103 (ha de estar abierto en epsilon)
+Director Daemon: 9101 (ha de estar abierto en impala)
+File Daemon: 9102 (solo quien tenga el cliente instalado)
+
+Ambas máquinas, como también tendrán el File Daemon (el cliente) también han de
+tener abierto el 9102
+
+b. En el fichero /usr/local/bacula-sd/etc/bacula-sd.conf de epsilon indicamos
+quien es el director:
+
+#
+# List Directors who are permitted to contact Storage daemon
+#
+Director {
+  Name = impala.imim.es-dir
+  Password = "gvoQSs3jPZB5ESdzHIfrflm4W6oNqhQryEEecEaN8w7N"
+}
+
+y la contraseña autogenerada que vemos visto en el fichero anterior ("gvoQ...") 
+se ha de poner en impala, en el fichero de configuración del director, 
+
+/usr/local/bacula/etc/bacula-dir.conf
+
+junto con el nombre de la máquina que va ha hacer de Storage Daemon 
+(que es epsilon):
+
+# Definition of file storage device
+Storage {
+  Name = File
+# Do not use "localhost" here
+  Address = epsilon.imim.es         # N.B. Use a fully qualified name here
+  SDPort = 9103
+  Password = "gvoQSs3jPZB5ESdzHIfrflm4W6oNqhQryEEecEaN8w7N"
+  Device = FileStorage
+  Media Type = File
+}
+
+c. Por último, hacemos algo parecido para que desde epsilon podamos conectarnos
+con el director que está en impala usando la consola de bácula (comando 
+bconsole). Para ello, indicamos en el fichero 
+/usr/local/bacula-sd/etc/bconsole.conf de epsilon quien es el director y su 
+contraseña:
+
+Director {
+  Name = epsilon.imim.es-dir
+  DIRport = 9101
+  address = impala.imim.es
+  Password = "yTtXfCmmAHENMCxvwFrnyZWR6EEvYCC53BYmk2yQnCu2"
+}
+
+Esta es la contraseña que tenemos en el fichero de configuración del director
+en impala (/usr/local/bacula/etc/bacula-dir.conf):
+
+Director {                            # define myself
+  Name = impala.imim.es-dir
+  DIRport = 9101                # where we listen for UA connections
+  QueryFile = "/usr/local/bacula-5.2.12/etc/query.sql"
+  WorkingDirectory = "/usr/local/bacula-5.2.12/var/bacula/working"
+  PidDirectory = "/var/run"
+  Maximum Concurrent Jobs = 1
+  Password = "yTtXfCmmAHENMCxvwFrnyZWR6EEvYCC53BYmk2yQnCu2"         # Console password
+  Messages = Daemon
+}
+
+Todo esto es un poco lioso, ya que son configuraciones cruzadas entre quien va 
+ha hacer de Storage Daemon y quien va ha hacer de Director Daemon. 
+
+5.3 Mensajes
+
+En el fichero de configuración del director en impala, hemos de indicar 
+las direcciones de correo donde se han de enviar los mails. Hemos de poner
+el nombre del smtp (hermes2.fimim.cat) y al dirección de mail (itgrib@imim.es):
+
+# Reasonable message delivery -- send most everything to email address
+#  and to the console
+Messages {
+  Name = Standard
+#
+# NOTE! If you send to two email or more email addresses, you will need
+#  to replace the %r in the from field (-f part) with a single valid
+#  email address in both the mailcommand and the operatorcommand.
+#  What this does is, it sets the email address that emails would display
+#  in the FROM field, which is by default the same email as they're being
+#  sent to.  However, if you send email to more than one address, then
+#  you'll have to set the FROM address manually, to a single address.
+#  for example, a 'no-reply@mydomain.com', is better since that tends to
+#  tell (most) people that its coming from an automated source.
+
+#
+  mailcommand = "/usr/local/bacula-5.2.12/sbin/bsmtp -h hermes2.fimim.cat -f \"\(Bacula\) \<%r\>\" -s \"Bacula: %t %e of %c %l\" %r"
+  operatorcommand = "/usr/local/bacula-5.2.12/sbin/bsmtp -h hermes2.fimim.cat -f \"\(Bacula\) \<%r\>\" -s \"Bacula: Intervention needed for %j\" %r"
+  mail = itgrib@imim.es = all, !skipped         
+  operator = itgrib@imim.es = mount
+  console = all, !skipped, !saved
+#
+# WARNING! the following will create a file that you must cycle from
+#          time to time as it will grow indefinitely. However, it will
+#          also keep all your messages if they scroll off the console.
+#
+  append = "/usr/local/bacula-5.2.12/var/bacula/working/bacula.log" = all, !skipped
+  catalog = all
+}
+
+
+#
+# Message delivery for daemon messages (no job).
+Messages {
+  Name = Daemon
+  mailcommand = "/usr/local/bacula-5.2.12/sbin/bsmtp -h hermes2.fimim.cat -f \"\(Bacula\) \<%r\>\" -s \"Bacula daemon message\" %r"
+  mail = itgrib@imim.es = all, !skipped          
+  console = all, !skipped, !saved
+  append = "/usr/local/bacula-5.2.12/var/bacula/working/bacula.log" = all, !skipped
+}
+
+El resto de las configuraciones las haremos con webmin.
+
+6.- Webmin
+
+Se instala ejecutando el comando ./setup.sh <prefix-dir> Nos hace una serie
+de preguntas como en que puerto lo queremos instalar (by default: 10000), user
+y password para poder conectarnos, donde estarán los ficheros de configuracion
+(by default /etc/webmin) y alguna cosa más.
+
+Es necesario instalar esto módulos de perl para que webmin pueda conectarse con 
+la base de datos del catálogo:
+
+DBI
+DBD::mysql
+
+Por defecto ya viene con el módulo de bacula. La primera vez hemos de 
+configurar el módulo de bácula. Básicamente es indicar la conexión con el 
+catálogo (nombre de la bases de datos, user y password) y donde están los 
+comandos bls, bextract y btap.
+
+Esta configuración hay que hacerla tanto para el webmin de impala como de epsilon.
+
+En el que está en impala, se tuneó un poco para que atrvés de este poder 
+administrar el de epsilon (en el apartado Webmin del menú de la izquiera 
+seleccionar Webmin Server Index). Luego se tuneo la look and feel del menú para
+que fuera más accesible y cómodo saltar de un webmin al otro (no recuerdo como
+lo hice pero toqueteando el menú es fácil hacerlo)
+
+7.- webacula
+
+Esta herramienta va muy bien para poder gestionar los jobs, ver el estado
+de los jobs que han acabado, de los volumenes, ver que ficheros han entrado
+en cada backup. También va muy bien para hacer un restore, el problema es que
+si queremos listar los ficheros de un backup con muchos ficheros tarda mucho y
+al final no acaba enseñando nada (no es importante, con webmin ya se pueden 
+hacer restore viendo la lista de ficheros que contiene el backup).
+
+Las instrucciones de instalación están dentro del tar.gz, fichero 
+webacula-<version>/docs/txt/install.txt. Las instrucciones están bastante 
+claras así que no hace falta 
+hacer en este documento un copy & paste, únicamente un par de cosas:
+
+a.- La configuración de apache está en el fichero install/apache/webacula.conf, 
+solo es necesario cambiar el path del htdocs (hay que tener instalado 
+mod_rewrite)
+
+b.- Se instaló ZendFramework-1.12.0-minimal, con la versión 2.0.4 (la última
+que había salido) no funcionava.
+
+c.- Una vez lo tengamos todo instalado hemos de arreglar un pequeño bug. Hemos
+de cambiar la versión del catálogo en el fichero webacula/html/index.php, hay 
+que cambiar 12 por 14:
+
+define('BACULA_VERSION', 14); // Bacula Catalog version
+
+8.- baculaweb
+
+Básicamente sirve para ver estadísticas. Puede ser interesante tenerlo para
+hacer luego informes de que volumen de información hacemos backup, que ventana
+de backup tenemos, etc.
+
+Es muy fácil de instalar. Las instrucciones están en el directorio docs, 
+básicamente hay que descomprimir, copiar en el htdocs y en el fichero  
+application/config/config.php poner donde está la base de datos del catálogo
+y el user y password para conectarse.
+
+Varios
+=======
+
+Testear un backp job
+--------------------
+
+- Si queremos ver una simulación de que cantidad de ficheros y tamaño entrarían
+si ejecutasemos un bacakup job, lo podemos hacer desde bconsole con el comando
+'estimate':
+
+# /usr/local/bacula-sd/sbin/bconsole 
+Connecting to Director impala.imim.es:9101
+1000 OK: impala.imim.es-dir Version: 5.2.12 (12 September 2012)
+Enter a period to cancel a command.
+*estimate job=Complex
+Using Catalog "MyCatalog"
+Connecting to Client complex.upf.edu-fd at complex.upf.edu:9102
+2000 OK estimate files=18,447 bytes=38,599,170,223
+*
+
+- Y si además queremos que nos liste los ficheros de los que se harían backup:
+
+*estimate job=Complex listing
+Using Catalog "MyCatalog"
+Connecting to Client complex.upf.edu-fd at complex.upf.edu:9102
+-rw-r--r--   1 root     root          815274 2012-02-09 14:35:22  /usr/local/apache2/lib/libaprutil-1.a
+-rwxr-xr-x   1 root     root          465264 2012-02-09 14:35:22  /usr/local/apache2/lib/libaprutil-1.so.0.4.1
+-rwxr-xr-x   1 root     root          717629 2012-02-09 14:35:14  /usr/local/apache2/lib/libapr-1.so.0.4.5
+-rw-r--r--   1 root     root             374 2012-02-09 14:35:22  /usr/local/apache2/lib/pkgconfig/apr-util-1.pc
+...
+...
+...
+-rw-r--r--   1 1012     cslab         134663 2012-04-10 21:44:42  /home/susanna/public_html/Bib.html
+-rw-r--r--   1 1012     cslab           6783 2012-04-10 21:44:42  /home/susanna/public_html/indexP.html
+drwxr-xr-x   2 1012     cslab           4096 2012-04-10 21:44:43  /home/susanna/public_html
+2000 OK estimate files=18,447 bytes=38,599,175,263
+
+
+- Y si queremos que la salida vaya a parar a un fichero:
+
+*@output /tmp/listing
+estimate job=Complex listing
+@output
+*
+
+
+Que la lista de ficheros del File Set sea dinámica
+--------------------------------------------------
+
+http://www.bacula.org/5.2.x-manuals/en/main/main/Configuring_Director.html
+
+En esta url hay mucha información sobre como configurar los File Set, de aquí
+he sacado esta info.
+
+Pongo como ejemplo a complex: queremos que haga backup de los directorios
+public_html del home de usuario que lo tenga y que si en algún momento, se añade
+un nuevo usuario y este se crea su public_html (o si alguno existente sin este
+directorio creado en su home decide crearlo para tener web personal) entre en
+los backup sin necesidad de tener que modificar el File Set a mano. Esto
+lo podemos hacer introduciendo esta linea en el File Set:
+
+    File = "\\|bash -c \"ls -d /home/*/public_html\""
+
+Esto lo que hace es ejecutar este comando en el cliente y la lista de ficheros/
+directorios que devuelva será de lo que se hará backup (ojo, en un File Set 
+podemos tener más de una cláusua File). La explicación es:
+
+\\|  -> Esto indica que queremos que esta linea se ejecute en el cliente. Se pone
+al principio.
+|    -> Esto significaria que queremos que se ejecute en el director. Se pone al
+principio
+bash -c \" ....... \"  -> Para indicar que vamos a indicar un comando a ejecutar 
+en la shell.
+
+Para más info, mirar la url que está al principio.
+
+
+Network send error to SD. ERR=Broken pipe
+------------------------------------------
+
+En alguna ocasión ha aparecido este error al ejecutar un job backup. La
+solución que parece que ido funcionando hasta ahora ha sido el añadir al 
+Storge Daemon (epsilon.imim.es) en el fichero  /etc/hosts de la máquina de la
+cual hemos recibido este error al lanzar su backup. 
+
+
+

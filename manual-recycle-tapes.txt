@@ -1,0 +1,87 @@
+Reciclar volumenes a mano
+=========================
+
+Un error que cometíamos era que reciclábamos las cintas pero no haciamos un purge
+de los ficheros que contenián. Esto hacía que fuera creciendo y creciendo el catálogo
+con ficheros 'huérfanos'. Para arreglarlo:
+
+1.- Desde impala, entramos en la consola de bácula:
+
+root@impala ~]# bconsole
+Connecting to Director localhost:9101
+1000 OK: impala.imim.es-dir Version: 5.2.12 (12 September 2012)
+Enter a period to cancel a command.
+*
+
+2.- Miramos las cintas cargadas en el robot:
+
+*status storage=TapeLibrarySDae slots
+Connecting to Storage daemon TapeLibrarySDae at pandora.prib.upf.edu:9103 ...
+3306 Issuing autochanger "slots" command.
+Device "MSL2024" has 24 slots.
+Connecting to Storage daemon TapeLibrarySDae at pandora.prib.upf.edu:9103 ...
+3306 Issuing autochanger "list" command.
+ Slot |   Volume Name    |   Status  |     Media Type       |      Pool          |
+------+------------------+-----------+----------------------+--------------------|
+    1 |         CLNU00L1 |  Cleaning |                      |     WeeklyTapePool |
+    2 |                  |           |                      |                    |
+    3 |         APL620L5 |    Append |                LTO-5 |     WeeklyTapePool |
+    4 |         APL613L5 |      Full |                LTO-5 |     WeeklyTapePool |
+    5 |         APL614L5 |      Full |                LTO-5 |     WeeklyTapePool |
+    6 |         APL615L5 |      Full |                LTO-5 |     WeeklyTapePool |
+    7 |         APL619L5 |      Full |                LTO-5 |     WeeklyTapePool |
+    8 |                  |           |                      |                    |
+    9 |                  |           |                      |                    |
+   10 |                  |           |                      |                    |
+   11 |                  |           |                      |                    |
+   12*|         VZK455L2 |         ? |                    ? |                  ? |
+   13*|         VZK454L2 |         ? |                    ? |                  ? |
+   14*|         VZK453L2 |         ? |                    ? |                  ? |
+   15*|         VZK451L2 |         ? |                    ? |                  ? |
+   16*|         VZK452L2 |         ? |                    ? |                  ? |
+   17*|         VZK460L2 |         ? |                    ? |                  ? |
+   18*|         VZK459L2 |         ? |                    ? |                  ? |
+   19*|         VZK458L2 |         ? |                    ? |                  ? |
+   20*|         VZK457L2 |         ? |                    ? |                  ? |
+   21*|         VZK456L2 |         ? |                    ? |                  ? |
+   22 |                  |           |                      |                    |
+   23 |                  |           |                      |                    |
+   24 |                  |           |                      |                    |
+*
+
+
+4.- Ahora purgamos los jobs que contienen cada una de las cinta. Esta operacion
+suele ser lenta ya que implica que bácula elimine toda esta info de la base de
+datos (ha de eliminar el registro de todos los miles de ficheros que estaban
+dentro de los jobs que estaban en las cintas):
+
+* purge jobs volume=APL620L5
+
+This command can be DANGEROUS!!!
+
+It purges (deletes) all Files from a Job,
+JobId, Client or Volume; or it purges (deletes)
+all Jobs from a Client or Volume without regard
+to retention periods. Normally you should use the
+PRUNE command, which respects retention periods.
+Automatically selected Catalog: MyCatalog
+Using Catalog "MyCatalog"
+1 File on Volume "APL620L5" purged from catalog.
+There are no more Jobs associated with Volume "APL620L5". Marking it purged
+*
+
+5.- Automatizar este procedimiento.
+
+Para que todo este proceso seá automático y no tengamos que estar esperando a 
+que acabe la purga de una cinta (puede tardar mucho por lo explicado anteriormente)
+para poder hacer la siguiente cinta, se ha hecho un script que busca la cintas
+cargadas en el robot y para cada una ellas ejecuta el comando de purga. Este
+script es este:
+
+/usr/local/bacula/etc/purge-tapes.sh
+
+Primero nos muestra la lista de cintas cargadas y nos pregutna si estamos seguro
+de purgarlas. Si decimos que si empieza el proceso y nos podemos desentender de él
+(ya acabará).
+
+

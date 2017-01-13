@@ -1,0 +1,150 @@
+Mantenimiento de la base de datos de bácula
+===========================================
+
+Estas dos operarciones, primero checkear la BBDD y luego compactarla, en la 
+documentación de bácula se recomienda hacer una o dos veces al año:
+
+http://www.bacula.org/5.2.x-manuals/en/main/main/Catalog_Maintenance.html
+
+
+1.- Check Bacula MySQL Database
+-------------------------------
+
+Antes de compactar la base de datos, es recomendable mirar de checkear la base
+de datos de bácula en búsqueda de entradas huérfanas y así eliminarlas. Esto se 
+hace con el comando dbcheck de bácula:
+
+# /usr/local/bacula-5.2.12/sbin/dbcheck
+
+Se le ha de indicar el nombre de la base de datos de bácula, usuario y contraseña:
+
+[root@impala data]# dbcheck /usr/local/bacula/var/bacula/working bacula root no-tocar
+Hello, this is the database check/correct program.
+Modify database is off. Verbose is off.
+Please select the function you want to perform.
+
+     1) Toggle modify database flag
+     2) Toggle verbose flag
+     3) Check for bad Filename records
+     4) Check for bad Path records
+     5) Check for duplicate Filename records
+     6) Check for duplicate Path records
+     7) Check for orphaned Jobmedia records
+     8) Check for orphaned File records
+     9) Check for orphaned Path records
+    10) Check for orphaned Filename records
+    11) Check for orphaned FileSet records
+    12) Check for orphaned Client records
+    13) Check for orphaned Job records
+    14) Check for all Admin records
+    15) Check for all Restore records
+    16) All (3-15)
+    17) Quit
+Select function number: 
+
+By defaults, se ejecuta en un modo de solo lectura con el cual no modifica la 
+base de datos si encuentra algún error, solo informa. Para que modifique la
+base de datos se ha de activar primero la opción 1) y luego, por ejemplo, activar
+la opción 16) que lo revisa todo. También es recomendable activar la opción 2)
+antes de activar la 16) para que nos muestre las entradas que va encontrando en
+la base de datos que se tienen que modificar/eliminar. 
+
+NOTA: Suele tardar bastante en acabar, dependiendo de lo que vaya encontrando en
+la base de datos.
+
+
+2.- Compacting Bacula MySQL Database
+------------------------------------
+
+La base de datos de Bácula es InnoDB. Esta base de datos guarda todos sus datos
+en un fichero llamado ibdata1 que esá en /usr/local/mysql/data (se puede 
+configurar para que genere un fichero por tabla, tal y como se ha hecho en
+impala con el parámetro "innodb_file_per_table"):
+
+[root@impala ~]# ll -h /usr/local/mysql/data/
+total 47G
+drwx------ 2 mysql mysql 4.0K Nov  4 02:30 bacula
+-rw-rw---- 1 mysql mysql  45G Nov  4 16:07 ibdata1
+-rw-rw---- 1 mysql mysql 750M Nov  4 16:07 ib_logfile0
+-rw-rw---- 1 mysql mysql 750M Nov  4 16:07 ib_logfile1
+-rw-rw---- 1 mysql root  7.4K Oct 31 11:27 impala.imim.es.err
+-rw-rw---- 1 mysql mysql    6 Oct 31 11:27 impala.imim.es.pid
+drwxr-xr-x 2 mysql mysql 4.0K Oct 29 15:11 mysql
+-rw-rw---- 1 mysql mysql 1.1K Apr 16  2014 mysql-bin.000001
+-rw-rw---- 1 mysql mysql   19 Apr 16  2014 mysql-bin.index
+drwx------ 2 mysql mysql 4.0K Apr 16  2014 performance_schema
+drwxr-xr-x 2 mysql mysql 4.0K Apr 16  2014 test
+[root@impala ~]# 
+
+Este fichero siempre tiende a crecer y aunque se borren tablas y registros 
+no reduce su tamaño, por lo que con el paso del tiempo puede llegar a tener
+un tamaño bastante grande. Es recomendabe cada cierto tiempo 
+compactar el tamaño de este fichero. En cambio, las bases de datos InnoDB 
+ofrecen mejor rendimiento que las MyISAM.
+
+Las instrucciones para compactar la base de datos son simples:
+
+1.- Parámos bácula-director en impala:
+
+/usr/local/bacula/etc/bacula stop
+
+2.- Hacemos un dump de la base de datos de bácula (por seguridad, también puede
+ser recomendable hacer lo mismo con la base de datos de bácula):
+
+mysqldump -f --opt bacula > bacula.sql
+mysqldump -f --opt mysql > mysql.sql
+
+3.-Borramos la base de datos de bácula. 
+
+mysql> drop database bacula;
+
+4.- La sorpresa es que si miramos el tamaño del fichero ibdata1 vemos que sigue
+ocupando lo mismo. Para poder solucionarlo:
+
+	
+	a.- Le decimos a mysql que finalize cualquier transaccion que tenga
+	pendiente como medida de seguridad:
+	
+		mysql> SET GLOBAL innodb_fast_shutdown = 0	
+
+	b.- Paramos mysql:
+		# mysqladmin shutdown
+
+	c.- Añadimos estas lineas al fichero de configuración /etc/my.cnf:
+
+		[mysqld]
+		# innodb_file_per_table
+		innodb_flush_method=O_DIRECT
+		innodb_log_file_size=750M
+		innodb_buffer_pool_size=3G
+
+	En el fichero de configuracion vemos información sobre que valores nos
+	recomiendan darle a a nnodb_log_file_size y innodb_buffer_pool_size:
+
+		# You can set .._buffer_pool_size up to 50 - 80 %
+		# of RAM but beware of setting memory usage too high
+		innodb_buffer_pool_size = 3G
+		# Set .._log_file_size to 25 % of buffer pool size
+		innodb_log_file_size = 750M
+
+	Si tenemos en cuenta que impala tiene 4GB, pues calculamos su 80% y el
+	25% de este 80% y ya sabemso los valores para estas variables.
+
+	d.- Borrar los ficheros ibdata* e ib_logfile*.
+
+	e.- Arrancamos mysql y se creará un nuevo fichero ibdata1 de 10Mb.
+
+5.- Ya hemos reiniciado el fichero ibdata1. Ahora ya podemos crear la base de 
+datos bácula y volver a cargar los datos en ella:
+
+	mysql> create database bacula;
+	
+	mysql bacula < bacula.sql
+
+6.- Borramos el fichero bacula.sql que seguramente será un fichero muy grande
+(en el momento de hacer esta docu era de 25Gb aprox).
+
+7.- Ya podemos arrancar bácula y lanzar algún job para comprobar que todo sigue
+funcionando correctamente.
+	
+

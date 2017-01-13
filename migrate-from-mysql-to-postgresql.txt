@@ -1,0 +1,312 @@
+How to convert Bacula database from mysql to postgresql
+========================================================
+
+0.- Antes de nada y para que no interfiera en todo este proceso que tarda mucho por 
+los dumps, paramos bacula director:
+
+/usr/local/bacula/etc/bacula stop
+
+1.- Instalo en Impala la última versión de postgresql (en el repo de CentOS 6 me
+ofrecen la 8.4, pongo la 9.5). Lo hago añadiendo a impala el repo oficial de
+PostgreSQL para esta versión:
+
+yum install https://download.postgresql.org/pub/repos/yum/9.5/redhat/rhel-6-x86_64/pgdg-centos95-9.5-2.noarch.rpm
+yum install postgresql95-server postgresql95-contrib postgresql95-devel 
+service postgresql-9.5 initdb
+chkconfig postgresql-9.5 on
+service postgresql-9.5 start
+
+(Opcionalmente, por comodidad)
+ln -s /usr/pgsql-9.5/bin/* /usr/local/bin/
+
+Hemos de tener en cuenta que depués de esta instalación postgresql-9.5 queda
+instalado en el directorio:
+
+/usr/pgsql-9.5/
+
+2.- Re-compilo bacula para que tenga soporte para postgresql (creo que básicamente
+se trata de generar unos scripts que haremos servir más tarde para crear la
+base de datos en postgresql).
+
+./configure --prefix=/usr/local/bacula-5.2.12-pgsql --with-postgresql=/usr/pgsql-9.5 --with-mysql=/usr/local/mysql --enable-batch-insert --enable-conio --enable-smartalloc --enable-bat --enable-tray-monitor --enable-build-stored=no
+make
+make install
+
+3.- Preparamos el dump del catálogo para cargarlo en postgresql. Para ello, he 
+encontrado un pequeño howto en internet que dice que lo hemos de hacer así:
+
+Opción a:
+
+////////////////////////
+
+#!/bin/perl -w
+ 
+my $line=undef;
+my $catalog="bacula";
+ 
+ 
+system ("mysqldump --single-transaction --compatible=postgresql --compact --no-create-info $catalog > $catalog.sql");
+print "$catalog dump completed!\n";
+   
+open FD_CAT, "<$catalog.sql";
+open FD_OUT, ">out-$catalog.sql";
+while (<FD_CAT>)
+{
+ if (m/^(INSERT\s+INTO\s+\")(\w+)(\"\s+.+)$/){          
+   $line=$1.lc($2).$3;
+   $line=~s/\((\d+)\,\'/\($1\,e\'/g;    
+   $line=~ s/\\\'/\'\'/g;
+   $line=~ s/\'0000-00-00 00:00:00\'/to_timestamp\(0\)/g;
+   print FD_OUT "$line\n";
+ }else{
+   print "line not found: $_";
+ } 
+ 
+}
+close (FD_CAT);
+close (FD_OUT);
+print "Dump filtered commpleted for $catalog\n";
+
+////////////////////////////
+
+Opción b:
+
+mysqldump -t -n -c --compatible=postgresql --skip-quote-names --skip-opt --disable-keys --lock-tables -u bacula -ppassword bacula \
+  | grep -v "INSERT INTO Status" \
+  | sed -e 's/0000-00-00 00:00:00/1970-01-01 00:00:00/g' \
+  | sed -e 's/\\0//' > fixed-bacula-backup.sql
+
+
+La opción b no me xutó, tengo la sospecha de que algo hice mal, o no ..., no sé.
+Bueno, la cosa es que al final lo hice usando el script de perl (opción a) y el dump fué 
+el que me funcionó.
+
+En este punto ya podemos parar mysql:
+
+mysqladmin -u root -p shutdown
+
+4.- Preparamos la base de datos de postgresql para cargar el dump:
+
+a.- Cambiamos los accesos permitidos a postgresql para que sea posible entrar
+mediante login a este servicio. Se hace editando el fichero: 
+
+/var/lib/pgsql/9.5/data/pg_hba.conf
+
+y hemos de dejarlo tal que así:
+
+local all all trust
+host all all 127.0.0.1 255.255.255.255 trust
+
+y reiniciar el servicio:
+
+service postgresql-9.5 stop
+service postgresql-9.5 start
+ 
+
+b.- Para trabajar en modo superadministrador con postgres nos hemos de poner como
+usuario postgres del sistama:
+
+[root@impala data]# su - postgres
+-bash-4.1$ 
+
+c.- Creamos el usuario bacula estando como usuario postgres del sistema (también
+se puede hacer usando el mismo comando pero dentro de postgresql):
+
+-bash-4.1$ createuser bacula
+
+y le damos una contraseña desde postgresql para el usuario bacula:
+
+-bash-4.1$ psql
+psql (9.5.1)
+Type "help" for help.
+
+postgres=# \password bacula
+
+
+d.- Ya ahora, siguiendo estando como usuario postgres, creamos la base de datos
+de bácula (el último comando hace los grant al usuario bacula del posgresql a no
+ser que se indique lo contrario) (antes hemos de dar permisos al usuario postgres 
+para que pueda ejecutar estos scripts):
+
+-bash-4.1$ cd /usr/local/bacula/etc/
+-bash-4.1$ ./create_postgresql_database
+-bash-4.1$ ./make_postgresql_tables
+-bash-4.1$ ./grant_postgresql_privileges
+
+e.- Antes de cargar el dump comprobamos que todo está bien:
+
+	1.- Ya como root, entramos com usuario bacula en la base de datos bacula:
+
+	[root@impala ~]# psql -Ubacula bacula
+	psql (9.5.1)
+	Type "help" for help.
+	
+	bacula=> 
+
+	2.- Desde postgresql, miramos que esten creadas las tablas (OJO, aquí vemos
+	las tablas de webacula pq hice este tutorial después de haberlas instalado, en nuestreo
+	cosa no las tendríamos que ver aún):
+
+bacula=> \dt
+                 List of relations
+ Schema |         Name          | Type  |  Owner   
+--------+-----------------------+-------+----------
+ public | basefiles             | table | postgres
+ public | cdimages              | table | postgres
+ public | client                | table | postgres
+ public | counters              | table | postgres
+ public | device                | table | postgres
+ public | file                  | table | postgres
+ public | filename              | table | postgres
+ public | fileset               | table | postgres
+ public | job                   | table | postgres
+ public | jobhisto              | table | postgres
+ public | jobmedia              | table | postgres
+ public | location              | table | postgres
+ public | locationlog           | table | postgres
+ public | log                   | table | postgres
+ public | media                 | table | postgres
+ public | mediatype             | table | postgres
+ public | path                  | table | postgres
+ public | pathhierarchy         | table | postgres
+ public | pathvisibility        | table | postgres
+ public | pool                  | table | postgres
+ public | restoreobject         | table | postgres
+ public | status                | table | postgres
+ public | storage               | table | postgres
+ public | unsavedfiles          | table | postgres
+ public | version               | table | postgres
+ public | webacula_client_acl   | table | bacula
+ public | webacula_command_acl  | table | bacula
+ public | webacula_dt_commands  | table | bacula
+ public | webacula_dt_resources | table | bacula
+ public | webacula_fileset_acl  | table | bacula
+ public | webacula_job_acl      | table | bacula
+ public | webacula_jobdesc      | table | bacula
+ public | webacula_logbook      | table | bacula
+ public | webacula_logtype      | table | bacula
+ public | webacula_php_session  | table | bacula
+ public | webacula_pool_acl     | table | bacula
+ public | webacula_resources    | table | bacula
+ public | webacula_roles        | table | bacula
+ public | webacula_storage_acl  | table | bacula
+ public | webacula_users        | table | bacula
+ public | webacula_version      | table | bacula
+ public | webacula_where_acl    | table | bacula
+(42 rows)
+
+bacula=> 
+
+	
+	3.- Y que el usuario bacula pude escribir en ellas:
+
+
+bacula=> \dp
+                                                Access privileges
+ Schema |               Name                |   Type   |     Access privileges     | Column privileges | Policies 
+--------+-----------------------------------+----------+---------------------------+-------------------+----------
+ public | basefiles                         | table    | postgres=arwdDxt/postgres+|                   | 
+        |                                   |          | bacula=arwdDxt/postgres   |                   | 
+ public | basefiles_baseid_seq              | sequence | postgres=rwU/postgres    +|                   | 
+        |                                   |          | bacula=rw/postgres        |                   | 
+ public | cdimages                          | table    | postgres=arwdDxt/postgres+|                   | 
+        |                                   |          | bacula=arwdDxt/postgres   |                   | 
+ public | client                            | table    | postgres=arwdDxt/postgres+|                   | 
+        |                                   |          | bacula=arwdDxt/postgres   |                   | 
+ public | client_clientid_seq               | sequence | postgres=rwU/postgres    +|                   | 
+        |                                   |          | bacula=rw/postgres        |                   | 
+ public | counters                          | table    | postgres=arwdDxt/postgres+|                   | 
+        |                                   |          | bacula=arwdDxt/postgres   |                   | 
+ public | device                            | table    | postgres=arwdDxt/postgres+|                   | 
+        |                                   |          | bacula=arwdDxt/postgres   |                   | 
+ public | device_deviceid_seq               | sequence | postgres=rwU/postgres    +|                   | 
+        |                                   |          | bacula=rw/postgres        |                   | 
+ public | file                              | table    | postgres=arwdDxt/postgres+|                   | 
+        |                                   |          | bacula=arwdDxt/postgres   |                   | 
+ public | file_fileid_seq                   | sequence | postgres=rwU/postgres    +|                   | 
+        |                                   |          | bacula=rw/postgres        |                   | 
+ public | filename                          | table    | postgres=arwdDxt/postgres+|                   | 
+        |                                   |          | bacula=arwdDxt/postgres   |                   | 
+...
+...
+...
+
+
+f.- Ahora ya podemos cargar el dump, pero, hemos de pensar antes que hacemos con
+la info que hay del dump de webacula. O bien creamos las tablas para que se cargen
+los datos en las tablas de esta aplicación web o pasamos y que recibamos los errores
+de carga de que no existen las tablas y luego ya reinstalaremos webacula. Yo hice lo segundo.
+
+psql -Ubacula bacula < /data/bacula-postgresql.sql
+
+Tarda bastantes horas y ni caso a los herrores de carga en las tablas de webacula
+
+ATENCION: Controlar el espacio en disco en impala, yo antes de hacer la carga
+quité el datadir que es el direcotio 'data' de mysql por que si no no habia 
+suficiente sitio en el disco !! No quiete todo el directorio de mysql de /usr/local
+por que el php está compilado haciendo servir las librerías de este mysql !!
+
+5.- Ahora modificamos la configuración de bacula para que sepa que va ha hacer
+servir postgresql en vez de mysql, eso de hace en el fichero de configuración 
+del director: /usr/local/bacula/etc/bacula-dir.conf 
+
+Ha de quedar así el apartado de la definición del catálogo: 
+
+# Generic catalog service
+Catalog {
+  Name = MyCatalog
+# Uncomment the following line if you want the dbi driver
+  dbdriver = "dbi:postgresql"; dbaddress = 127.0.0.1; dbport =5432
+  dbname = "bacula"; dbuser = "bacula"; dbpassword = "FullS3curity"
+}
+
+6 .- Y ya deberíamos de poder arrancar bácula y lanzar un job de prueba. Hemos de
+tener en cuenta de que en la configuracion del módulo de bacula de webmin hemos 
+también de indicar que ahora el catálogo está en postgresql.
+
+Module config -> Bacula database settings -> In 'Database type' check 'PostgreSQL'
+
+WEBACULA
+========
+
+Fer que xuti el webacula no va resultar tant trivial:
+
+1.- Regeneramos la base de datos de webacula ejecutando los scripts:
+
+/usr/local/apache2/htdocs/webacula/install/PostgreSql/10_make_tables.sh
+/usr/local/apache2/htdocs/webacula/install/PostgreSql/20_acl_make_tables.sh
+
+Si ejecutaba estos scripts tal cual *SOLO ALGUNAS* de las tablas tenían derechos 
+de lectura/escritura e incluso acceso para el usuario bacula de postgresql, lo
+que provocaba errores de acceso. Solución, al ejecutar estos scripts añadir
+el flag '-Ubacula', lo que hace que los lo que hay dentro de estos scripts sea
+hecho como usuario bacula. Nos dió algunos errores al intentar hacer el grant
+tables al usuario bacula pero no tiene importancia, podemos hacer caso omiso:
+
+/usr/local/apache2/htdocs/webacula/install/PostgreSql/10_make_tables.sh -Ubacula
+/usr/local/apache2/htdocs/webacula/install/PostgreSql/20_acl_make_tables.sh -Ubacula
+
+2.- Recompilamos php para que tenga soporte para postgresql:
+
+./configure --with-mysql=/usr/local/mysql --with-apxs2=/usr/local/apache2/bin/apxs --prefix=/usr/local/php-5.4.7 --with-gd --with-gettext --with-pdo-mysql=/usr/local/mysql --with-pdo-pgsql
+
+3.- Por último, otra modificacion ha hacer a nivel de acceso de postresql. Por
+defecto SOLO permite conexiones que vengan del localhost (solo UNIX sockets) y 
+por la manera en la que parece que se conecta webacula a la base de datos este tipo
+de conexión no es suficiente y hemos de abrir la conexión para direcciones IPv4.
+Esto se hace modificando el valor de 'listen_addresses' en el fichero
+/var/lib/pgsql/9.5/data/postgresql.conf:
+
+listen_addresses = '0.0.0.0'
+
+y restart del servicio.
+
+Con todo esto ya deberíamos de poder entrar en webacula.
+
+
+Referencias principales:
+
+http://www.bacula.org/5.2.x-manuals/en/main/main/Installing_Configuring_Post.html#SECTION004050000000000000000
+https://elkano.org/blog/bacula-migrate-database-from-mysql-to-postgresql/
+https://mtu.net/~jpschewe/blog/2010/06/migrating-bacula-from-mysql-to-postgresql/
+

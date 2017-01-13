@@ -1,0 +1,150 @@
+
+Solucionar error "Fatal error: backup.c:1200 Network send error to SD. ERR=Broken pipe"
+=======================================================================================
+
+Después del cambio de red a UPF nos hemos encontrado con este error al hacer
+backups de servers que solo tienen ip pública (impala que es el Director está
+en la privada). Si el cliente es una máquina con ip privada (se encuentra en
+la misma red que el Director) NO se da este problema. El error que nos da 
+bacula es:
+
+26-Jan 23:21 nemo.upf.edu-fd JobId 10583: Error: bsock.c:429 Write error sending 7508 bytes to Storage daemon:epsilon.prib.upf.edu:9103: ERR=Broken pipe
+26-Jan 23:21 nemo.upf.edu-fd JobId 10583: Fatal error: backup.c:1200 Network send error to SD. ERR=Broken pipe
+26-Jan 23:21 impala.prib.upf.edu-dir JobId 10583: Error: Director's comm line to SD dropped.
+26-Jan 23:21 impala.prib.upf.edu-dir JobId 10583: Error: Bacula impala.prib.upf.edu-dir 5.2.12 (12Sep12):
+
+Normalmente se da en servidores que tienen mysql y han de hacer los dumps de las
+bases de datos antes de hacer el backup. Durante la espera del Director a que acabe
+el dump de las bases de datos salta este error. Parece ser que debido que es 
+una espera larga en la que no hay ningún comunicación por el canal TCP algún 
+GateWay/Firewall/Router (por el que pasamos para establecer la conexión entre la 
+red privada GRIB y la pùblica del la UPF) decide cerrar esta conexión por la falta 
+de tráfico. Para mantenerla hemos de forzar que se envie un KeepAlive tal y 
+como lo hacemos con el protocolo ssh cuando se da este caso.
+
+Parece que estos cortes de conexión por parte de los Firewall o GateWay suelen ser
+normales y que estos equipos tienen una caché limitada y cuando está llena han de 
+descartar conexiones abiertas para dejar sitio para otras. Entonces lo que hacen
+es ir al final de la lista y descartar las que llevan mucho tiempo estblecidas
+pero sin ningún tipo de envio de datos.
+
+Referencia: 
+
+http://wiki.bacula.org/doku.php?id=faq (Ir a "My backup starts, but dies after 
+a while with "Connection reset by peer" error")
+
+http://tldp.org/HOWTO/html_single/TCP-Keepalive-HOWTO/
+
+http://www.bacula.org/5.2.x-manuals/en/main/main/Client_File_daemon_Configur.html 
+(Ir a: Heartbeat Interval = time-interval)
+
+Solución:
+
+1.- Primero tanto en los StorageDaemon (en nuestro caso epsilon), Directors 
+(en nuestro caso impala) y clientes con solo ip públic que se vean afectados por 
+este problema (ex, ben-yehuda) hemos de añadir esta directiva y después reiniciar
+el servidio: 
+
+Heartbeat Interval = 60
+
+En el caso de un SD, se pone en el apartado del fichero de configuración (bacula-sd.conf)
+donde se define al servicio (donde sale el puerto). Para el Director y un FileDaemon lo
+mismo, se pone donde se define al servicio (donde sale el puerto):
+
+- Director:
+
+Director {                            # define myself
+  Name = impala.prib.upf.edu-dir
+  DIRport = 9101
+  QueryFile = "/usr/local/bacula-5.2.12/etc/query.sql"
+  WorkingDirectory = /usr/local/bacula-5.2.12/var/bacula/working
+  PidDirectory = "/var/run"
+  Maximum Concurrent Jobs = 20
+  Password = "xxx"         # Console password
+  Messages = Standard
+  Heartbeat Interval = 60
+}
+
+- StorageDaemon:
+
+Storage {                             # definition of myself
+  Name = epsilon.prib.upf.edu-sd
+  SDPort = 9103                  # Director's port
+  WorkingDirectory = "/usr/local/bacula-sd-5.2.12/var/bacula/working"
+  Pid Directory = "/var/run"
+  Maximum Concurrent Jobs = 20
+  Heartbeat Interval = 60
+}
+
+- FileDaemon:
+
+FileDaemon {                          # this is me
+  Name = ben-yehuda.upf.edu-fd
+  FDport = 9102                  # where we listen for the director
+  WorkingDirectory = /usr/local/bacula-fd-5.2.12/var/bacula/working
+  Pid Directory = /var/run
+  Maximum Concurrent Jobs = 20
+  Heartbeat Interval = 60
+}
+
+
+2.- En la máquina hemos de cambiar unos parámetro del kernel que nos permiten
+hacer el TCP-Keepalive para que se mantenga la conexińo abierta (by default ya 
+lo hacer pero parece ser que los tiempos son demasiado altos. Para hacer esto:
+
+a.- Consultamos los valores actuales:
+
+[root@impala ~]# cat /proc/sys/net/ipv4/tcp_keepalive_time
+7200
+[root@impala ~]# cat /proc/sys/net/ipv4/tcp_keepalive_intvl 
+75
+[root@impala ~]# cat /proc/sys/net/ipv4/tcp_keepalive_probes
+9
+
+b.- Los modificamos:
+
+[root@impala ~]# echo 600 > /proc/sys/net/ipv4/tcp_keepalive_time 
+[root@impala ~]# echo 60 > /proc/sys/net/ipv4/tcp_keepalive_intvl 
+[root@impala ~]# echo 20 > /proc/sys/net/ipv4/tcp_keepalive_probes
+
+Explicacion de estor parámetros:
+
+tcp_keepalive_time: Tiempo inicial en segundos después del cual, si no ha habido 
+comunicacion con el otro extemo, se ha de enviar un tcp keepalive.
+
+
+tcp_keepalive_intvl: Después del tcp keepalive inicial, cada cuanto tiempo en 
+segundos se envian los siguientes tcp keepalive.
+
+tcp_keepalive_probe: En caso de no recibir respuesta, cuando reintentos hacemos
+antes de dar la comunicación como finalizada.
+
+En una comunicación dada, solo es necesaria que configuremos uno de los dos 
+extremos. En nuestro caso, solo se pone en Impala (el otro
+extremo sería el cliente con ip pública que al recibir el tcp keepalive 
+respondera a impala). Entre FileDaemon (cliente) y StorageDaemon (epsilon) no hace falta 
+ya que no se dan estas esperas tan altas, y si pasa, es que algo va mal.
+
+c.- Para que estos cambios se mantengan después de un reboot hemos de modificar
+el fichero /etc/sysctl.conf de impala y añadir al final estas lineas:
+
+net.ipv4.tcp_keepalive_time = 600
+net.ipv4.tcp_keepalive_intvl = 60
+net.ipv4.tcp_keepalive_probes = 20
+
+Para ver como están los contadores de TCP KeepAlive, lo podemos ver con el 
+comando: netstat -to:
+
+[root@impala etc]# netstat -to
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address               Foreign Address             State       Timer
+tcp        0      0 impala.prib.upf.edu:ssh     cappra.prib.upf.edu:55833   ESTABLISHED keepalive (7.07/0/0)
+tcp        0      0 impala.prib.upf.edu:ssh     cappra.prib.upf.edu:59206   ESTABLISHED keepalive (226.38/0/0)
+tcp        0      0 impala.prib.upf.edu:ssh     cappra.prib.upf.edu:55567   ESTABLISHED keepalive (194.95/0/0)
+[root@impala etc]# 
+
+
+
+
+
+

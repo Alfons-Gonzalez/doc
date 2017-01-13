@@ -1,0 +1,312 @@
+Crear un nuevo Backup Job en Bácula
+===================================
+
+Escenario
+
+Vamos a crear un nuevo job teniendo en cuenta que este job necesita
+la definición de todo: un nuevo fileset, un nuevo pool, un nuevo Storage Device,
+etc.  
+
+Daemons:
+
+- En la máquina virtual impala.imim.es tenemos: mysql con el catálogo, el 
+Director Daemon y un File Daemon (cliente) para hacer backup de la propia
+máquina. También es aquí donde tenemos instalado el webmin que usaremos para
+configura bácula, la web webacula y la web bacula-web (estadísticas). 
+Esta máquina virtual se ejecuta delta.
+
+- En la máquina física epsilon tenemos únicamente el Storage Daemon junto con su
+configuración y un webmin que haremos servir como front-end para su 
+configuración (se gestiona desde el webmin de impala).
+
+Lo haremos todo usando Webmin (desde el Webmin de impala accedemos al de 
+epsilon que es donde crearmos el Storage Device).
+
+Por último, aclarar que como de momento hacemos backup en disco, un volumen es
+un fichero en el cual bacula almacena los backups.
+
+- Para acceder al webmin de imapala:
+
+https://impala.imim.es:10000
+
+user: admin
+password: no-tocar
+
+- Y para acceder a webacula:
+
+http://impala.imim.es/webacula
+
+user: root
+password: no-tocar
+
+
+0.- Instalar File Daemon
+------------------------
+
+a.- Copiamos, descomprimimos bacula en el cliente e instalamos solo el cliente 
+(File Daemon):
+
+./configure --prefix=/usr/local/bacula-fd-5.2.12 --enable-client-only --enable-batch-insert --enable-conio --enable-smartalloc
+
+make
+
+make install
+
+make install-autostart
+
+ln -s /usr/local/bacula-fd-5.2.12 /usr/local/bacula-fd
+
+b.- Abrimos el puerto del File Daemon en el iptables del cliente:
+
+# Bacula Director (impala)
+-A RH-Firewall-1-INPUT -s 172.20.16.25 -m tcp -p tcp --dport 9102 -j ACCEPT
+
+c.- Editamos el fichero /usr/local/bacula-fd/etc/bacula-fd.conf para indicar
+el nombre del director (no tocamos la contraseña):
+
+#
+# List Directors who are permitted to contact this File daemon
+#
+Director {
+  Name = impala.imim.es-dir
+  Password = "7v86a3+TEom+kxWXgVF8BTvZoYH9I95XALqgcoQwGtv2"
+}
+
+d.- Iniciamos el servicio: 
+
+/usr/local/bacula-fd/sbin/bacula start
+
+e.- En el webmin de impala, vamos a 'Backup Client' y 'Add a new backup client'.
+
+f.- Añadimos el nombre del cliente, la contraseña que aparece en su fichero 
+bacula-fd.conf (la que se ve unas lineas más arriba: "7v86a..." y el
+nombre del host (también sirve la ip)
+
+g.- Ponemos el resto de parámetros:
+
+Catalog to use: MyCatalog
+Keep backup files for: 1 Month (Durante cuanto tiempo mantiene en el Catalogo
+	el registro de los files que hay dentro de cada backup job)
+Keep backup jobs for: 1 Month (Durante cuanto tiempo mantiene en el Catálogo 
+	el registro de los backup jobs)
+Prune expired jobs and files? Yes
+
+Resto de cosas, by default.
+
+h.- Para ver si conecta bien el director con este cliente, una vez creado 
+lo seleccionamos como si fueramos ha hacerle alguna modificación y pulsamos
+el botón 'Show Status'. 
+
+
+1.- Schedule
+------------
+
+Creamos una planificación nueva para que se ejecute cuando nos interese.
+
+a.- En el webmine, vamos al apartado Backup Schedule (arriba a la derecha)
+
+b.- Seleccionamos 'Add a new backup schedule'
+
+c.- Introducimos el nombre que le queremos dar.
+
+d.- En 'Run levels ans time' indicamos cuando queremos se se haga. Podemos 
+fijarnos en los que vienen por defecto configurados para ver como funciona 
+aunque es muy intuitivo.
+
+2.- Storage Device
+------------------
+
+Crear el Storage Device viene a ser crear/indicar el directorio en el cual 
+queremos que se almacenen los volumenes. Esto se hace desde epsilon que es donde
+tenemos instalado el Storage Daemon.
+
+a.- Para ir al wemine de epsilon, seleccionamos 'Epsilon Storage Daemon' dentro 
+de 'Grib Backup Server'. En la siguiente ventana seleccionamos el icono 
+'Bacula Storage Daemon'.
+
+b.- Ya estamos en el webmin de epsilon. Vamos a 'Storage Devices' y 'Add a new
+storage device'.
+
+c.- Le damos un nombe a este Storage Device y en 'Archive device or directory' 
+pulsamos el botón y seleccionamos el directorio donde queremos que se guaden los
+backups. Dejamos el resto de de opciones by default, fijandonos en que 
+'Automatically label media?' este a yes (esta opcion junto con otra que esta
+en la creacion del pool permiten que se creen los volumenes automáticamente).
+Pulsamos en el botón 'Create' y ya estará creado.
+
+d.- Para volver a impala seleccionamos 'Webmin Servers' (menu de la izquierda,
+la última opción de abajo).
+
+
+3.- Storage Daemon
+------------------
+
+Esto ya lo hacemos en impala, solo hacemos el paso 2, 'Storage Device' se hace
+en epsilon. Aquí indicamos con que storage daemon trabajará el job (podemos 
+tener varios)
+
+a.- Vamos a Storage Daemon dentro del apartado Director Configuration y
+seleccionamos Add a new 'storage daemon'.
+
+b.- Introducimos el nombre que le queramos dar en 'Storage daemon name'.
+
+c. En 'Hostname or IP address' hemos de indicar el nombre de la máquina en la
+cual está el storage daemon que en nuestro caso es epsilon.imim.es
+
+d.- En Bacula SD password introducimos la contraseña que aparece enn el fichero 
+de configuración del storage daemon de epsilon que es 
+
+gvoQSs3jPZB5ESdzHIfrflm4W6oNqhQryEEecEaN8w7N 
+
+(como siempre será la misma podemos hacer un copy & paste de algún otro 
+Storage Daemon que tengamos ya creado).
+
+e.- En 'Storage device name' hemos de introducir el nombre del Storage Device
+que hemos creado en epsilon (paso 2), o bien uno que ya exista.
+
+f.- No se cambia nada mas, fijarse que en 'Media type name' ponga File. Pulsamos
+en 'Save'.
+
+4.- File Set
+------------
+
+Aqui indicamos los directorios del servidor del cual queremos hacer backup. 
+Tambiem podemos poner de que directorios NO queremos hacer backup.
+
+a.- Vamos a File Set y 'Add a new backup file set'.
+
+b.- Le ponemos nombre al File Set e indicamos la lista de directorios a hacer
+backup y los excludes. En Compression, indicamos Level 6 (más level, lei que 
+consume mucho tiempo de CPU para lo poco que puede llegar a comprimir) y que 
+genere una firma MD5 por cada fichero. 
+
+Ojo, es importante pararnos a pensar si es necesario decir que NO a la opción:
+Limit backup to one filesystem?. Por ejemplo, si indicamos un directorio dentro
+del cual hay un montaje NFS, si no ponemos esta opción a NO no se hará backup
+de lo que hay por debajo de este punto de montaje NFS.
+
+4.1.- Mysql backup
+
+En el caso de que queramos hacer backup de las bases de datos tenemos dos 
+opciones
+
+1.- Backup a saco del datadir.
+2.- Que el propio bácula genere mediante un script un dump y guardar el dump.
+
+Para el caso 1, fácil, añadimos el directorio del mysql o del datadir en el
+File Set
+
+Para el segundo, hemos de poner que haga backup del directorio en el cual se van
+a guardar los dump. El como se generan los dump, lo veremos en el apartado
+donde definimos el job.
+
+
+5.- Pool
+--------
+
+En Pool, la única ventaja de crear un Pool nuevo es que, por ejemplo, podemos
+indicar el nombre que queremos que tenga cada volumen (es decir, el nombre
+del fichero). Como considero que esto tampoco es tan beneficioso, para no 
+crear tantos pools como jobs, lo que se hizo fué modificar el Default pool
+cambiando:
+
+- Volume retention period: 1 mounths
+- Automatically label volumes prefix: Volum
+- Maximum volume size: 5G
+
+OJO: Es muy importantante poner un prefix para los volumenes para que en caso
+necesario, bacula vaya generando automáticamente los volumenes, si se deja
+en blanco, no los genera automáticamente y es necesaria que se etiquete a mano
+un nuevo volumen cada vez que haga falta (se queda en standby el job con el
+warning hasta que el usuario intervenga y etiquete un nuevo volumen). Esta 
+opción va ligada a la opción 'Automatically label media?' de 'Storage Device'
+(lo que hicimos en epsilon, paso 2).
+
+6.- Job
+-------
+
+Este es el paso final, donde lo unimos todo para generar el backup job:
+
+a.- Vamos a Backup Jobs y 'Add a new backup job'.
+
+b.- Ponemos nombre al job.
+
+c.- En 'Default type', Stand-alone job (esto es por si queremos herede la 
+cofiguracion del default job), y en 'Job Type', backup.
+
+d.- En cliente, elegimos el cliente sobre el cual se va a ejecutar el backup
+(kingston, nemo, lavandula, ...).
+
+e.- En 'Backup on schedule', la programación de backup que queremos.
+
+f.- Volume Pool: pos eso, el volumen que queremos que haga servir.
+
+g.- Backup Level: default (hará servir la que hayamos definida en el schedule.
+
+h.- File set to backup: el 'File set' que queremos hacer servir.
+
+g.- Destination storage device: el Storage Device que hayamos creado en el 
+punto 3 (o que ya existiese). 
+
+El resto de cosas, en un principio,  by default.
+
+6.1.- Mysql backup
+
+Si queremos hacer backup generando un dump de las bases de datos y guardando
+estos dumps:
+
+a.- Copiamos en el cliente el script mysql-backup.sh y el fichero my.cnf que 
+está en el directorio /root/mysql-backup-scripts de impala.
+
+b.- Adaptamos estos scripts. En un principio, poner el password del root de
+mysql en el fichero my.cnf y ponerlo como oculto y en todo caso, cambiar el 
+path donde vamos a guardar los dumps (este path lo 
+tenemos que haber puesto en el FileSet !!!).
+
+c.- En la definición del job, en 'Command before job (on client)' indicamos
+el path del script que hará el dump de la base de datos: 
+
+/root/mysql-backup/mysql-backup.sh
+
+Con esto ya se nos debería de hacer el backup de los dump de las bases de 
+datos.
+
+7.- Retención de files and jobs
+-------------------------------
+
+Hemos de mirar de que el tiempo de retención de los backups en el cliente, file
+y jobs sean coherentes. Es decir, si decidimos que en un determinado cliente 
+mantendremos los backups durante 2 meses, entonces que en catálogo mantengamos
+la información sobre el job y sobre los ficheros que hay dentro del backup estos
+dos meses y que el volumen no se recicle hasta pasados estos 2 meses.
+
+* Client Configuration:
+	-> Keep backup files for: 2 Month
+	-> Keep backup jobs for: 2 Month 
+	-> Prune expired jobs and files?: Yes
+
+* Pool Configuration:
+	-> Volume retention period: 2 Months
+	-> Prune expired volumes?: Yes
+	
+Entonces, no tiene sentido poner que solo se mantiene el volumen durante un més
+cuando decimos que mantenermos la informacion de los files que componen el
+backup en el catálogo durant dos meses. O por ejemplo, mantenemos la información
+de backup job en el catálogo durante tres meses pero la info de los files que
+lo componen durante un mes (en nuestro entorno no nos sirve de nada tener 
+registro de la ejecución de un job del cual no podremos recuperar ningún fichero 
+ya que tanto el volúmen como los files ya no existen). 
+
+IMPORTANT Quotes: 
+
+"Bacula will prune (remove) File records that are older than the 
+specified File Retention period. The pruning will occur at the end of a backup 
+Job for the given Client." Es decir, que la infor de files, jobs y volúmenes
+es borrada del catálogo al finalizar la ejecución de un backup job, por lo que
+si ponemos un trabajo a disable no se borrarán sus file, jobs y volúmenes a no ser
+que volvamos a lanzar un nuevo job. 
+Client"
+
+"Note, if a Job record is selected for pruning, all associated File and JobMedia 
+records will also be pruned regardless of the File Retention period set."
+
