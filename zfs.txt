@@ -1,0 +1,523 @@
+Intentarem crear un volum de zfs  a la maquina hades de multiscalelab:
+
+1.- ens carreguem els dos softraid /dev/md3 i /dev/md4 que hi havia creats.
+Per fer-ho:
+
+mdadm --stop /dev/md3 
+mdadm --zero-superblock /dev/sdc1 /dev/sdd1 .....(tots els membres del raid)
+
+(idem per /dev/md4)
+
+2.- instalacio de repos:
+
+yum localinstall --nogpgcheck https://download.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm
+
+wget http://archive.zfsonlinux.org/epel/zfs-release.el6.noarch.rpm
+
+yum localinstall --nogpgcheck zfs-release.el6.noarch.rpm 
+
+3.- instalacio
+
+yum install kernel-devel zfs
+
+4.- reboot
+
+5.- comprovem que ha carregat el modul al kernel:
+
+
+[root@hades ~]# lsmod | grep zfs
+zfs                  2733550  3 
+zcommon                48128  1 zfs
+znvpair                80220  2 zfs,zcommon
+spl                    90776  3 zfs,zcommon,znvpair
+zavl                    7215  1 zfs
+zunicode              323046  1 zfs
+
+
+6.- creem un pool en raidz2 (~ a raid6)
+
+mirem quins discos tenim:
+
+[root@hades ~]# ls /dev/sd?
+/dev/sda  /dev/sdd  /dev/sdg  /dev/sdj  /dev/sdm  /dev/sdp  /dev/sds  /dev/sdv
+/dev/sdb  /dev/sde  /dev/sdh  /dev/sdk  /dev/sdn  /dev/sdq  /dev/sdt  /dev/sdw
+/dev/sdc  /dev/sdf  /dev/sdi  /dev/sdl  /dev/sdo  /dev/sdr  /dev/sdu  /dev/sdx
+
+
+/dev/sda i 7dev/sdb els estem fent servi en softraid pel sistema:
+
+[root@hades ~]# df -h
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/md0         48G  9.5G   37G  21% /
+tmpfs           5.9G     0  5.9G   0% /dev/shm
+/dev/md1        387G   72M  367G   1% /home
+
+[root@hades ~]# cat /proc/mdstat 
+Personalities : [raid1] 
+md1 : active raid1 sdb2[1] sda2[0]
+      411646844 blocks super 1.1 [2/2] [UU]
+      bitmap: 0/4 pages [0KB], 65536KB chunk
+
+md2 : active raid1 sda3[0] sdb3[1]
+      25536444 blocks super 1.1 [2/2] [UU]
+      
+md0 : active raid1 sdb1[1] sda1[0]
+      51199928 blocks super 1.0 [2/2] [UU]
+      bitmap: 1/1 pages [4KB], 65536KB chunk
+
+unused devices: <none>
+[root@hades ~]# 
+
+
+Per tant farem servir la resta:
+
+[root@hades ~]# zpool create -f backup raidz2 sdc sdd sde sdf sdg sdh sdi sdj sdk sdl sdm sdn sdo sdp sdq sdr sds sdt sdu sdv sdw sdx
+
+
+comprovem el pool:
+
+[root@hades ~]# zpool status
+  pool: backup
+ state: ONLINE
+  scan: none requested
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	backup      ONLINE       0     0     0
+	  raidz2-0  ONLINE       0     0     0
+	    sdc     ONLINE       0     0     0
+	    sdd     ONLINE       0     0     0
+	    sde     ONLINE       0     0     0
+	    sdf     ONLINE       0     0     0
+	    sdg     ONLINE       0     0     0
+	    sdh     ONLINE       0     0     0
+	    sdi     ONLINE       0     0     0
+	    sdj     ONLINE       0     0     0
+	    sdk     ONLINE       0     0     0
+	    sdl     ONLINE       0     0     0
+	    sdm     ONLINE       0     0     0
+	    sdn     ONLINE       0     0     0
+	    sdo     ONLINE       0     0     0
+	    sdp     ONLINE       0     0     0
+	    sdq     ONLINE       0     0     0
+	    sdr     ONLINE       0     0     0
+	    sds     ONLINE       0     0     0
+	    sdt     ONLINE       0     0     0
+	    sdu     ONLINE       0     0     0
+	    sdv     ONLINE       0     0     0
+	    sdw     ONLINE       0     0     0
+	    sdx     ONLINE       0     0     0
+
+errors: No known data errors
+[root@hades ~]#
+
+[root@hades ~]# df -h
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/md0         48G  9.5G   37G  21% /
+tmpfs           5.9G     0  5.9G   0% /dev/shm
+/dev/md1        387G   72M  367G   1% /home
+backup           69T  256K   69T   1% /backup
+
+
+
+No hace falta entrar nada el /etc/fstab, una vez creado el pool se monta
+automaticamente
+
+-----------
+
+A data 03/agost/2016 hi ha dos discos que fallan al pool:
+
+
+[root@hades ~]# zpool status
+  pool: backup
+ state: DEGRADED
+status: One or more devices is currently being resilvered.  The pool will
+	continue to function, possibly in a degraded state.
+action: Wait for the resilver to complete.
+  scan: resilver in progress since Wed Aug  3 17:49:50 2016
+    316M scanned out of 47.0T at 1.40M/s, (scan is slow, no estimated time)
+    264K resilvered, 0.00% done
+config:
+
+	NAME                      STATE     READ WRITE CKSUM
+	backup                    DEGRADED   447     0     0
+	  raidz2-0                DEGRADED   778     0     0
+	    sdc                   ONLINE       0     0     0
+	    14211688559437444625  FAULTED      0     0     0  was /dev/sdd1
+	    11231218392308499293  FAULTED      0     0     0  was /dev/sde1
+	    sdf                   ONLINE       0     0     0
+	    sdg                   ONLINE       0     0     0
+	    sdh                   ONLINE       0     0     0
+	    sdi                   ONLINE       0     0     0
+	    sdj                   ONLINE       0     0     0
+	    sdk                   ONLINE       0     0     0
+	    sdl                   ONLINE       0     0     0
+	    sdm                   ONLINE       0     0     0
+	    sdn                   ONLINE       0     0     0
+	    sdo                   ONLINE       0     0     0
+	    sdp                   ONLINE       0     0     0
+	    sdq                   ONLINE       0     0     0
+	    sdr                   ONLINE       0     0     0
+	    sds                   ONLINE       0     0     0
+	    sdt                   ONLINE       0     0     0
+	    sdu                   ONLINE     823   374     2  (resilvering)
+	    sdv                   ONLINE       0     0     0
+	    sdw                   ONLINE       0     0     0
+	    sdx                   ONLINE       0     0     0
+
+errors: 191 data errors, use '-v' for a list
+
+Apago hades mentre busco info de com substituïr els discos que fallen
+
+
+[root@hades ~]# poweroff
+
+Broadcast message from root@hades.prib.upf.edu
+	(/dev/pts/0) at 17:54 ...
+
+The system is going down for power off NOW!
+[root@hades ~]# Connection to hades closed by remote host.
+Connection to hades closed.
+[alfons@moebius ~]$ 
+
+Torno a engegar hades el 04/08.
+
+
+Primer identuficare el SN dels discos que han fallat per no equivocar-nos al
+substituir-los:
+
+
+[root@hades ~]# hdparm -I /dev/sdd | more
+
+/dev/sdd:
+
+ATA device, with non-removable media
+	Model Number:       Hitachi HUS724040ALE640                 
+	Serial Number:      PK2331PAG53LMT
+	Firmware Revision:  MJAOA3B0
+
+[root@hades ~]# hdparm -I /dev/sde | more
+
+/dev/sde:
+
+ATA device, with non-removable media
+	Model Number:       Hitachi HUS724040ALE640                 
+	Serial Number:      PK2331PAG3HDZT
+	Firmware Revision:  MJAOA3B0
+
+---
+
+despres els posarem offline
+
+[root@hades ~]# zdb
+backup:
+    version: 5000
+    name: 'backup'
+    state: 0
+    txg: 4501984
+    pool_guid: 4941573274555400969
+    errata: 0
+    hostname: 'hades.prib.upf.edu'
+    vdev_children: 1
+    vdev_tree:
+        type: 'root'
+        id: 0
+        guid: 4941573274555400969
+        create_txg: 4
+        children[0]:
+            type: 'raidz'
+            id: 0
+            guid: 2642474593430950945
+            nparity: 2
+            metaslab_array: 34
+            metaslab_shift: 39
+            ashift: 12
+            asize: 88016983949312
+            is_log: 0
+            create_txg: 4
+            children[0]:
+                type: 'disk'
+                id: 0
+                guid: 10534869700153029282
+                path: '/dev/sdc1'
+                whole_disk: 1
+                create_txg: 4
+            children[1]:
+                type: 'disk'
+                id: 1
+                guid: 14211688559437444625
+                path: '/dev/sdd1'
+                whole_disk: 1
+                DTL: 184
+                create_txg: 4
+            children[2]:
+                type: 'disk'
+                id: 2
+                guid: 11231218392308499293
+                path: '/dev/sde1'
+                whole_disk: 1
+                DTL: 183
+                create_txg: 4
+            children[3]:
+                type: 'disk'
+                id: 3
+                guid: 3443350538249843142
+                path: '/dev/sdf1'
+                whole_disk: 1
+                create_txg: 4
+            children[4]:
+                type: 'disk'
+                id: 4
+                guid: 10289877800805488322
+                path: '/dev/sdg1'
+                whole_disk: 1
+                create_txg: 4
+            children[5]:
+                type: 'disk'
+                id: 5
+                guid: 2964601787917982687
+                path: '/dev/sdh1'
+                whole_disk: 1
+                create_txg: 4
+            children[6]:
+                type: 'disk'
+                id: 6
+                guid: 4166352036922808937
+                path: '/dev/sdi1'
+                whole_disk: 1
+                create_txg: 4
+            children[7]:
+                type: 'disk'
+                id: 7
+                guid: 13402389933365980975
+                path: '/dev/sdj1'
+                whole_disk: 1
+                create_txg: 4
+            children[8]:
+                type: 'disk'
+                id: 8
+                guid: 15216599103338052223
+                path: '/dev/sdk1'
+                whole_disk: 1
+                create_txg: 4
+            children[9]:
+                type: 'disk'
+                id: 9
+                guid: 8273434634189106760
+                path: '/dev/sdl1'
+                whole_disk: 1
+                create_txg: 4
+            children[10]:
+                type: 'disk'
+                id: 10
+                guid: 6423143659132703550
+                path: '/dev/sdm1'
+                whole_disk: 1
+                create_txg: 4
+            children[11]:
+                type: 'disk'
+                id: 11
+                guid: 9822134611184288101
+                path: '/dev/sdn1'
+                whole_disk: 1
+                create_txg: 4
+            children[12]:
+                type: 'disk'
+                id: 12
+                guid: 8108678210421843265
+                path: '/dev/sdo1'
+                whole_disk: 1
+                create_txg: 4
+            children[13]:
+                type: 'disk'
+                id: 13
+                guid: 17922905551535490333
+                path: '/dev/sdp1'
+                whole_disk: 1
+                create_txg: 4
+            children[14]:
+                type: 'disk'
+                id: 14
+                guid: 9615400744068518782
+                path: '/dev/sdq1'
+                whole_disk: 1
+                create_txg: 4
+            children[15]:
+                type: 'disk'
+                id: 15
+                guid: 7986409957230294920
+                path: '/dev/sdr1'
+                whole_disk: 1
+                create_txg: 4
+            children[16]:
+                type: 'disk'
+                id: 16
+                guid: 15632134357164309057
+                path: '/dev/sds1'
+                whole_disk: 1
+                create_txg: 4
+            children[17]:
+                type: 'disk'
+                id: 17
+                guid: 8284289636347110214
+                path: '/dev/sdt1'
+                whole_disk: 1
+                create_txg: 4
+            children[18]:
+                type: 'disk'
+                id: 18
+                guid: 12529424843732159420
+                path: '/dev/sdu1'
+                whole_disk: 1
+                DTL: 158
+                create_txg: 4
+            children[19]:
+                type: 'disk'
+                id: 19
+                guid: 5048188599306346209
+                path: '/dev/sdv1'
+                whole_disk: 1
+                create_txg: 4
+            children[20]:
+                type: 'disk'
+                id: 20
+                guid: 7714493482212767173
+                path: '/dev/sdw1'
+                whole_disk: 1
+                create_txg: 4
+            children[21]:
+                type: 'disk'
+                id: 21
+                guid: 2247410885403164531
+                path: '/dev/sdx1'
+                whole_disk: 1
+                create_txg: 4
+    features_for_read:
+        com.delphix:hole_birth
+        com.delphix:embedded_data
+[root@hades ~]#
+
+Un cop sabem els guid dels discos que donaven error els podem treure:
+
+[root@hades ~]# zpool offline backup 14211688559437444625
+
+pero surt el missatge...
+
+cannot offline 14211688559437444625: no valid replicas
+
+de fet pero...:
+
+[root@hades ~]# zpool status
+  pool: backup
+ state: ONLINE
+status: One or more devices is currently being resilvered.  The pool will
+	continue to function, possibly in a degraded state.
+action: Wait for the resilver to complete.
+  scan: resilver in progress since Wed Aug  3 17:54:54 2016
+    1.18G scanned out of 47.0T at 1.27M/s, (scan is slow, no estimated time)
+    804K resilvered, 0.00% done
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	backup      ONLINE       0     0 6.28K
+	  raidz2-0  ONLINE       0     0 12.6K
+	    sdc     ONLINE       0     0     0
+	    sdd     ONLINE       0     0     0  (resilvering)
+	    sde     ONLINE       0     0     0  (resilvering)
+	    sdf     ONLINE       0     0     0
+	    sdg     ONLINE       0     0     0
+	    sdh     ONLINE       0     0     0
+	    sdi     ONLINE       0     0     0
+	    sdj     ONLINE       0     0     0
+	    sdk     ONLINE       0     0     0
+	    sdl     ONLINE       0     0     0
+	    sdm     ONLINE       0     0     0
+	    sdn     ONLINE       0     0     0
+	    sdo     ONLINE       0     0     0
+	    sdp     ONLINE       0     0     0
+	    sdq     ONLINE       0     0     0
+	    sdr     ONLINE       0     0     0
+	    sds     ONLINE       0     0     0
+	    sdt     ONLINE       0     0     0
+	    sdu     ONLINE     545   484     2  (resilvering)
+	    sdv     ONLINE       0     0     0
+	    sdw     ONLINE       0     0     0
+	    sdx     ONLINE       0     0     0
+
+errors: 6493 data errors, use '-v' for a list
+[root@hades ~]#
+
+o sigui que hi ha tres discos 'resilvering'....cosa mala...
+
+Tot i que sembla que les dades hi son:
+
+[root@hades ~]# ls /backup
+Abeta            estrogen_receptor     GNNQQNY-aggregation  NPC2        sdoerr
+adaptive_v1      expunged              INS                  p38
+Thrombin
+Baker            ffspecDocking         KIDKIX               paola       TPI
+cmmsm            FilizolaMU            KLEBE                pLGIC
+Traj05112013
+cococo           GAAMP_rundir_example  MOR                  prja
+TRP_cage_CNIO
+control-backup   GAL                   NMR                  repository  TRYP
+DHFR1000         GCY                   noelia               Reranking   Xavier
+epitope-mapping  gerard                novartis             S1PR
+[root@hades ~]# 
+[root@hades ~]# cat /backup/control-backup 
+DO NOT REMOVE THIS FILE
+
+ITGRIB
+[root@hades ~]#
+
+Pero hi ha errors a fitxers (amb zpool status -v surt una llista de 11220
+fitxers....)
+
+El deixo fent resilver fins que el 9/08/2016 torna a penjar-se...
+
+after reboot:
+
+[root@hades ~]# zpool status
+  pool: backup
+ state: ONLINE
+status: One or more devices is currently being resilvered.  The pool will
+	continue to function, possibly in a degraded state.
+action: Wait for the resilver to complete.
+  scan: resilver in progress since Tue Aug  9 12:50:40 2016
+    14.3G scanned out of 47.0T at 153M/s, 89h34m to go
+    1.28G resilvered, 0.03% done
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	backup      ONLINE       0     0     0
+	  raidz2-0  ONLINE       0     0     0
+	    sdc     ONLINE       0     0     0
+	    sdd     ONLINE       0     0     0  (resilvering)
+	    sde     ONLINE       0     0     0  (resilvering)
+	    sdf     ONLINE       0     0     0
+	    sdg     ONLINE       0     0     0
+	    sdh     ONLINE       0     0     0
+	    sdi     ONLINE       0     0     0
+	    sdj     ONLINE       0     0     0
+	    sdk     ONLINE       0     0     0
+	    sdl     ONLINE       0     0     0
+	    sdm     ONLINE       0     0     0
+	    sdn     ONLINE       0     0     0
+	    sdo     ONLINE       0     0     0
+	    sdp     ONLINE       0     0     0
+	    sdq     ONLINE       0     0     0
+	    sdr     ONLINE       0     0     0
+	    sds     ONLINE       0     0     0
+	    sdt     ONLINE       0     0     0
+	    sdu     ONLINE       2     0     0  (resilvering)
+	    sdv     ONLINE       0     0     0
+	    sdw     ONLINE       0     0     0
+	    sdx     ONLINE       0     0     0
+
+errors: No known data errors
+[root@hades ~]# 
+
+
+
+
+

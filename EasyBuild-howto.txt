@@ -1,0 +1,769 @@
+
+0.- Introducción
+1.- Instalación
+2.- Instalación de prueba usando EasyBuild
+3.- ¿Como generar un repositorio de software centralizado con EasyBuild?
+4.- Instalar un soft en otro prefix
+5.- Omitir una dependencia
+6.- Ocultar una dependencia
+7.- Generar RPM's de un soft instalado con EasyBuild
+8.- Actualizar extensiones
+9.- Parar la instalación en un punto
+10.- Regenerar el modulefile
+11.- Instalaciones usando un gestor de colas
+12.- Escribir nuestros propios easyconfig file
+13.- Dependencias externas
+14.- Referencias
+
+0.- Introducción
+================
+
+Sirve para instalar software bioinformático.
+
+Instala el paquete más sus dependencias. De cada paquete suelen haver varias 
+versiones que dependen del compilador con el que se ha compilado.
+
+Puede ser que se queje en alguna instalación de que falta algún rpm en el 
+sistema operativo (algún devel seguramente).
+
+Las primeras instalaciones tardan muchísimo ya que ha de instalarlo todo: los
+compiladores, dependencias, etc. Para el resto de instalaciones debería de ir
+tardando menos ya que va encontrando cosas ya instaladas.
+
+No deja hacer instalaciones como Root. En las pruebas se creó un directorio en
+el /usr/local llamado easybuild y el usuario que hizo todas las instalaciones
+(miguels) tenía derechos de lectura/escritura en este directori.
+
+Esta hecho en python y se basa principalmente en el uso de la herramienta modules 
+(mirar docu del uso de esta herramienta primero).
+
+Los principales componentes de EasyInstall son:
+
+EasyBlock: Cada software a instalar es un EasyBlock. Un EasyBlock está formado
+por el softare en si más sus dependencias, más su ToolChain (entorno de
+compiladores/librerías con el que se ha hecho la instalación tanto de las 
+dependencias como de el software), más los Modulefiles.
+
+ToolChain: Es el entorno de compilación que está compuesto por los compiladores
+(gcc, fortran, icc) y las librerías (LAPACK, OMPI, etc). Hay ToolChains compuestos
+por las mismos compiladores/librerías pero difieren en las versiones que usan.
+
+EasyConfig: Son ficheros con extensión .eb que tienen la información necesaria 
+para que EasyBuild pueda instalar un software. Básicamente tiene la URL desde
+la cual podemos bajar los fuentes del programa, que dependencia hace servir y
+que versiones, si se tienen que instalar algún tipo de extensiones, ... Los podemos
+crear a mano o modificar los ya exitentes.
+
+ModuleFile: Son los ficheros usados por Module con las instrucciones necesarias
+para poder cargar el entorno de ejecución de un software (variables de entorno,
+dependencias, etc). Hay un HowTo que explica como funciona.
+
+
+1.- Instalación
+===============
+
+Hice servir la instalación mát automatizada que tienen y que es la que recomiendan.
+Tienen otra serie de modos de instalación más manuales como por ejemplo el bajar
+los paquetes de python e instalarlos a mano.
+
+http://easybuild.readthedocs.org/en/latest/Installation.html
+http://easybuild.readthedocs.org/en/latest/Installation_Alternative.html#alt-inst-methods
+
+Estas son las instrucciones de instalación: 
+
+a.- Pick an installation prefix to install EasyBuild to:
+PREFIX=/usr/local/easybuild
+
+b.- download script
+curl -O https://raw.githubusercontent.com/hpcugent/easybuild-framework/develop/easybuild/scripts/bootstrap_eb.py
+ 
+c.- bootstrap EasyBuild (NO ME DEJA HACERLO COMO ROOT !!):
+python bootstrap_eb.py $PREFIX
+
+d.- Update $MODULEPATH, and load the EasyBuild module
+
+Ahora, una vez acabada la instalación, añadimos el path de EasyBuild a la lista de directorios que contienen modulefiles:
+
+$ module use $PREFIX/modules/all
+
+Y miramos los modulefiles diponibles. Como aún no hemos instalado nada, en el 
+directorio donde hemos instalado EasyBuild solo está disponible el módulo de la 
+propia herramienta:
+
+$ module avail
+
+----------------------------------------------------- /usr/local/easybuild/modules/all ------------------------------------------------------
+EasyBuild/2.3.0
+
+------------------------------------------------------ /usr/share/Modules/modulefiles -------------------------------------------------------
+dot         module-git  module-info modules     null        use.own
+
+------------------------------------------------------------- /etc/modulefiles --------------------------------------------------------------
+compat-openmpi-psm-x86_64 compat-openmpi-x86_64
+
+Probamos que funciona. Cargamos el modulo del EasyBuild
+
+& module load EasyBuild
+
+Y miramos que esté instalado:
+
+$ module list
+Currently Loaded Modulefiles:
+  1) EasyBuild/2.3.0
+
+Una vez cargado el entorno, el comando de EasyBuild se llama 'eb'.
+
+Ahora, por ejemplo, podemos ver la lista de ToolChain que tenemos disponibles:
+
+$ eb --list-toolchain
+List of known toolchains (toolchainname: module[,module...]):
+	ClangGCC: Clang, GCC
+	CrayCCE: PrgEnv-cray, fftw
+	CrayGNU: PrgEnv-gnu, fftw
+	CrayIntel: PrgEnv-intel, fftw
+	GCC: GCC
+	GNU: GCC
+	cgmpich: Clang, GCC, MPICH
+	cgmpolf: BLACS, Clang, FFTW, GCC, MPICH, OpenBLAS, ScaLAPACK
+	cgmvapich2: Clang, GCC, MVAPICH2
+	cgmvolf: BLACS, Clang, FFTW, GCC, MVAPICH2, OpenBLAS, ScaLAPACK
+	cgompi: Clang, GCC, OpenMPI
+	cgoolf: BLACS, Clang, FFTW, GCC, OpenBLAS, OpenMPI, ScaLAPACK
+	dummy: 
+	foss: BLACS, FFTW, GCC, OpenBLAS, OpenMPI, ScaLAPACK
+	gcccuda: CUDA, GCC
+	gimkl: GCC, imkl, impi
+	gimpi: GCC, impi
+	gmacml: ACML, BLACS, FFTW, GCC, MVAPICH2, ScaLAPACK
+	gmpich: GCC, MPICH
+	gmpich2: GCC, MPICH2
+	gmpolf: BLACS, FFTW, GCC, MPICH, OpenBLAS, ScaLAPACK
+	gmvapich2: GCC, MVAPICH2
+	gmvolf: BLACS, FFTW, GCC, MVAPICH2, OpenBLAS, ScaLAPACK
+	goalf: ATLAS, BLACS, FFTW, GCC, OpenMPI, ScaLAPACK
+	gompi: GCC, OpenMPI
+	gompic: CUDA, GCC, OpenMPI
+	goolf: BLACS, FFTW, GCC, OpenBLAS, OpenMPI, ScaLAPACK
+	goolfc: BLACS, CUDA, FFTW, GCC, OpenBLAS, OpenMPI, ScaLAPACK
+	gpsmpi: GCC, psmpi
+	gpsolf: BLACS, FFTW, GCC, OpenBLAS, ScaLAPACK, psmpi
+	gqacml: ACML, BLACS, FFTW, GCC, QLogicMPI, ScaLAPACK
+	iccifort: icc, ifort
+	ictce: icc, ifort, imkl, impi
+	iimpi: icc, ifort, impi
+	iiqmpi: QLogicMPI, icc, ifort
+	impich: MPICH, icc, ifort
+	impmkl: MPICH, icc, ifort, imkl
+	intel: icc, ifort, imkl, impi
+	intel-para: icc, ifort, imkl, psmpi
+	iomkl: OpenMPI, icc, ifort, imkl
+	iompi: OpenMPI, icc, ifort
+	ipsmpi: icc, ifort, psmpi
+	iqacml: ACML, BLACS, FFTW, QLogicMPI, ScaLAPACK, icc, ifort
+	ismkl: MPICH2, icc, ifort, imkl
+$ 
+
+Tamién miramos la lista de soft disponible para instalar, o lo que es lo mismo,
+los EasyBlocks:
+
+eb --list-easyblocks
+$ eb --list-easyblocks
+EasyBlock
+|-- Binary
+|   |-- EB_ABAQUS
+|   |-- EB_Allinea
+|   |-- EB_CUDA
+|   |-- EB_CPLEX
+|   |-- EB_EPD
+|   |-- Rpm
+|   |   |-- EB_QLogicMPI
+|   |-- PackedBinary
+|   |   |-- EB_Java
+|   |   |-- EB_Tornado
+|   |-- EB_Mathematica
+|   |-- JAR
+|-- EB_ALADIN
+|-- ConfigureMake
+|   |-- EB_ARB
+|   |-- CMakeMake
+|   |   |-- EB_Armadillo
+|   |   |-- EB_BamTools
+...
+...
+...
+...
+Extension
+|-- ExtensionEasyBlock
+|   |-- RPackage
+|   |   |-- EB_Bioconductor
+|   |   |-- EB_pbdSLAP
+|   |   |-- EB_pbdMPI
+|   |   |-- EB_Rserve
+|   |   |-- EB_Rmpi
+|   |   |-- EB_XML
+|   |-- PythonPackage
+|   |   |-- CMakePythonPackage
+|   |   |   |-- EB_DOLFIN
+|   |   |   |-- EB_UFC
+|   |   |-- EB_EasyBuildMeta
+|   |   |-- EB_libxml2
+|   |   |-- FortranPythonPackage
+|   |   |   |-- EB_numpy
+|   |   |   |-- EB_scipy
+|   |   |-- EB_nose
+|   |   |-- EB_netcdf4_minus_python
+|   |   |-- EB_PyQuante
+|   |   |-- EB_python_minus_meep
+|   |   |-- EB_PyZMQ
+|   |   |-- EB_VSC_minus_tools
+|   |   |-- ConfigureMakePythonPackage
+|   |   |-- VersionIndependentPythonPackage
+|   |   |   |-- VersionIndependendPythonPackage
+|   |   |   |-- VSCPythonPackage
+|   |-- RubyGem
+|   |-- PerlModule
+
+$
+
+
+2.- Instalación de prueba usando EasyBuild
+==========================================
+
+
+a.- Cargamos el entorno de EasyBuild
+
+# module use /usr/local/easybuild/modules/all
+# module load EasyBuild
+
+
+b.- Vamos ha hacer la prueba de instalación instalando Bowtie2. Para ver todas 
+las versiones disponibles del EasyBlock de Bowtie2 usamos el modificador --search/-S:
+
+$ eb -S Bowtie2
+== temporary log file in case of crash /tmp/eb-9QN629/easybuild-dVFYZk.log
+== Searching (case-insensitive) for 'Bowtie2' in /usr/local/easybuild/software/EasyBuild/2.3.0/lib/python2.6/site-packages/easybuild_easyconfigs-2.3.0-py2.6.egg/easybuild/easyconfigs 
+CFGS1=/usr/local/easybuild/software/EasyBuild/2.3.0/lib/python2.6/site-packages/easybuild_easyconfigs-2.3.0-py2.6.egg/easybuild/easyconfigs/b/Bowtie2
+ * $CFGS1/Bowtie2-2.0.2-goalf-1.1.0-no-OFED.eb
+ * $CFGS1/Bowtie2-2.0.2-goolf-1.4.10.eb
+ * $CFGS1/Bowtie2-2.0.2-ictce-4.0.6.eb
+ * $CFGS1/Bowtie2-2.0.2-ictce-5.3.0.eb
+ * $CFGS1/Bowtie2-2.0.5-goolf-1.4.10.eb
+ * $CFGS1/Bowtie2-2.0.6-goolf-1.4.10.eb
+ * $CFGS1/Bowtie2-2.1.0-goolf-1.4.10.eb
+ * $CFGS1/Bowtie2-2.1.0-ictce-5.5.0.eb
+ * $CFGS1/Bowtie2-2.2.0-goolf-1.4.10.eb
+ * $CFGS1/Bowtie2-2.2.2-goolf-1.4.10.eb
+ * $CFGS1/Bowtie2-2.2.4-goolf-1.4.10.eb
+ * $CFGS1/Bowtie2-2.2.5-goolf-1.7.20.eb
+ * $CFGS1/Bowtie2-2.2.5-intel-2015a.eb
+== Tmporary log file(s) /tmp/eb-9QN629/easybuild-dVFYZk.log* have been removed.
+== Temporary directory /tmp/eb-9QN629 has been removed.
+$ 
+
+El texto que aparece depués de la versión del EasyBlock vemos el ToolChain con 
+el que será compillado (tal y como hemos visto anteriormente, podemos ver de que 
+se compone este ToolChain en la lista de ToolChain (eb --list-toolchain).
+
+c.- Miramos las dependencias. Lo hacemos con el fag --dry-run/-D. Si hubiese alguna
+dependencia de las que necesita este paquete ya instalada, veríamos una X entre los
+corchetes (normal que no haya nada ya instalado ya que va a ser el primer paquete):
+
+[miguels@node1 ~]$ eb Bowtie2-2.2.5-goolf-1.7.20.eb -Dr
+== temporary log file in case of crash /tmp/eb-PcylfK/easybuild-kRF144.log
+Dry run: printing build status of easyconfigs and dependencies
+CFGS=/usr/local/easybuild/software/EasyBuild/2.3.0/lib/python2.6/site-packages/easybuild_easyconfigs-2.3.0-py2.6.egg/easybuild/easyconfigs
+ * [ ] $CFGS/g/GCC/GCC-4.8.4.eb (module: GCC/4.8.4)
+ * [ ] $CFGS/o/OpenBLAS/OpenBLAS-0.2.13-GCC-4.8.4-LAPACK-3.5.0.eb (module: OpenBLAS/0.2.13-GCC-4.8.4-LAPACK-3.5.0)
+ * [ ] $CFGS/m/M4/M4-1.4.17-GCC-4.8.4.eb (module: M4/1.4.17-GCC-4.8.4)
+ * [ ] $CFGS/l/libtool/libtool-2.4.5-GCC-4.8.4.eb (module: libtool/2.4.5-GCC-4.8.4)
+ * [ ] $CFGS/a/Autoconf/Autoconf-2.69-GCC-4.8.4.eb (module: Autoconf/2.69-GCC-4.8.4)
+ * [ ] $CFGS/a/Automake/Automake-1.15-GCC-4.8.4.eb (module: Automake/1.15-GCC-4.8.4)
+ * [ ] $CFGS/n/numactl/numactl-2.0.10-GCC-4.8.4.eb (module: numactl/2.0.10-GCC-4.8.4)
+ * [ ] $CFGS/h/hwloc/hwloc-1.10.1-GCC-4.8.4.eb (module: hwloc/1.10.1-GCC-4.8.4)
+ * [ ] $CFGS/o/OpenMPI/OpenMPI-1.8.4-GCC-4.8.4.eb (module: OpenMPI/1.8.4-GCC-4.8.4)
+ * [ ] $CFGS/g/gompi/gompi-1.7.20.eb (module: gompi/1.7.20)
+ * [ ] $CFGS/f/FFTW/FFTW-3.3.4-gompi-1.7.20.eb (module: FFTW/3.3.4-gompi-1.7.20)
+ * [ ] $CFGS/s/ScaLAPACK/ScaLAPACK-2.0.2-gompi-1.7.20-OpenBLAS-0.2.13-LAPACK-3.5.0.eb (module: ScaLAPACK/2.0.2-gompi-1.7.20-OpenBLAS-0.2.13-LAPACK-3.5.0)
+ * [ ] $CFGS/g/goolf/goolf-1.7.20.eb (module: goolf/1.7.20)
+ * [ ] $CFGS/b/Bowtie2/Bowtie2-2.2.5-goolf-1.7.20.eb (module: Bowtie2/2.2.5-goolf-1.7.20)
+== Tmporary log file(s) /tmp/eb-PcylfK/easybuild-kRF144.log* have been removed.
+== Temporary directory /tmp/eb-PcylfK has been removed.
+[miguels@node1 ~]$
+
+d.- Elegimos el EasyBlock llamado Bowtie2-2.2.5-goolf-1.7.20.eb que será  
+compilado con el ToolChain goolf-1.7.20 que si miramos su info con el comando
+'eb --list-toolchain' vemos que está compuesto por:
+
+BLACS, FFTW, GCC, OpenBLAS, OpenMPI, ScaLAPACK
+
+Vamos a instalarlo con el flag --robot/-r (esto de robot es para que auoinstale
+las dependencias que necesita). Dependiendo de las dependencias que tenga que
+bajar/compilar e instalar puede tardar mas o menos (en el caso de este ejemplo
+como era la primera instalació y te tenía nada instalado tardó muchísimo por todas
+las dependencias que necesitaba):
+
+$ eb Bowtie2-2.2.5-goolf-1.7.20.eb --robot
+== temporary log file in case of crash /tmp/eb-Vdm0Ki/easybuild-zPEbGA.log
+== resolving dependencies ...
+== processing EasyBuild easyconfig /usr/local/easybuild/software/EasyBuild/2.3.0/lib/python2.6/site-packages/easybuild_easyconfigs-2.3.0-py2.6.egg/easybuild/easyconfigs/g/GCC/GCC-4.8.4.eb
+== building and installing GCC/4.8.4...
+== fetching files...
+== creating build dir, resetting environment...
+== unpacking...
+== patching...
+== preparing...
+== configuring...
+== building...
+== testing...
+== installing...
+== taking care of extensions...
+== postprocessing...
+== sanity checking...
+== cleaning up...
+== creating module...
+== permissions...
+== packaging...
+== COMPLETED: Installation ended successfully
+== Results of the build can be found in the log file /home/miguels/.local/easybuild/software/GCC/4.8.4/easybuild/easybuild-GCC-4.8.4-20150910.181700.log
+== processing EasyBuild easyconfig /usr/local/easybuild/software/EasyBuild/2.3.0/lib/python2.6/site-packages/easybuild_easyconfigs-2.3.0-py2.6.egg/easybuild/easyconfigs/o/OpenBLAS/OpenBLAS-0.2.13-GCC-4.8.4-LAPACK-3.5.0.eb
+== building and installing OpenBLAS/0.2.13-GCC-4.8.4-LAPACK-3.5.0...
+== fetching files...
+== creating build dir, resetting environment...
+== unpacking...
+== patching...
+...
+...
+...
+== taking care of extensions...
+== postprocessing...
+== sanity checking...
+== cleaning up...
+== creating module...
+== permissions...
+== packaging...
+== COMPLETED: Installation ended successfully
+== Results of the build can be found in the log file /home/miguels/.local/easybuild/software/Bowtie2/2.2.5-goolf-1.7.20/easybuild/easybuild-Bowtie2-2.2.5-20150910.183822.log
+== Build succeeded for 14 out of 14
+== Tmporary log file(s) /tmp/eb-Vdm0Ki/easybuild-zPEbGA.log* have been removed.
+== Temporary directory /tmp/eb-Vdm0Ki has been removed.
+$
+
+Pues depués de hacer esta instalación y otra de prueba, resulta que 
+el EasyBuild lo tengo instalado en /usr/local pero que estas instalaciones me
+las deja en el home del usuario miguels:
+
+[miguels@node1 ~]$ ls /home/miguels/.local/easybuild/modules/
+all/       compiler/  devel/     lang/      mpi/       system/    tools/     
+bio/       data/      geo/       lib/       numlib/    toolchain/ vis/       
+[miguels@node1 ~]$ ls /home/miguels/.local/easybuild/modules/all/
+Autoconf  Bison    Doxygen  flex  gompi  HDF5   JasPer   M4       netCDF          numactl   OpenMPI    Szip  WRF
+Automake  Bowtie2  FFTW     GCC   goolf  hwloc  libtool  ncurses  netCDF-Fortran  OpenBLAS  ScaLAPACK  tcsh  zlib
+[miguels@node1 ~]$ 
+
+No mola ya que entonces, cada usuario tendría el soft instlado en su home y tendríamos
+varias copias de un mismo programa. Lo queremos todo junto en un mismo sitio a modo
+de repositorio de software, a parte del inconveniente de que tendríamos que hacer
+un module load para el EasyBuild y otro para el path donde se han instalado los 
+paquetes (/home/miguels/.local/easybuild/modules/all).
+
+3.- ¿Como generar un repositorio de software centralizado con EasyBuild?
+========================================================================
+
+Para poder hacer esto primero hemos de configurar EasyBuild a nuestro gusto. Por
+defecto no parece que estén creados los ficheros de configuración para EasyBuild. 
+Para ver donde los busca por defecto:
+
+[miguels@node1 ~]$ eb --show-default-configfiles
+Default list of configuration files:
+
+[with $XDG_CONFIG_HOME: (not set), $XDG_CONFIG_DIRS: (not set)]
+
+* user-level: ${XDG_CONFIG_HOME:-$HOME/.config}/easybuild/config.cfg
+  -> /home/miguels/.config/easybuild/config.cfg => not found
+* system-level: ${XDG_CONFIG_DIRS:-/etc}/easybuild.d/*.cfg
+  -> {/etc}/easybuild.d/*.cfg => (no matches)
+
+Default list of existing configuration files (0): (none)
+[miguels@node1 ~]$ 
+
+Como nos interesa que este todo bajo /usr/local (como si fuera /soft), vamos a 
+definir en la variable de entorno XDG_CONFIG_DIRS que es aquí donde tendremos los
+ficheros de configuración:
+
+$ export XDG_CONFIG_DIRS=/usr/local/easybuild
+$ eb --show-default-configfiles
+Default list of configuration files:
+
+[with $XDG_CONFIG_HOME: (not set), $XDG_CONFIG_DIRS: /usr/local/easybuild]
+
+* user-level: ${XDG_CONFIG_HOME:-$HOME/.config}/easybuild/config.cfg
+  -> /home/miguels/.config/easybuild/config.cfg => not found
+* system-level: ${XDG_CONFIG_DIRS:-/etc}/easybuild.d/*.cfg
+  -> {/usr/local/easybuild}/easybuild.d/*.cfg => (no matches)
+
+Default list of existing configuration files (0): (none)
+[miguels@node1 ~]$ 
+
+Y ahora vamos a generar una plantilla de fichero de configuración llamada config.cfg
+en el directorio /usr/local/easybuild/easybuild.d
+
+[miguels@node1 ~]$ mkdir /usr/local/easybuild/easybuild.d/
+[miguels@node1 ~]$ eb --confighelp > /usr/local/easybuild/easybuild.d/config.cfg
+[miguels@node1 ~]$ eb --show-default-configfiles
+Default list of configuration files:
+
+[with $XDG_CONFIG_HOME: (not set), $XDG_CONFIG_DIRS: /usr/local/easybuild]
+
+* user-level: ${XDG_CONFIG_HOME:-$HOME/.config}/easybuild/config.cfg
+  -> /home/miguels/.config/easybuild/config.cfg => not found
+* system-level: ${XDG_CONFIG_DIRS:-/etc}/easybuild.d/*.cfg
+  -> {/usr/local/easybuild}/easybuild.d/*.cfg => /usr/local/easybuild/easybuild.d/config.cfg
+
+Default list of existing configuration files (1): /usr/local/easybuild/easybuild.d/config.cfg
+[miguels@node1 ~]$ 
+
+OK, ya tenemos un template de fichero de configuración creado y reconocido por 
+EasyBuild. Para acabar de dejarlo todo bien atado, podemos definir el export 
+que hemos hecho a XDG_CONFIG_DIRS dentro del modulefile del EasyBuild:
+
+[miguels@node1 ~]$ cat /usr/local/easybuild/modules/all/EasyBuild/2.3.0
+#%Module
+proc ModulesHelp { } {
+    puts stderr { EasyBuild is a software build and installation framework
+written in Python that allows you to install software in a structured,
+repeatable and robust way. - Homepage: http://hpcugent.github.com/easybuild/
+    }
+}
+
+module-whatis {Description: EasyBuild is a software build and installation framework
+written in Python that allows you to install software in a structured,
+repeatable and robust way. - Homepage: http://hpcugent.github.com/easybuild/}
+
+set root /usr/local/easybuild/software/EasyBuild/2.3.0
+
+conflict EasyBuild
+
+prepend-path	LD_LIBRARY_PATH		$root/lib
+prepend-path	LD_LIBRARY_PATH		$root/lib64
+prepend-path	LIBRARY_PATH		$root/lib
+prepend-path	LIBRARY_PATH		$root/lib64
+prepend-path	PATH		$root/bin
+setenv	EBROOTEASYBUILD		"$root"
+setenv	EBVERSIONEASYBUILD		"2.3.0"
+setenv	EBDEVELEASYBUILD		"$root/easybuild/EasyBuild-2.3.0-easybuild-devel"
+
+# Afegim el directori on volem que estigui el fitxer de configuración
+setenv  XDG_CONFIG_DIRS		/usr/local/easybuild
+
+prepend-path	PYTHONPATH		$root/lib/python2.6/site-packages
+prepend-path	PYTHONPATH		$root/lib64/python2.6/site-packages
+# Built with EasyBuild version 2.3.0
+[miguels@node1 ~]$ 
+
+OK, ahora toca modificar este fichero de configuración para que by default todo
+lo que instalemos vaya a /usr/local/easybuild. Lo más fácil es añadir que el 
+path base para las instalaciones de EasyBuild (el prefix) es /usr/local/easybuild.
+Esto lo conseguimos modificando la linea del fichero de configuración donde se
+muestra el prefix (esta en el apartado [config], linea 77 aprox):
+
+[miguels@node1 ~]$ cat /usr/local/easybuild/easybuild.d/config.cfg 
+[MAIN]
+# Enable debug log mode (def False)
+#debug=
+# Enable info log mode (def False)
+#info=
+# Enable quiet/warning log mode (def False)
+#quiet=
+
+[basic]
+# Print build overview incl. dependencies (full paths) (def False)
+#dry-run=
+# Print build overview incl. dependencies (short paths) (def False)
+#dry-run-short=
+...
+...
+...
+[config]
+..
+...
+...
+# Change prefix for buildpath, installpath, sourcepath and repositorypath (used prefix for defaults /home/miguels/.local/easybuild)
+prefix=/usr/local/easybuild
+...
+...
+...
+# Try to search and build with given toolchain name (USE WITH CARE!)
+#try-toolchain-name=
+# Try to search and build with given toolchain version (USE WITH CARE!)
+#try-toolchain-version=
+
+[unittest]
+# Log to this file in unittest mode
+#unittest-file=
+
+[miguels@node1 ~]$ 
+
+De esta manera, al instalar algo ya queda directamente dentro de /usr/local/easybuild 
+y si ejecutamos 'module avail' ya vemos los nuevos modulefiles instalados sin necesidad
+de tener que añadir un nuevo repo de modulefiles tal y como teniamos que hacer antes
+de especificar el prefix en el fichero de configuracion de EasyBuild
+
+Entonces, repetimos con esta nueva configuración la instalación del Bowtie2 y 
+ahora ya podemos ver todo lo que se ha instalado y cargarlo:
+
+[miguels@node1 ~]$ module avail
+
+----------------------------------------------------- /usr/local/easybuild/modules/all ------------------------------------------------------
+Autoconf/2.69-GCC-4.8.4                                   hwloc/1.10.1-GCC-4.8.4
+Automake/1.15-GCC-4.8.4                                   libtool/2.4.5-GCC-4.8.4
+Bowtie2/2.2.5-goolf-1.7.20                                M4/1.4.17-GCC-4.8.4
+EasyBuild/2.3.0                                           numactl/2.0.10-GCC-4.8.4
+FFTW/3.3.4-gompi-1.7.20                                   OpenBLAS/0.2.13-GCC-4.8.4-LAPACK-3.5.0
+GCC/4.8.4                                                 OpenMPI/1.8.4-GCC-4.8.4
+gompi/1.7.20                                              ScaLAPACK/2.0.2-gompi-1.7.20-OpenBLAS-0.2.13-LAPACK-3.5.0
+goolf/1.7.20
+
+------------------------------------------------------ /usr/share/Modules/modulefiles -------------------------------------------------------
+dot         module-git  module-info modules     null        use.own
+
+------------------------------------------------------------- /etc/modulefiles --------------------------------------------------------------
+compat-openmpi-psm-x86_64 compat-openmpi-x86_64
+[miguels@node1 ~]$ module load Bowtie2
+[miguels@node1 ~]$ module list 
+Currently Loaded Modulefiles:
+  1) EasyBuild/2.3.0                                             7) gompi/1.7.20
+  2) GCC/4.8.4                                                   8) FFTW/3.3.4-gompi-1.7.20
+  3) numactl/2.0.10-GCC-4.8.4                                    9) ScaLAPACK/2.0.2-gompi-1.7.20-OpenBLAS-0.2.13-LAPACK-3.5.0
+  4) hwloc/1.10.1-GCC-4.8.4                                     10) goolf/1.7.20
+  5) OpenMPI/1.8.4-GCC-4.8.4                                    11) Bowtie2/2.2.5-goolf-1.7.20
+  6) OpenBLAS/0.2.13-GCC-4.8.4-LAPACK-3.5.0
+[miguels@node1 ~]$ which bowtie2
+/usr/local/easybuild/software/Bowtie2/2.2.5-goolf-1.7.20/bin/bowtie2
+[miguels@node1 ~]$ 
+
+4.- Instalar un soft en otro prefix
+===================================
+
+Podemos indicar un prefix a la hora de instalar un nuevo soft usando el flag 
+--prefix=<path>:
+
+eb GROMACS-4.6.5-goolfc-2.6.10-mt.eb --robot --prefix=/usr/local/Gromacs-4.6.5
+
+Entonces, lo que nos deja en el path del prefix es lo mismo que había puesto
+en el path de EasyBuild con el modulefile, el source compilado, etc (no es
+como si lo hubiésemos compilado a mano), es decir, la misma estructura de 
+directorios que tenemos en /usr/local/easybuild pero en la que solo tenemos
+los ficheros que de esta instalación (el soft en si, los modulefiles, los sources,
+los EasyConfig files, etc). Es poco práctico, creo:
+
+[miguels@node1 ~]$ ls /usr/local/Gromacs-4.6.5/
+build  ebfiles_repo  modules  software  sources
+[miguels@node1 ~]$ 
+
+ATENCION: Todas las dependencias que ha tenido que intalar también están aquí 
+dentro en este prefix !!!!
+
+Tiene una pega importante, y es que by default, si ejecutamos 'module avail' no
+vemos este soft:
+
+[miguels@node1 ~]$ module avail GROMACS
+[miguels@node1 ~]$ 
+
+Tenemos que cargar el directorio donde están los modulefiles de GROMACS:
+
+[miguels@node1 ~]$ module use /usr/local/Gromacs-4.6.5/modules/all
+[miguels@node1 ~]$ module avail GROMACS
+
+--------------------------------------------------- /usr/local/Gromacs-4.6.5/modules/all ----------------------------------------------------
+GROMACS/4.6.5-goolfc-2.6.10-mt
+[miguels@node1 ~]$
+
+
+5.- Omitir una dependencia
+==========================
+
+Si tenemos una dependencia ya instalada en el sistem aperativo por lo que no
+queremos que nos la instale y hacer servir la ya instalada, podemos 
+hacerlo con el flag '--filter-deps=<nom-dependencia>'. Podemos usarla tanto para 
+a la hora de mirar las dependencias de un soft como a la hora de hacer la instalación:
+
+$ eb R-bundle-Bioconductor-3.1-goolf-1.7.20-R-3.2.0.eb -Dr --filter-deps=Java
+
+Si ejecutamos este comando sin el --filter-deps, veremos que en la lista de
+depencias si que sale java jdk.
+
+Y ahora hacemos la instalación:
+
+$ eb R-bundle-Bioconductor-3.1-goolf-1.7.20-R-3.2.0.eb --robot --filter-deps=Java
+
+Cuando acabe la instalación, veríamos que el java no se ha instalado. Eso sí, 
+tendremos que hacer las modificaciones necesarias, ya sea a nivel de sistema operativo
+o dentro del modulefile que carga el Bioconductor para que java esté disponible 
+a la hora de hacer servir este paquete.
+
+6.- Ocultar una dependencia
+===========================
+
+Podemos no evitar que se instale una dependencia pero si que no se muestre cuando
+efecutemos 'module avail' usando el flag '--hide-deps':
+
+eb hwloc-1.8-gcccuda-2.6.10.eb --hide-deps=CUDA --robot
+
+Una vez finalizada la instalación, al ejecutar 'module avail' no veremos la 
+depencia de CUDA que ha sido instalada, pero al cargar este soft si que 
+veremos con module list que está cargada y será cuando nos daremos cuenta de que
+para que sea oculta, a este dependencia se le ha puesto un punto delante, como
+si fuera un fichero oculto: 
+
+[miguels@node1 ~]$ module avail CUDA
+[miguels@node1 ~]$ module load hwloc/1.8-gcccuda-2.6.10
+[miguels@node1 ~]$ module list
+Currently Loaded Modulefiles:
+  1) EasyBuild/2.3.0            3) CUDA/.5.5.22-GCC-4.8.2     5) hwloc/1.8-gcccuda-2.6.10
+  2) GCC/4.8.2                  4) gcccuda/2.6.10
+[miguels@node1 ~]$ 
+
+(en este caso CUDA/.5.5.22-GCC-4.8.2).
+
+También podemos usar este flag para cuando consultamos las dependencias con -Dr:
+
+eb hwloc-1.8-gcccuda-2.6.10.eb --hide-deps=CUDA -Dr
+
+7.- Generar RPM's de un soft instalado con EasyBuild
+====================================================
+
+EasyBuild permite generar un RPM, .deb, etc de un paquete ya instalado o de un 
+paquete nuevo a instalar usando los flags: --experimental --package [--package-type]
+El último flag, --package-type es para indicar si queremos que nos genere un rpm, 
+un .deb, ... (by default, genera un rpm).
+
+Si queremos generar un rpm de un soft ya instalado, entonces hemos de añadir el
+flag --skip.
+
+El paquete generado lo deja $prefix/packages (en nuestro caso tenemo $prefix
+configurado en el fichero de configuracion de EasyBuild).
+
+Para poder usar esta funcionalidad, primero necesitamos el paquete FPM:
+
+eb FPM-1.3.3-Ruby-2.1.6.eb --robot
+module load FPM/1.3.3-Ruby-2.1.6
+
+y ahora instalamos este soft y nos genera el correspondiente rpm:
+
+eb --experimental --package Perl-5.20.1-GCC-4.9.2-bare.eb --robot
+
+Entonces, genera un rpm por cada una de las dependencias que no están instaladas, 
+además del rpm del propio package (en este caso Perl-2.20...). El directorio de 
+instalación e los rpm resultantes es el mismo que el usado con EasyBuild (es decir 
+/usr/local/easybuild/...) e inclue el soft en si (/usr/local/easybuild/software) 
+y los modulefiles (/usr/local/easybuild/modules).
+
+Con el flag skip nos permite generar un rpm de un soft ya instalado. Solo me ha
+funcionado si le indio además el flag --force/-f (veo en los mensages como me va
+diciendo que skipping en todos los pasos de compilacion e instalacion del 
+soft, que es lo que quiero, pero si que genera al final el rpm:
+
+eb --experimental --package --skip Perl-5.20.1-GCC-4.9.2-bare.eb --robot -f
+
+8.- Actualizar extensiones
+==========================
+
+Algunos programas se instalan con dependencias, por ejemplo, R (las extensiones
+son un grupo de paquetes de R que se instalan junto con R). Si queremos checkear que
+no falte ninguna extensión y de paso que el software esté ok lo podemos hacer 
+con --skip --force (no reintala otra vez el software pero si que checkea sus
+dependencias y si falta alguna, la instala):
+
+eb R-3.2.0-goolf-1.7.20.eb --skip --force
+
+(Usually --force is also required, either to ignore the existing module file)
+
+9.- Parar la instalación en un punto
+====================================
+
+Si no queremos que una instalació finalice, por ejemplo, hacer solo el configure
+o el compile lo podemos hacer con el flag --stop y el nombre del paso hasta donde
+queremos hacer:
+
+# eb GCC-4.9.2.eb --stop configure
+
+10.- Regenerar el modulefile
+============================
+
+Podemos regenerar el modulefile de un software ya instalado, o incluso no instalar
+el software pero sí generar su modulefile, con el flag --module-only y --force:
+
+- Generar solo el modulefile:
+
+[miguels@node1 R]$ module avail GCC
+
+----------------------------------------------------- /usr/local/easybuild/modules/all ------------------------------------------------------
+GCC/4.7.2 GCC/4.8.2 GCC/4.8.4 GCC/4.9.2
+[miguels@node1 R]$ eb GCC-5.1.0.eb --module-only --force --robot
+...
+...
+...
+[miguels@node1 R]$ module avail GCC
+
+----------------------------------------------------- /usr/local/easybuild/modules/all ------------------------------------------------------
+GCC/4.7.2 GCC/4.8.2 GCC/4.8.4 GCC/4.9.2 GCC/5.1.0
+[miguels@node1 R]$
+
+Si ya tubieramos instalado este paquete entonces lo que hace es que regenera el 
+modulefile.
+
+11.- Instalaciones usando un gestor de colas
+============================================
+
+Se pueden hacer jobs con EasyBuild que son encolados en un sistema de colas local, 
+creo, que puede ser principalemente Torque o Slurm para hacer instalaciones. 
+Se hace con el flag --job y se ha de hacer un fichero de configuracion. No lo he 
+mirado mucho ya que no acabo de ver la utilidad y hay que tener instalado o Torque
+o Slurm:
+
+http://easybuild.readthedocs.org/en/latest/Submitting_jobs.html
+
+12.- Escribir nuestros propios easyconfig file
+==============================================
+
+Un easyconfig file son los ficheros .eb que contienen las instrucciones de lo que 
+se tiene que bajar, compilar, como compilar, que ToolChain a usar, etc. Son los
+ficheros con extensión .eb.
+
+Aqui explica como hacer intalaciones a medida creando nuestros propios 
+easyconfig files, tiene miga, no es trivial, pero igual si tiramos de esta 
+herramienta nos puede interesar para modificar algún easyconfig file por que
+queremos que alguna herramienta esté configurada con un flag u opción diferente:
+
+http://easybuild.readthedocs.org/en/latest/Writing_easyconfig_files.html#dependency-specs
+
+13.- Dependencias externas
+==========================
+
+Aquí explica como indicar dentro del easyconfig file una dependencia externa
+que ya está instalada que quereos que haga servir un soft que vamos a instalar
+con EasyBuild (vaya, que no baje y compile esta dependencia, que haga servir la
+que nosotros ya tenemos instalada). Para ello, primero hemos de tener el 
+modulefile para esta dependencia y añadir algo de este estilo en el fichero .eb 
+(el easyconfig file) para que le haga servir:
+
+dependencies = [('fftw/3.3.4.2', EXTERNAL_MODULE)]
+
+Una vez acabada la instalación del software que hemos pedido al EasyBuild, este
+ya tendrá su propio modulefile el cual ya se encarga de cargar este modulo 
+externo (i.e: module load fftw/3.3.4.2).
+
+Esta metadata information del external module se puede indicar usando un fichero
+.ini con el flag --external-modules-metadata (esta info será añadida por EasyBuild
+en el modulefile del software que estamos instalado en forma de variables de entorno
+con el formato $EBROOT<NAME> y $EBVERSION<NAME>).
+
+http://easybuild.readthedocs.org/en/latest/Using_external_modules.html
+
+
+14.- Referencias
+================
+
+http://easybuild.readthedocs.org/en/latest/Installation.html
+http://easybuild.readthedocs.org/en/latest/Typical_workflow_example_with_WRF.html
+http://easybuild.readthedocs.org/en/latest/Configuration.html

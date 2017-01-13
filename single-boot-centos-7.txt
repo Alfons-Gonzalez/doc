@@ -1,0 +1,23 @@
+no lo he probado...so...la receta siguiente es una posibilidad:
+
+Well, here the steps to get it:
+
+- reboot the machine and wait for the boot loader
+- do not allow machine boot but select the default boot entry ( normally the first one )
+- then press 'e'
+- jump to the kernel image (vmlinux etc) row and delete the 'rhgb quiet' directive than
+- put the "rd.break enforcing=0" string at the end
+- press ctrl+x and begin the boot
+- when the prompt appears remount the sysroot with read/write permissions "mount -o remount,rw /sysroot"
+- than chroot "chroot /sysroot"
+- now change the password with 'passwd' normally
+- type 'exit'
+- remount sysroot with read only permission "mount -o remount,ro /sysroot"
+- type 'exit' and wait for the boot ends
+- login with the new password
+- restore de SElinux contexes "restorecon /etc/shadow" of the password file
+- set SELinux in permisive mode
+- backup and clean the audit log file
+- reboot
+- watch for the denied issues in the audit log file, if they aren't set SElinux Enforcing and reboot.
+

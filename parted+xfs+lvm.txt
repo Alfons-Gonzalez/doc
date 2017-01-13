@@ -1,0 +1,125 @@
+ Al server gamma, que te una controladora interna Dell H700 amb 12 discos de 2Tb SATA, formant un RAID6 hw,
+
+[root@gamma ~]# parted /dev/sdb
+GNU Parted 1.8.1
+Using /dev/sdb
+Welcome to GNU Parted! Type 'help' to view a list of commands.
+(parted) print                                                            
+
+Model: DELL PERC H700 (scsi)
+Disk /dev/sdb: 20.0TB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+
+Number  Start   End     Size    File system  Name     Flags
+ 1      17.4kB  20.0TB  20.0TB               primary       
+
+(parted) quit
+
+Es a dir hem creat una particio de 20Tb i despres hem fet
+
+mkfs.xfs /dev/sdb1
+
+
+2.- despres creem el volum fisic
+
+[root@gamma ~]# pvcreate /dev/sdb1
+  Physical volume "/dev/sdb1" successfully created
+[root@gamma ~]# pvdisplay
+  "/dev/sdb1" is a new physical volume of "18.19 TB"
+  --- NEW Physical volume ---
+  PV Name               /dev/sdb1
+  VG Name               
+  PV Size               18.19 TB
+  Allocatable           NO
+  PE Size (KByte)       0
+  Total PE              0
+  Free PE               0
+  Allocated PE          0
+  PV UUID               QLZrip-tvB0-JFNx-92jA-h04P-5Wjt-33Hd13
+   
+[root@gamma ~]# 
+
+Amb system-config-lvm creem els volum group i el volum logic:
+
+
+[root@gamma ~]# vgdisplay
+  --- Volume group ---
+  VG Name               data1
+  System ID             
+  Format                lvm2
+  Metadata Areas        1
+  Metadata Sequence No  2
+  VG Access             read/write
+  VG Status             resizable
+  MAX LV                256
+  Cur LV                1
+  Open LV               0
+  Max PV                256
+  Cur PV                1
+  Act PV                1
+  VG Size               18.19 TB
+  PE Size               4.00 MB
+  Total PE              4767999
+  Alloc PE / Size       2384000 / 9.09 TB
+  Free  PE / Size       2383999 / 9.09 TB
+  VG UUID               GxYp3Y-q44x-jwki-b9fL-xa0m-rT8E-eSMQkZ
+   
+[root@gamma ~]# lvdisplay
+  --- Logical volume ---
+  LV Name                /dev/data1/volum1
+  VG Name                data1
+  LV UUID                fabdj8-3f51-SQCp-CfDV-vXGW-PwcI-hVL42P
+  LV Write Access        read/write
+  LV Status              available
+  # open                 0
+  LV Size                9.09 TB
+  Current LE             2384000
+  Segments               1
+  Allocation             inherit
+  Read ahead sectors     auto
+  - currently set to     256
+  Block device           253:0
+                                                    
+
+Cal fer mkfs.xfs /dev/data1/volum1
+
+
+mount /dev/data1/volum /data i veiem un filesystem de 9Tb:
+
+[root@gamma test]# df -h
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/sda1              29G  2.9G   25G  11% /
+/dev/sda3              81G  184M   77G   1% /home
+tmpfs                 5.9G     0  5.9G   0% /dev/shm
+/dev/mapper/data1-volum1
+                      9.1T  288M  9.1T   1% /data
+
+
+Creo una carpeta dins de /data, volco dades.
+
+Desmunto /data i el volem fer mes gran:
+
+
+1.- fem creixer 2Tb el volum
+[root@gamma ~]# lvextend -L+2000G /dev/data1/volum1 
+  Extending logical volume volum1 to 11.05 TB
+  Logical volume volum1 successfully resized
+
+
+2.- fem creixer el filesystem associat
+
+[root@gamma ~]# mount /dev/data1/volum1 /data
+[root@gamma ~]# xfs_growfs /data
+
+
+[root@gamma ~]# df -h
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/sda1              29G  2.9G   25G  11% /
+/dev/sda3              81G  184M   77G   1% /home
+tmpfs                 5.9G     0  5.9G   0% /dev/shm
+/dev/mapper/data1-volum1
+                       12T  288M   12T   1% /data
+
+
+ 

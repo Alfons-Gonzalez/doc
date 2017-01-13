@@ -1,0 +1,575 @@
+Instalacio d'un server per centralitzar logs.
+
+El que mes ens interessa es poder centralitzar i visualitzar comodament els logs dels backups que fem amb scripts (el bacula ja ens avisa si un backup peta)
+
+Preparem un R210 :
+
+[root@sauron ~]# uname -a
+Linux sauron.imim.es 2.6.32-504.16.2.el6.x86_64 #1 SMP Wed Apr 22 06:48:29 UTC 2015 x86_64 x86_64 x86_64 GNU/Linux
+[root@sauron ~]# cat /etc/redhat-release 
+CentOS release 6.6 (Final)
+[root@sauron ~]#
+
+[root@sauron ~]# df -h
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/md0         48G  2.3G   44G   5% /
+tmpfs           3.9G     0  3.9G   0% /dev/shm
+/dev/md2        861G  432M  817G   1% /var
+[root@sauron ~]# 
+
+
+Fem servir el java de sistema:
+[root@sauron ~]# java -version
+java version "1.7.0_79"
+OpenJDK Runtime Environment (rhel-2.5.5.3.el6_6-x86_64 u79-b14)
+OpenJDK 64-Bit Server VM (build 24.79-b02, mixed mode)
+[root@sauron ~]# 
+
+
+Descarreguem els tar.gz de elasticsearch & logstash:
+
+curl -O https://download.elasticsearch.org/logstash/logstash/logstash-1.4.2.tar.gz
+
+curl -O https://download.elasticsearch.org/elasticsearch/elasticsearch/elasticsearch-1.4.2.tar.gz
+
+els desempaquetem  a /var/local
+
+[root@sauron ~]# ls /var/local/
+elasticsearch-1.4.2  logstash-1.4.2
+[root@sauron ~]#
+
+a /etc/rc.local afegim:
+
+# engeguem l'elasticsearch
+/var/local/elasticsearch-1.4.2/bin/elasticsearch &
+
+Provem que el logstash sap enviar dades a l'elasticsearch:
+
+[root@sauron ~]# /var/local/logstash-1.4.2/bin/logstash -e 'input { stdin { } } output { elasticsearch { host => localhost } }'
+[2015-06-10 10:38:26,302][INFO ][cluster.service          ] [El Aguila] added {[logstash-sauron.imim.es-3375-2010][jxWE7aITQwqbNac99bpnqw][sauron.imim.es][inet[/172.20.16.30:9301]]{client=true, data=false},}, reason: zen-disco-receive(join from node[[logstash-sauron.imim.es-3375-2010][jxWE7aITQwqbNac99bpnqw][sauron.imim.es][inet[/172.20.16.30:9301]]{client=true, data=false}])
+Provant el logstash...
+[2015-06-10 10:38:34,918][INFO ][cluster.metadata         ] [El Aguila] [logstash-2015.06.10] creating index, cause [auto(bulk api)], shards [5]/[1], mappings [_default_]
+[2015-06-10 10:38:35,564][INFO ][cluster.metadata         ] [El Aguila] [logstash-2015.06.10] update_mapping [logs] (dynamic)
+^CInterrupt received. Shutting down the pipeline. {:level=>:warn}
+
+[root@sauron ~]# [2015-06-10 10:38:46,181][INFO ][cluster.service          ] [El Aguila] removed {[logstash-sauron.imim.es-3375-2010][jxWE7aITQwqbNac99bpnqw][sauron.imim.es][inet[/172.20.16.30:9301]]{client=true, data=false},}, reason: zen-disco-node_failed([logstash-sauron.imim.es-3375-2010][jxWE7aITQwqbNac99bpnqw][sauron.imim.es][inet[/172.20.16.30:9301]]{client=true, data=false}), reason transport disconnected
+
+[root@sauron ~]# 
+
+Comprovem que s'ha rebut:
+
+[root@sauron ~]# curl 'http://localhost:9200/_search?pretty'
+{
+  "took" : 29,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 10,
+    "successful" : 10,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : 3,
+    "max_score" : 1.0,
+    "hits" : [ {
+      "_index" : "logstash-2015.06.10",
+      "_type" : "logs",
+      "_id" : "8rGpxpMpQ3mnCqlwf0OdAQ",
+      "_score" : 1.0,
+      "_source":{"message":"Provant el logstash...","@version":"1","@timestamp":"2015-06-10T08:38:34.806Z","host":"sauron.imim.es"}
+    }
+
+--------
+
+Ara instal.lem un plugin de l'elasticsearch:
+
+[root@sauron ~]# /var/local/elasticsearch-1.4.2/bin/plugin -install lmenezes/elasticsearch-kopf
+-> Installing lmenezes/elasticsearch-kopf...
+Trying https://github.com/lmenezes/elasticsearch-kopf/archive/master.zip...
+Downloading .....................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................DONE
+Installed lmenezes/elasticsearch-kopf into /var/local/elasticsearch-1.4.2/plugins/kopf
+Identified as a _site plugin, moving to _site structure ...
+[root@sauron ~]#
+
+Obro el port 9200 de sauron, afegint a l'iptables:
+
+-A INPUT -s 172.20.16.0/24 -m tcp -p tcp --dport 9200 -j ACCEPT
+
+i reiniciant el servei.
+
+Ara podem a anar a http://sauron.imim.es:9200/_plugin/kopf per visualitzar els settings de l'elasticsearch
+
+Pero encara no es la millor manera per visualitzar dades, hi ha una altra eina (kibana) que anem a instal.lar:
+
+
+[root@sauron ~]# wget https://download.elasticsearch.org/kibana/kibana/kibana-4.0.1-linux-x64.tar.gz
+--2015-06-10 12:00:09--  https://download.elasticsearch.org/kibana/kibana/kibana-4.0.1-linux-x64.tar.gz
+Resolving download.elasticsearch.org... 54.243.81.60, 23.21.168.113, 23.23.76.227, ...
+Connecting to download.elasticsearch.org|54.243.81.60|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 13625479 (13M) [application/octet-stream]
+Saving to: “kibana-4.0.1-linux-x64.tar.gz”
+
+100%[======================================>] 13,625,479  93.1K/s   in 93s     
+
+2015-06-10 12:01:43 (143 KB/s) - “kibana-4.0.1-linux-x64.tar.gz” saved [13625479/13625479]
+
+[root@sauron ~]#
+
+[root@sauron ~]# cd /var/local/ && tar -zxvf /root/kibana-4.0.1-linux-x64.tar.gz
+
+Configurem l'elastic per a que nomes escolti a localhost:
+
+a elasticsearch-1.4.2/config/elasticsearch.yml 
+
+network.host= localhost
+
+parem l'elasticsearch i el tornem a engegar
+
+engeguem kibana (escolta al port 5601, per tant de moment l'obrim, despres ja farem un proxypass amb l'apache)
+
+[root@sauron local]# /var/local/kibana-4.0.1-linux-x64/bin/kibana 
+{"@timestamp":"2015-06-10T10:05:58.184Z","level":"info","message":"Listening on 0.0.0.0:5601","node_env":"production"}
+
+Ara podem anar a kibana:
+
+http://sauron.imim.es:5601
+
+Ara anem a provar de fer quelcom d'interessant amb el logstash...
+(basicament recollir els logs que ens interessa que miri)
+
+Com agafarem logs de diferents servers anem a generar un certificat SSL i claus.
+
+
+[root@sauron ~]# cd /etc/pki/tls/
+[root@sauron tls]# openssl req -subj '/CN=sauron.imim.es/' -x509 -days 3650 -batch -nodes -newkey rsa:2048 -keyout private/logstash-forwarder.key -out certs/logstash-forwarder.crt
+Generating a 2048 bit RSA private key
+........................................+++
+.....................+++
+writing new private key to 'private/logstash-forwarder.key'
+-----
+[root@sauron tls]#
+
+
+Ara anem a crear un fitxer de configuracio pel logstash, per dir on te les claus ssl
+
+[root@sauron logstash-1.4.2]# mkdir /etc/logstash
+[root@sauron logstash-1.4.2]# mkdir /etc/logstash/conf.d
+[root@sauron logstash-1.4.2]# vi /etc/logstash/conf.d/01-inputs.conf
+
+
+[root@sauron logstash-1.4.2]# cat /etc/logstash/conf.d/01-inputs.conf
+input {
+    lumberjack {
+    port => 5000
+    type => "logs"
+    ssl_certificate => "/etc/pki/tls/certs/logstash-forwarder.crt"
+    ssl_key => "/etc/pki/tls/private/logstash-forwarder.key"
+    }
+}
+
+[root@sauron logstash-1.4.2]# 
+
+un altre de filtre:
+
+[root@sauron logstash-1.4.2]# vi /etc/logstash/conf.d/10-syslog.conf
+[root@sauron logstash-1.4.2]# cat /etc/logstash/conf.d/10-syslog.conf
+filter {
+	if [type] == "syslog" {
+		grok {
+    		match => { "message" => "%{SYSLOGTIMESTAMP:syslog_timestamp} %{SYSLOGHOST:syslog_hostname} %{DATA:syslog_program}(?:\[%{POSINT:syslog_pid}\])?: %{GREEDYDATA:syslog_message}" }
+    		add_field => [ "received_at", "%{@timestamp}" ]
+    		add_field => [ "received_from", "%{host}" ]
+		}
+		syslog_pri { }
+		date {
+    		match => [ "syslog_timestamp", "MMM d HH:mm:ss", "MMM dd HH:mm:ss" ]
+    		}
+	}
+}
+
+[root@sauron logstash-1.4.2]#
+
+i un altre de output:
+
+[root@sauron logstash-1.4.2]# vi /etc/logstash/conf.d/30-output.conf
+[root@sauron logstash-1.4.2]# cat /etc/logstash/conf.d/30-output.conf
+output {
+    elasticsearch { host => localhost }
+    stdout { codec => rubydebug }
+}
+
+[root@sauron logstash-1.4.2]# 
+
+
+Engeguem el logstash per a que llegeixi aquesta config:
+
+[root@sauron ~]# /var/local/logstash-1.4.2/bin/logstash -f /etc/logstash/conf.d/
+Using milestone 1 input plugin 'lumberjack'. This plugin should work, but would benefit from use by folks like you. Please let us know if you find bugs or have suggestions on how to improve this plugin.  For more information on plugin milestones, see http://logstash.net/docs/1.4.2/plugin-milestones {:level=>:warn}
+Using milestone 1 filter plugin 'syslog_pri'. This plugin should work, but would benefit from use by folks like you. Please let us know if you find bugs or have suggestions on how to improve this plugin.  For more information on plugin milestones, see http://logstash.net/docs/1.4.2/plugin-milestones {:level=>:warn}
+
+
+Ara hem de configurar els clients:
+
+hades:
+
+[root@sauron ~]# scp /etc/pki/tls/certs/logstash-forwarder.crt root@hades.imim.es:/tmp
+The authenticity of host 'hades.imim.es (172.20.16.130)' can't be established.
+RSA key fingerprint is 81:56:c1:df:25:a7:7a:cd:ed:10:b3:e8:81:f0:70:a5.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'hades.imim.es,172.20.16.130' (RSA) to the list of known hosts.
+root@hades.imim.es's password: 
+logstash-forwarder.crt                                                   100% 1107     1.1KB/s   00:00    
+[root@sauron ~]#
+
+
+[root@hades ~]# rpm --import http://packages.elasticsearch.org/GPG-KEY-elasticsearch
+[root@hades ~]#
+
+[root@hades ~]# cat /etc/yum.repos.d/logstash-forwarder.repo
+[logstash-forwarder]
+name=logstash-forwarder repository
+baseurl=http://packages.elasticsearch.org/logstashforwarder/centos
+gpgcheck=1
+gpgkey=http://packages.elasticsearch.org/GPG-KEY-elasticsearch
+enabled=1
+
+[root@hades ~]# 
+
+[root@hades ~]# yum -y install logstash-forwarder
+
+[root@hades ~]# cp /tmp/logstash-forwarder.crt /etc/pki/tls/certs/
+
+A hades, al fitxer /etc/logstash-forwarder.conf
+
+modifiquem:
+
+seccio networks:
+"servers": [ "172.20.16.30:5000" ],
+"timeout": 15,
+"ssl ca": "/etc/pki/tls/certs/logstash-forwarder.crt"
+
+seccio "files" entre els []
+
+{
+      "paths": [
+        "/var/log/messages",
+        "/var/log/secure"
+       ],
+      "fields": { "type": "syslog" }
+    }
+
+de moment posem els logs de sistema, despres ens barallarem per a que pilli /root/backup-shared.log
+
+Obrim el port 5000 a sauron i engeguem el client del logstash forwarder a hades:
+
+[root@hades ~]# service logstash-forwarder restart
+logstash-forwarder started
+[root@hades ~]# 
+
+Engeguem kibana per veure que passa:
+
+[root@sauron ~]# /var/local/kibana-4.0.1-linux-x64/bin/kibana &
+[2] 5450
+[root@sauron ~]# {"@timestamp":"2015-06-10T15:04:28.689Z","level":"info","message":"Listening on 0.0.0.0:5601","node_env":"production"}
+
+[root@sauron ~]#
+
+i ens connectem via web...(no rula)
+
+Miro a veure directament a l'elasticsearch:
+
+curl 'http://localhost:9200/_search?pretty'
+
+No hi ha res...
+
+Substitueixo a hades, al /etc/logstash-forwarder.conf, la ip de sauron pel sauron.imim.es, reinicio el servei i voila...ja rula
+
+
+Ara anem a mirar com treballar amb els fitxers que ens interessa, abans pero deixem el /etc/rc.local de la seguent manera:
+
+[root@sauron ~]# cat /etc/rc.local 
+#!/bin/sh
+#
+# This script will be executed *after* all the other init scripts.
+# You can put your own initialization stuff in here if you don't
+# want to do the full Sys V style init stuff.
+
+touch /var/lock/subsys/local
+
+# engeguem l'elasticsearch
+/var/local/elasticsearch-1.4.4/bin/elasticsearch &
+# engeguem logstash
+/var/local/logstash-1.4.2/bin/logstash -f /etc/logstash/conf.d &
+# engeguem kibana
+/var/local/kibana-4.0.1-linux-x64/bin/kibana &
+[root@sauron ~]#
+
+
+
+Aturem kibana & logstash a sauron i el logstash-forwarder a hades
+
+
+
+Fem backup de la config que teniem:
+
+A sauron
+
+[root@sauron ~]# cd /etc/logstash/conf.d/
+[root@sauron conf.d]# ls
+01-inputs.conf  10-syslog.conf  30-output.conf
+[root@sauron conf.d]# mkdir /root/backup-config-logstash
+[root@sauron conf.d]# cp *  /root/backup-config-logstash
+[root@sauron conf.d]# 
+
+A hades:
+
+[root@hades ~]# mkdir /root/backup-config-logstash
+[root@hades ~]# cp /etc/logstash-forwarder.conf  /root/backup-config-logstash
+[root@hades ~]# 
+
+
+A hades modifiquem el fitxer /etc/logstash-forwarder.conf per definir el nou tipus de fitxer que volem mirar, la seccio "files" entre els [ ] queda aixi:
+
+ {
+      "paths": [
+        "/root/backup-shared.log",
+       ],
+      "fields": { "type": "rsync_log" }
+    }
+
+
+A sauron hem de modificar el fitxer 10-syslog.conf
+queda aixi:
+
+[root@sauron conf.d]# cat 10-syslog.conf 
+filter {
+	if [type] == "rsync_log" {
+		grok {
+    		match => { "message" => "total size is %{BYTES:bytes_copied}  speedup is %{SPEED:speedup}" {
+    		add_field => [ "received_at", "%{@timestamp}" ]
+    		add_field => [ "received_from", "%{host}" ]
+		}
+	}
+}
+
+
+Anem a provar:
+
+Engeguem logstash i kibana i dona error:
+
+[root@sauron ~]# +---------------------------------------------------------+
+| An unexpected error occurred. This is probably a bug.   |
+| You can find help with this problem in a few places:    |
+|                                                         |
+| * chat: #logstash IRC channel on freenode irc.          |
+|     IRC via the web: http://goo.gl/TI4Ro                |
+| * email: logstash-users@googlegroups.com                |
+| * bug system: https://logstash.jira.com/                |
+|                                                         |
++---------------------------------------------------------+
+The error reported is: 
+  pattern %{BYTES:bytes_copied} not defined
+
+[1]-  Exit 1                  /var/local/logstash-1.4.2/bin/logstash -f /etc/logstash/conf.d
+[root@sauron ~]# 
+
+Modifiquem de nou 10-syslog.conf:
+
+[root@sauron conf.d]# cat 10-syslog.conf 
+filter {
+	if [type] == "rsync_log" {
+		grep {
+			add_tag => "grepped"
+			match => [ "@message", "^total size is" ]
+		     }
+		grok {
+		tags => [ "grepped" ]
+    		match => [ "@message", "total size is %{BYTES:bytes_copied}  speedup is %{SPEED:speedup}" ]
+    		add_field => [ "received_at", "%{@timestamp}" ]
+    		add_field => [ "received_from", "%{host}" ]
+		}
+	}
+}
+
+[root@sauron conf.d]#
+
+
+Tornem a provar.
+
+The error reported is: 
+  Couldn't find any filter plugin named 'grep'. Are you sure this is correct? Trying to load the grep filter plugin resulted in this error: no such file to load -- logstash/filters/grep
+
+
+Ok, cal instalar plugins:
+
+[root@sauron ~]# cd /var/local/logstash-1.4.2
+[root@sauron logstash-1.4.2]# bin/plugin install contrib
+
+
+nope...a mes a mes, el plugin de grep esta en vies d'extincio...aixi que no el farem anar, torno a modificar l'script.
+
+
+[root@sauron conf.d]# cat 10-syslog.conf 
+filter {
+	if [type] == "rsync_log" {
+		grok {
+    		match => [ "message", "total size is (?<bytes_copied>)  speedup is (?<speedup>)" ]
+    		add_field => [ "received_at", "%{@timestamp}" ]
+    		add_field => [ "received_from", "%{host}" ]
+		add_field => [ "copiats", "%{bytes_copied}" ]
+		add_field => [  "velocitat", "%{speedup}" ] 
+		}
+	}
+}
+
+[root@sauron conf.d]# 
+
+
+Ara engeguen :
+
+[root@sauron ~]# Using milestone 1 input plugin 'lumberjack'. This plugin should work, but would benefit from use by folks like you. Please let us know if you find bugs or have suggestions on how to improve this plugin.  For more information on plugin milestones, see http://logstash.net/docs/1.4.2/plugin-milestones {:level=>:warn}
+
+[root@sauron ~]# /var/local/kibana-4.0.1-linux-x64/bin/kibana &
+[2] 9033
+[root@sauron ~]# {"@timestamp":"2015-06-11T09:41:16.594Z","level":"info","message":"Listening on 0.0.0.0:5601","node_env":"production"}
+
+[root@sauron ~]#
+
+i ara engeguem el forwarder a hades:
+
+Ok, tira pero gener molt soroll, amb missatges de l'estil:
+
+ "message" => "gianni/markovmodels/htmd/standalone/htmd/matlab-runtime/v81/resources/MATLAB/ja_JP/findall.xml",
+      "@version" => "1",
+    "@timestamp" => "2015-06-11T10:27:48.093Z",
+          "type" => "rsync_log",
+          "file" => "/root/backup-shared.log",
+          "host" => "hades.imim.es",
+        "offset" => "3704202",
+          "tags" => [
+        [0] "_grokparsefailure"
+
+Alternatives: currar-me mes el grok filter, o generar amb l'script de post-backup.sh un altre fitxer per no haver d'analitzar tot el backup-whatever.log
+
+De totes maneres sembla que el filtre tampoc ha pillat el que volia:
+
+
+{
+       "message" => "total size is 12475132151755  speedup is 151.74",
+      "@version" => "1",
+    "@timestamp" => "2015-06-11T10:30:19.875Z",
+          "type" => "rsync_log",
+          "file" => "/root/backup-shared.log",
+          "host" => "hades.imim.es",
+        "offset" => "6052405",
+          "tags" => [
+        [0] "_grokparsefailure"
+    ]
+}
+
+per fer proves del filtre, de moment faig:
+
+[root@hades ~]# tail -2 backup-shared.log > info-per-logstash.log
+[root@hades ~]# cat info-per-logstash.log
+sent 2547967 bytes  received 82213195645 bytes  12843199.81 bytes/sec
+total size is 12475132151755  speedup is 151.74
+[root@hades ~]# 
+[root@hades ~]# service logstash-forwarder stop
+logstash-forwarder stopped.
+[root@hades ~]#
+
+[root@sauron conf.d]# cp 10-syslog.conf /root/backup-config-logstash/10-rsync-log.conf
+[root@sauron conf.d]#
+
+A hades substituiexo backup-shared.log  per info-per-logstash.log
+
+el filtre a sauron queda:
+
+[root@sauron conf.d]# cat 10-syslog.conf 
+filter {
+	if [type] == "rsync_log" {
+		grok {
+    		match => [ "message", "total size is (?<bytes_copied>.*?)" ]
+    		add_field => [ "received_at", "%{@timestamp}" ]
+    		add_field => [ "received_from", "%{host}" ]
+		add_field => [ "copiats", "%{bytes_copied}" ]
+		}
+	}
+}
+
+[root@sauron conf.d]#
+
+
+Millora una mica:
+
+{
+          "message" => "total size is 12475132151755  speedup is 151.74",
+         "@version" => "1",
+       "@timestamp" => "2015-06-11T10:52:35.479Z",
+             "type" => "rsync_log",
+             "file" => "/root/info-per-logstash.log",
+             "host" => "hades.imim.es",
+           "offset" => "70",
+      "received_at" => "2015-06-11 10:52:35 UTC",
+    "received_from" => "hades.imim.es",
+          "copiats" => "%{bytes_copied}"
+}
+
+
+haig de seguir provant...de moment pero paro el kibana i tambe fare proves amb graphite
+
+
+finalment sembla que si:
+
+[root@sauron conf.d]# cat 10-syslog.conf 
+filter {
+	if [type] == "rsync_log" {
+		grok {
+    		match => [ "message", "total size is %{NUMBER:bytes_copied}" ]
+    		add_field => [ "received_at", "%{@timestamp}" ]
+    		add_field => [ "received_from", "%{host}" ]
+		add_field => [ "copiats", "%{bytes_copied}" ]
+		}
+	}
+}
+
+
+dona:
+
+{
+          "message" => "total size is 12475132151755  speedup is 151.74",
+         "@version" => "1",
+       "@timestamp" => "2015-06-11T13:53:21.582Z",
+             "type" => "rsync_log",
+             "file" => "/root/info-per-logstash.log",
+             "host" => "hades.imim.es",
+           "offset" => "542",
+     "bytes_copied" => "12475132151755",
+      "received_at" => "2015-06-11 13:53:21 UTC",
+    "received_from" => "hades.imim.es",
+          "copiats" => "12475132151755"
+}
+
+OK.
+
+
+Modifico el crontab de hades per enviar les dades:
+
+30 21 * * * /root/backup-shared.sh > /root/backup-shared.log;  /usr/bin/tail
+-2 /root/backup-shared.log >> /root/info-per-logstash.log
+00 22 * * * /root/storage-status.sh
+
+
+Al kibana faig un 'save' d'un tipous de cerca: 'rsync a hades' que busca el
+pattern 'total size' 
+
+
+Ara miro de fer el mateix a hestia pels logs dels rsync de:
+
+shared1,shared2,store3
+
+OK
+
+
+
+

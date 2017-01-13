@@ -1,0 +1,18 @@
+1. umount /genomics
+2.- modifiquem fstab
+/dev/vg1/vol1		/genomics		xfs	defaults,uqnoenforce	1 2
+3.- mount /genomics
+4.- groupadd -g 2000 fg; useradd -u 2001 -g 2000 rcastelo
+5.- xfs_quota -x -c 'limit bsoft=30g bhard=30g rcastelo' /genomics
+6.-
+[root@beta ~]# xfs_quota -x -c 'report' /genomics
+User quota on /genomics (/dev/vg1/vol1)
+                               Blocks                     
+User ID          Used       Soft       Hard    Warn/Grace     
+---------- -------------------------------------------------- 
+root                0          0          0     00 [--------]
+rcastelo            0   31457280   31457280     00 [--------]
+
+
+
+

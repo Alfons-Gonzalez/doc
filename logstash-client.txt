@@ -1,0 +1,117 @@
+Configuracio dels clients de logstash:
+
+-------------Nota: ------------------------------------------ 
+als centOS 5.x no funciona
+----------fi Nota------------------------------------------
+
+
+1.- copia de la clau ssl
+
+[root@sauron ~]# scp /etc/pki/tls/certs/logstash-forwarder.crt root@hestia.prib.upf.edu:/tmp
+The authenticity of host 'hestia.prib.upf.edu (172.20.16.107)' can't be established.
+RSA key fingerprint is 15:56:cf:ef:95:7b:48:94:2b:f5:24:69:d2:e9:42:8f.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'hestia.prib.upf.edu,172.20.16.107' (RSA) to the list of known hosts.
+root@hestia.prib.upf.edu's password: 
+logstash-forwarder.crt                                                   100% 1123     1.1KB/s   00:00    
+[root@sauron ~]#
+
+
+[root@hestia ~]# cp /tmp/logstash-forwarder.crt /etc/pki/tls/certs/
+
+2.- instalacio del filebeat
+
+[root@hestia ~]# vi /etc/yum.repos.d/elastic-beats.repo
+[root@hestia ~]# cat /etc/yum.repos.d/elastic-beats.repo
+[beats]
+name=Elastic Beats Repository
+baseurl=https://packages.elastic.co/beats/yum/el/$basearch
+enabled=1
+gpgkey=https://packages.elastic.co/GPG-KEY-elasticsearch
+gpgcheck=1
+
+[root@hestia ~]# yum install filebeat -y
+
+
+
+
+Configuracio del filebeat:
+
+
+EL fitxer /etc/filebeat/filebeat.yml el copiem com filebeat.bkup i creem un de nou:
+
+[root@hestia ~]# cat /etc/filebeat/filebeat.yml
+filebeat:
+  prospectors:
+    -
+      paths:
+        - /root/info-per-logstash.log
+      #  - /var/log/*.log
+      
+      input_type: log
+      
+      document_type: log
+
+  registry_file: /var/lib/filebeat/registry
+
+output:
+  logstash:
+    hosts: ["sauron.prib.upf.edu:5044"]
+    bulk_max_size: 1024
+
+    tls:
+      certificate_authorities: ["/etc/pki/tls/certs/logstash-forwarder.crt"]
+
+shipper:
+
+logging:
+  files:
+    rotateeverybytes: 10485760 # = 10MB
+[root@hestia ~]#
+
+
+Engeguem el servei:
+
+[root@hestia ~]# service filebeat start
+Starting filebeat:                                         [  OK  ]
+[root@hestia ~]# chkconfig filebeat on
+
+
+Al server veiem que arriben les dades:
+
+[root@sauron ~]# curl -XGET 'http://localhost:9200/filebeat-*/_search?pretty'
+
+
+veiem dades de l'estil:
+
+{
+      "_index" : "filebeat-2016.02.17",
+      "_type" : "log",
+      "_id" : "AVLvEacSnZ3h9_0T9-Em",
+      "_score" : 1.0,
+      "_source" : {
+        "message" : "total size is 29307184410821  speedup is 1828.56",
+        "@version" : "1",
+        "@timestamp" : "2016-02-17T11:50:54.366Z",
+        "beat" : {
+          "hostname" : "hestia.prib.upf.edu",
+          "name" : "hestia.prib.upf.edu"
+        },
+        "count" : 1,
+        "fields" : null,
+        "input_type" : "log",
+        "offset" : 891,
+        "source" : "/root/info-per-logstash.log",
+        "type" : "log",
+        "host" : "hestia.prib.upf.edu",
+        "tags" : [ "beats_input_codec_plain_applied" ]
+      }
+    } ]
+  }
+}
+
+
+Ja podem anar al kibana, i veure les dades.
+
+
+

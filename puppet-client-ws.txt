@@ -1,0 +1,106 @@
+*************************************************************
+instalacio del client de puppet i configuracio d'una ws al GRIB
+************************************************************
+
+1.- instal.lem ws amb SL 6.x (Desktop) 
+2.- un cop acabada la instalacio (15') fem ssh root@ws
+3.- deshabilitem selinux:
+
+# setenforce 0
+# vi /etc/selinux/config 
+
+i posem  SELINUX=disabled
+
+# yum update -y
+
+4.- instalacio client puppet
+
+# rpm -ivh http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
+# yum install puppet
+
+5.- configuracio client
+
+editem /etc/puppet/puppet.conf i a la seccio [agent] afegim
+
+server = puppet.prib.upf.edu
+
+# chkconfig puppet on
+
+6.- primera peticio de connexio
+
+#  puppet agent --test
+
+7.- al server ara podrem signar el certificat per acceptar les peticions
+
+mirem:
+
+[root@puppet ~]# puppet cert list
+  "scientific.imim.es" (SHA256)
+69:77:75:AB:C0:13:FA:08:B1:8C:2F:01:DE:C0:45:E8:24:7C:13:92:A5:5A:F9:6A:0A:A4:B8:9F:0E:88:96:4E
+[root@puppet ~]#
+
+signem:
+[root@puppet ~]# puppet cert sign --all
+Notice: Signed certificate request for scientific.imim.es
+Notice: Removing file Puppet::SSL::CertificateRequest scientific.imim.es at
+'/var/lib/puppet/ssl/ca/requests/scientific.imim.es.pem'
+[root@puppet ~]#
+
+
+
+8.- configurem la ws com a pertanyent al lab que toqui:
+
+# mkdir -p /etc/facter/facts.d/
+echo 'lab: ibi' >> /etc/facter/facts.d/custom_facts.yaml
+
+(lab pot ser: ibi,phi,cgl,cslab,sbi,genomics,multiscale)
+
+9.- engeguem el servei
+
+# service puppet start
+
+10.- al cap de ~ 2h  ja esta la ws configurada com la resta del seu labo i
+engeguem el servei per a que a partir d'ara incorpori automaticament qualsevol
+modificacio dels manifests
+
+(de vegades es queda penjat i cal rebootar, cal tenir-ho en compte quan
+configurem el client a una maquina que esta fent servir l'usuari)
+
+-------------
+
+Info de com han anat les coses:
+
+Al server hi ha el dir: /var/lib/puppet/reports/
+
+On hi ha info sobre els clients:
+[root@puppet ~]# ls -ltr /var/lib/puppet/reports/
+total 864
+drwxr-x--- 2 puppet puppet   4096 Jan 22 17:41 panda.imim.es
+drwxr-x--- 2 puppet puppet  65536 Feb 13 10:36 sl2.imim.es
+drwxr-x--- 2 puppet puppet   4096 Mar 18 15:16 gould.imim.es
+drwxr-x--- 2 puppet puppet 102400 Mar 18 17:10 baldrick.imim.es
+drwxr-x--- 2 puppet puppet   4096 Mar 18 17:12 laplace.imim.es
+drwxr-x--- 2 puppet puppet  36864 Mar 18 17:25 katebob.imim.es
+drwxr-x--- 2 puppet puppet  57344 Mar 18 17:25 sion.imim.es
+drwxr-x--- 2 puppet puppet  20480 Mar 18 17:27 celina.imim.es
+drwxr-x--- 2 puppet puppet  69632 Mar 18 17:28 poincare.imim.es
+drwxr-x--- 2 puppet puppet  36864 Mar 18 17:28 daphne.imim.es
+drwxr-x--- 2 puppet puppet 233472 Mar 18 17:30 scientific.imim.es
+drwxr-x--- 2 puppet puppet  69632 Mar 18 17:33 chomsky.imim.es
+drwxr-x--- 2 puppet puppet  94208 Mar 18 17:35 sphynx.imim.es
+drwxr-x--- 2 puppet puppet   4096 Mar 18 17:36 chaos.imim.es
+drwxr-x--- 2 puppet puppet   4096 Mar 18 17:37 queen.imim.es
+drwxr-x--- 2 puppet puppet  36864 Mar 18 17:37 miranda.imim.es
+[root@puppet ~]# 
+
+i als clients hi ha el fitxers: 
+
+/var/lib/puppet/state/last_run_summary.yaml
+/var/lib/puppet/state/last_run_report.yaml
+
+on dona info de quins manifests s'han executat, si han fallat, etc...
+
+Existeixen plugins del nagios per monitoritzar si el puppet esta executant-se be
+als clients, etc. Ja ho mirare
+
+--------fi-----------

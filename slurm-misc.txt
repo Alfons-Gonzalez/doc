@@ -1,0 +1,57 @@
+Per activar un node que no esta disponible:
+
+scontrol: update NodeName=dwalin State=DOWN Reason="undraining"
+scontrol: update NodeName=dwalin State=RESUME
+scontrol: show node dwalin
+NodeName=dwalin Arch=x86_64 CoresPerSocket=1
+   CPUAlloc=0 CPUErr=0 CPUTot=4 CPULoad=0.05 Features=(null)
+   Gres=gpu:4
+   NodeAddr=dwalin NodeHostName=dwalin Version=14.11
+   OS=Linux RealMemory=1 AllocMem=0 Sockets=4 Boards=1
+   State=IDLE ThreadsPerCore=1 TmpDisk=0 Weight=1
+   BootTime=2015-06-15T09:16:03 SlurmdStartTime=2015-08-04T17:15:17
+   CurrentWatts=0 LowestJoules=0 ConsumedJoules=0
+   ExtSensorsJoules=n/s ExtSensorsWatts=0 ExtSensorsTemp=n/s
+   
+
+scontrol: show node dwalin
+NodeName=dwalin Arch=x86_64 CoresPerSocket=1
+   CPUAlloc=0 CPUErr=0 CPUTot=4 CPULoad=0.01 Features=(null)
+   Gres=gpu:4
+   NodeAddr=dwalin NodeHostName=dwalin Version=14.11
+   OS=Linux RealMemory=1 AllocMem=0 Sockets=4 Boards=1
+   State=IDLE ThreadsPerCore=1 TmpDisk=0 Weight=1
+   BootTime=2015-06-15T09:16:02 SlurmdStartTime=2015-08-04T17:15:17
+   CurrentWatts=0 LowestJoules=0 ConsumedJoules=0
+   ExtSensorsJoules=n/s ExtSensorsWatts=0 ExtSensorsTemp=n/s
+   
+
+scontrol: quit
+You have new mail in /var/spool/mail/root
+[root@pinsker slurm-14.11.8]# scontrol 
+scontrol: show jobs
+JobId=8 JobName=testing_no_gpu
+   UserId=alfons(500) GroupId=alfons(500)
+   Priority=4294901756 Nice=0 Account=(null) QOS=(null)
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0
+   RunTime=00:00:56 TimeLimit=01:00:00 TimeMin=N/A
+   SubmitTime=2015-08-05T09:31:38 EligibleTime=2015-08-05T09:31:38
+   StartTime=2015-08-05T09:31:38 EndTime=2015-08-05T10:31:38
+   PreemptTime=None SuspendTime=None SecsPreSuspend=0
+   Partition=phi AllocNode:Sid=dwalin:12245
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=dwalin
+   BatchHost=dwalin
+   NumNodes=1 NumCPUs=4 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+   Socks/Node=* NtasksPerN:B:S:C=0:0:*:* CoreSpec=*
+   MinCPUsNode=1 MinMemoryNode=0 MinTmpDiskNode=0
+   Features=(null) Gres=(null) Reservation=(null)
+   Shared=0 Contiguous=0 Licenses=(null) Network=(null)
+   Command=/home/alfons/exemple-sense-gpu.sh
+   WorkDir=/home/alfons
+   StdErr=/home/alfons/slurm-8.out
+   StdIn=/dev/null
+   StdOut=/home/alfons/slurm-8.out
+
+

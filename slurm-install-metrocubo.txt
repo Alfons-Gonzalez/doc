@@ -1,0 +1,134 @@
+Hem instal.lat slurm com sistema de cues de les metrocubo a PHI lab.
+
+El node master es pinsker (sense gpus) 
+
+Per afegir un node:
+
+0.- iptables obert amb el master i els altres (per si mes endavant fan mpi)
+
+
+1.- instal.lem munge que es una dependencia (per l'autenticacio entre nodes)
+
+[root@thorin ~]# yum install munge munge-devel -y
+
+
+un cop instal.lat copiem la clau de pinsker:
+
+[root@pinsker slurm-14.11.8]# scp /etc/munge/munge.key
+root@thorin:/etc/munge/munge.key
+root@thorin's password: 
+munge.key                                                100% 1024     1.0KB/s
+00:00    
+[root@pinsker slurm-14.11.8]#
+
+
+posem els permisos que calen:
+
+chown munge:munge /etc/munge/munge.key
+
+engeguem el daemon
+
+[root@thorin slurm-14.11.8]# chkconfig munge on
+[root@thorin slurm-14.11.8]# service munge start
+Starting MUNGE: munged                                     [  OK  ]
+[root@thorin slurm-14.11.8]#
+
+2.- compilem slurm
+
+[root@thorin ~]# scp alfons@moebius:/home/alfons/Downloads/slurm* .
+The authenticity of host 'moebius (172.20.16.221)' can't be established.
+RSA key fingerprint is d9:b0:4d:0d:56:5d:82:a7:5e:64:f3:bc:98:6f:9d:ea.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'moebius,172.20.16.221' (RSA) to the list of known
+hosts.
+alfons@moebius's password: 
+slurm-14.11.8.tar.bz2                         100% 6200KB   6.1MB/s   00:00    
+[root@thorin ~]# 
+
+tar -jxvf slurm-14.11.8.tar.bz2
+
+cd slurm-14.11.8
+
+./configure --prefix=/usr/local/slurm-14.11.8 --with-munge
+
+make && make install
+
+ln -s /usr/local/slurm-14.11.8 /usr/local/slurm
+
+mkdir /usr/local/slurm/etc
+
+Copiem alguns fitxers de configuracio:
+
+[root@pinsker slurm-14.11.8]# scp /usr/local/slurm/etc/slurm.conf
+root@thorin:/usr/local/slurm/etc/slurm.conf
+The authenticity of host 'thorin (172.20.16.78)' can't be established.
+RSA key fingerprint is 36:90:68:58:45:11:d2:30:8b:a4:00:32:9e:7d:ed:e7.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'thorin,172.20.16.78' (RSA) to the list of known
+hosts.
+root@thorin's password: 
+slurm.conf                                               100% 3400     3.3KB/s
+00:00    
+[root@pinsker slurm-14.11.8]#
+
+[root@pinsker slurm-14.11.8]# scp /usr/local/slurm/etc/init.d.slurm
+root@thorin:/usr/local/slurm/etc/
+root@thorin's password: 
+init.d.slurm                                             100% 7218     7.1KB/s
+00:00    
+[root@pinsker slurm-14.11.8]#
+
+al node de nou definim com generic resources les gpu:
+
+vi /usr/local/slurm/etc/gres.conf
+
+[root@thorin slurm-14.11.8]# cat /usr/local/slurm/etc/gres.conf
+#Configure support for our four GPUs
+Name=gpu File=/dev/nvidia0 
+Name=gpu File=/dev/nvidia1
+Name=gpu File=/dev/nvidia2
+Name=gpu File=/dev/nvidia3
+[root@thorin slurm-14.11.8]#
+
+chown -R slurm:phi /usr/local/slurm-14.11.8/
+
+Al master reengeguem el daemon de control: 
+
+[root@pinsker slurm-14.11.8]# /usr/local/slurm/etc/init.d.slurm restart
+stopping slurmctld:                                        [  OK  ]
+slurmctld (pid 7359) is running...
+slurmctld is stopped
+slurmctld is stopped
+starting slurmctld:                                        [  OK  ]
+[root@pinsker slurm-14.11.8]#
+
+
+Al node engeguem l'slurmd:
+
+[root@thorin slurm-14.11.8]# /usr/local/slurm/etc/init.d.slurm start
+starting slurmd:                                           [  OK  ]
+[root@thorin slurm-14.11.8]#
+
+i ho posem a l'/etc/rc.local per a que s'engegui quan la maquina arrenqui:
+
+[root@thorin slurm-14.11.8]# cat /etc/rc.local 
+#!/bin/sh
+#
+# This script will be executed *after* all the other init scripts.
+# You can put your own initialization stuff in here if you don't
+# want to do the full Sys V style init stuff.
+
+touch /var/lock/subsys/local
+
+for T in `seq 0 3`; do
+	mknod -m 666 /dev/nvidia$T c 195 $T;
+done
+mknod -m 666 /dev/nvidiactl c 195 255
+/usr/bin/nvidia-smi -pm 1
+
+# slurm
+/usr/local/slurm/etc/init.d.slurm start
+[root@thorin slurm-14.11.8]# 
+
+
+

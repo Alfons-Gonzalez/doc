@@ -1,0 +1,24 @@
+Añadir nuevo usuario al Slurm
+=============================
+
+Para añadir a un nuevo usuario:
+
+sacctmgr add user <username> DefaultAccount=<accountname> Partition=<partitionname>
+
+El partition no es obligatorio pero encuentro que es más correcto indicarlo.
+
+Ejemplo:
+
+sacctmgr add user pablo DefaultAccount=lab Partition=multiscale
+
+Para ver la lista completa de usuario y así comprobar que ya tiene user este usuario:
+
+sacctmgr show users
+
+Y para ver más info:
+
+sacctmgr show association format=Account,Cluster,User,Partition tree
+
+NOTA: el account viene a ser como un 'grupo de usuarios'. Se le pueden asignar
+una serie de parámetros a un account y todos los usuario que estén dentro de ese
+account los heredan.

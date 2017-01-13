@@ -1,0 +1,2980 @@
+OPENSTACK
+
+Openstack es una plataforma cloud. Es modular de manera que cada part te un projecte per separat:
+
+
+servei		projecte	que es
+
+identity	keystone	autenticacio/autoritzacio 
+compute		nova		manega instancies VM
+image service	glances		vm disk images
+networking	neutron		gestiona network as a service per altres serveis
+dashboard	horizon		web de gestio dels components
+block storage	cinder		proveu storage persistent als vm
+shared storage  manila		storage compartit 
+object storage 	swift		pot emmagatzemar/agafar objectes (scale out)
+telemetry	cellometer	monitoring
+orchestration	heat		controla les aplicacions cloud
+
+
+
+Exemple d'arquitectura per començar a jugar
+
+
+1 Controller node: Identity, Image, Networking, Dashboard + suport services MariaDB RabbitMQ
+
+2 compute nodes amb KVM com hipervisor
+
+1 block storage node per proporcionar disk a les VM
+
+
+ALL: 4 maquines amb centOS 7.x
+
+idealment fariem 2 xarxes (les dues han de tenir acces a internet, consultar a comunicacions pels rangs)
+
+management 10.0.0.0/24 GW: 10.0.0.245 DNS 84.89.128.11
+provider   172.20.16.0/24 GW: 172.20.16.245 DNS 84.89.128.11
+Controller & compute nodes amb 2 NIC (a les dues xarxes)
+storage nodes (block i object) nomes a la xarxa de management
+
+
+IPs:
+
+10.0.0.11 controller1
+10.0.0.31 compute1
+10.0.0.32 compute2
+10.0.0.41 block1
+10.0.0.51 object1
+
+(la idea es que si en un muntatge de produccio necessitem + controllers, tindrien les IP 10.0.0.1*, + compute nodes 10.0.0.3*,si volem nodes de networking dedicats posariem 10.0.0.2*, etc)
+
+Tots els nodes s'han de poder veure OK per nom i per ip i tots han de poder tenir acces a internet.
+
+Com aparentment hi ha problemes per obtenir aquests rangs, i nomes volem fer
+una prova, posarem tots els components dins de la mateixa net, a mes a mes com
+no tenim prou maquines, els serveis d'storage (block i object) els posarem a
+la mateixa store1
+
+172.20.16.194 controller1 --> Dell PE R410
+172.20.16.195 compute1 --> Dell PE SC1435 
+172.20.16.196 store1 -->  Dell PE 2950 (per object i block)
+172.20.16.197 compute2 --> Dell PE R210
+
+amb GW 172.20.16.245, DNS 84.89.128.11
+
+Els nodes han d'estar sync de temps: NTP
+
+Al controller: 
+
+yum install chrony
+
+A /etc/chrony.conf
+
+server NTP_SERVER iburst (on NTP_SERVER sera el ntp server que ens vagi millor)
+
+engegar el chronyd.service i configurar per a que engegui al fer boot (obrir firewalld pels nodes)
+
+(normalment als nodes idem PERO posant com NTP_SERVER controller1, en aquest
+cas, com es una prova on farem servir nomes ips del 172.20.16.0/24 configuro
+els servers ntp del grib: cortazar & borges)
+
+Verificar que xuta ok amb chronyc sources (al controller i als nodes)
+
+Ok:
+
+[root@controller1 ~]# chronyc sources
+210 Number of sources = 2
+MS Name/IP address         Stratum Poll Reach LastRx Last sample
+===============================================================================
+^+ cortazar.prib.upf.edu         3   6    17    25    -32ms[  -32ms] +/-
+115ms
+^* borges.prib.upf.edu           3   6    17    24    +17ms[  +16ms] +/-
+61ms
+[root@controller1 ~]# 
+
+
+[root@compute1 ~]# chronyc sources
+210 Number of sources = 2
+MS Name/IP address         Stratum Poll Reach LastRx Last sample
+===============================================================================
+^+ cortazar.prib.upf.edu         3   6    17     4    -32ms[  -33ms] +/-
+116ms
+^* borges.prib.upf.edu           3   6    17     3    +17ms[  +17ms] +/-
+62ms
+[root@compute1 ~]# 
+
+etc...
+
+
+Ara podem començar a instal.lar paquets d'openstack, per fer-ho (a tots els nodes)
+
+yum install centos-release-openstack-mitaka -y
+
+yum install python-openstackclient -y
+
+yum install openstack-selinux -y
+
+Ara instal.lem un db al controller1
+
+[root@controller1 ~]# yum install mariadb mariadb-server python2-PyMySQL -y
+
+Creem un fitxer :
+
+[root@controller1 ~]# cat /etc/my.cnf.d/openstack.cnf
+[mysqld]
+bind-address = 172.20.16.194
+
+default-storage-engine = innodb
+innodb_file_per_table
+max_connections = 4096
+collation-server = utf8_general_ci
+character-set-server = utf8
+
+
+[root@controller1 ~]# 
+
+Donem access al firewall per a que la resta de nodes puguin parlar amb el
+controller:
+
+[root@controller1 ~]# firewall-cmd --add-rich-rule="rule family='ipv4' source
+address='172.20.16.195' accept" --permanent
+success
+[root@controller1 ~]# firewall-cmd --add-rich-rule="rule family='ipv4' source
+address='172.20.16.196' accept" --permanent
+success
+[root@controller1 ~]# firewall-cmd --add-rich-rule="rule family='ipv4' source
+address='172.20.16.197' accept" --permanent
+success
+[root@controller1 ~]# firewall-cmd --reload
+success
+
+Engeguem el servei de base de dades i el configurem per a que engegui al fer
+boot:
+
+[root@controller1 ~]# systemctl enable mariadb.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/mariadb.service to
+/usr/lib/systemd/system/mariadb.service.
+[root@controller1 ~]# systemctl start mariadb.service
+[root@controller1 ~]# 
+
+executem: 
+[root@controller1 ~]# mysql_secure_installation
+
+nter current password for root (enter for none): 
+OK, successfully used password, moving on...
+
+Setting the root password ensures that nobody can log into the MariaDB
+root user without the proper authorisation.
+
+Set root password? [Y/n] Y
+New password: 
+Re-enter new password: 
+Password updated successfully!
+Reloading privilege tables..
+ ... Success!
+
+
+By default, a MariaDB installation has an anonymous user, allowing anyone
+to log into MariaDB without having to have a user account created for
+them.  This is intended only for testing, and to make the installation
+go a bit smoother.  You should remove them before moving into a
+production environment.
+
+Remove anonymous users? [Y/n] Y
+ ... Success!
+
+Normally, root should only be allowed to connect from 'localhost'.  This
+ensures that someone cannot guess at the root password from the network.
+
+Disallow root login remotely? [Y/n] Y
+ ... Success!
+
+By default, MariaDB comes with a database named 'test' that anyone can
+access.  This is also intended only for testing, and should be removed
+before moving into a production environment.
+
+Remove test database and access to it? [Y/n] Y
+ - Dropping test database...
+ ... Success!
+ - Removing privileges on test database...
+ ... Success!
+
+Reloading the privilege tables will ensure that all changes made so far
+will take effect immediately.
+
+Reload privilege tables now? [Y/n] Y
+ ... Success!
+
+Cleaning up...
+
+All done!  If you've completed all of the above steps, your MariaDB
+installation should now be secure.
+
+Thanks for using MariaDB!
+[root@controller1 ~]# 
+
+Ara cal instalar un mongodb pel telemetry (el servei que fa el monitoring)
+
+yum install mongodb-server mongodb -y
+
+Editem el fitxer /etc/mongod.conf i posem:
+
+bind_ip = 172.20.16.194
+
+i
+
+smallfiles = true (per defecte sino crea 1 GB journal files, amb aquest
+parametre ho reduim a 128Mb)
+
+Engeguem el servei i el configurem per a que arrenqui al boot:
+
+[root@controller1 ~]# systemctl enable mongod.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/mongod.service to
+/usr/lib/systemd/system/mongod.service.
+[root@controller1 ~]#  systemctl start mongod.service
+[root@controller1 ~]#
+
+Ara hem de posar el message queue, que es el que necessitem per coordinar els
+diferents serveis. Ho farem amb RabbitMQ
+
+yum install rabbitmq-server -y
+
+i as usual:
+
+[root@controller1 ~]# systemctl enable rabbitmq-server.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/rabbitmq-server.service to
+/usr/lib/systemd/system/rabbitmq-server.service.
+[root@controller1 ~]# systemctl start rabbitmq-server.service
+[root@controller1 ~]# 
+
+
+Creem l'usuari i li posem passwd:
+
+[root@controller1 ~]# rabbitmqctl add_user openstack r4bb1t
+Creating user "openstack" ...
+[root@controller1 ~]#
+
+donem permisos:
+
+[root@controller1 ~]# rabbitmqctl set_permissions openstack ".*" ".*" ".*"
+Setting permissions for user "openstack" in vhost "/" ...
+[root@controller1 ~]#
+
+El servei d'autenticacio de l'openstack fa servir memcached...aixi que
+l'instal.lem:
+
+yum install memcached python-memcached -y
+
+[root@controller1 ~]# systemctl enable memcached.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/memcached.service to
+/usr/lib/systemd/system/memcached.service.
+[root@controller1 ~]# systemctl start memcached.service
+[root@controller1 ~]#
+
+Instal.lem el servei d'identitat (keystone)
+
+[root@controller1 ~]#  mysql -u root -p
+Enter password: 
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 11
+Server version: 10.1.12-MariaDB MariaDB Server
+
+Copyright (c) 2000, 2016, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [(none)]>CREATE DATABASE keystone;
+Query OK, 1 row affected (0.00 sec)
+
+MariaDB [(none)]> 
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'localhost'
+IDENTIFIED BY 'k3yst0n3';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]>
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%'
+IDENTIFIED BY 'k3yst0n3';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> 
+
+Crearem un valor random per fer servir com token + tard durant al
+configuracio:
+
+openssl rand -hex 10 > token-keystone.txt
+
+[root@controller1 ~]# cat token-keystone.txt 
+366553d15363d7b6f42f
+[root@controller1 ~]#
+
+Instal.lem el keystone: 
+
+yum install openstack-keystone httpd mod_wsgi -y
+
+Editem /etc/keystone/keystone.conf
+
+admin_token = 366553d15363d7b6f42f (el valor que hem generat random abans)
+
+a la seccio [database]
+
+connection = mysql+pymysql://keystone:k3yst0n3@controller1/keystone
+
+a la seccio [token]
+
+provider = fernet
+
+--
+Ara poblem la db keystone que fara servir l'identity service:
+
+/bin/sh -c "keystone-manage db_sync" keystone
+
+Inicialitzem les claus de Fernet:
+
+keystone-manage fernet_setup --keystone-user keystone --keystone-group
+keystone
+
+Ara configurem l'apache:
+
+Editem /etc/httpd/conf/httpd.conf
+
+ServerName controller1
+
+Creem /etc/httpd/conf.d/wsgi-keystone.conf amb aquest contingut:
+
+[root@controller1 ~]# cat /etc/httpd/conf.d/wsgi-keystone.conf 
+Listen 5000
+Listen 35357
+
+<VirtualHost *:5000>
+    WSGIDaemonProcess keystone-public processes=5 threads=1 user=keystone
+group=keystone display-name=%{GROUP}
+    WSGIProcessGroup keystone-public
+    WSGIScriptAlias / /usr/bin/keystone-wsgi-public
+    WSGIApplicationGroup %{GLOBAL}
+    WSGIPassAuthorization On
+    ErrorLogFormat "%{cu}t %M"
+    ErrorLog /var/log/httpd/keystone-error.log
+    CustomLog /var/log/httpd/keystone-access.log combined
+
+    <Directory /usr/bin>
+        Require all granted
+    </Directory>
+</VirtualHost>
+
+<VirtualHost *:35357>
+    WSGIDaemonProcess keystone-admin processes=5 threads=1 user=keystone
+group=keystone display-name=%{GROUP}
+    WSGIProcessGroup keystone-admin
+    WSGIScriptAlias / /usr/bin/keystone-wsgi-admin
+    WSGIApplicationGroup %{GLOBAL}
+    WSGIPassAuthorization On
+    ErrorLogFormat "%{cu}t %M"
+    ErrorLog /var/log/httpd/keystone-error.log
+    CustomLog /var/log/httpd/keystone-access.log combined
+
+    <Directory /usr/bin>
+        Require all granted
+    </Directory>
+</VirtualHost>
+[root@controller1 ~]# 
+
+i as usual: 
+
+systemctl enable httpd.service
+systemctl start httpd.service
+
+Ara hem de crear una entitat 'service' ja que el identity service mante una
+cataleg de serveis. 
+
+export OS_TOKEN=366553d15363d7b6f42f  (el que haviem generat)
+
+export OS_URL=http://controller1:35357/v3
+
+export OS_IDENTITY_API_VERSION=3
+
+[root@controller1 ~]# openstack service create --name keystone --description
+"OpenStack Identity" identity
+
+i obtenim:
+
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | OpenStack Identity               |
+| enabled     | True                             |
+| id          | de6cd800c5ce4325b5b3a161076f3108 |
+| name        | keystone                         |
+| type        | identity                         |
++-------------+----------------------------------+
+[root@controller1 ~]#
+
+openstack permet crear regions separades (public, internal, admin, per
+permetre diferenst nivells de gestio de les entitats...aqui farem la mateixa
+regio pels tres casos RegionOne)
+
+[root@controller1 ~]# openstack endpoint create --region RegionOne identity
+public http://controller1:5000/v3
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | cb5299468c424945a035ec4eb21fc1d3 |
+| interface    | public                           |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | de6cd800c5ce4325b5b3a161076f3108 |
+| service_name | keystone                         |
+| service_type | identity                         |
+| url          | http://controller1:5000/v3       |
++--------------+----------------------------------+
+[root@controller1 ~]# 
+[root@controller1 ~]# openstack endpoint create --region RegionOne identity
+internal http://controller1:5000/v3
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | dd3b3ac7e023400f906f3f0244a9de37 |
+| interface    | internal                         |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | de6cd800c5ce4325b5b3a161076f3108 |
+| service_name | keystone                         |
+| service_type | identity                         |
+| url          | http://controller1:5000/v3       |
++--------------+----------------------------------+
+[root@controller1 ~]# openstack endpoint create --region RegionOne identity
+admin http://controller1:35357/v3
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | ff19f976ccf8413ba222627b2401c731 |
+| interface    | admin                            |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | de6cd800c5ce4325b5b3a161076f3108 |
+| service_name | keystone                         |
+| service_type | identity                         |
+| url          | http://controller1:35357/v3       |
++--------------+----------------------------------+
+[root@controller1 ~]#
+
+
+
+
+El Identity service proveeix autenticacio per cada servei de l'OpenStack
+La autenticacio es basa en domains, projects, users, i roles.
+
+Creem el default domain:
+
+
+openstack domain create --description "Default Domain" default
+
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | Default Domain                   |
+| enabled     | True                             |
+| id          | 2951dc12a085405e849b2d1a9798b359 |
+| name        | default                          |
++-------------+----------------------------------+
+[root@controller1 ~]#
+
+ara un projecte "Admin"
+
+[root@controller1 ~]# openstack project create --domain default --description
+"Admin Project" admin
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | Admin Project                    |
+| domain_id   | 2951dc12a085405e849b2d1a9798b359 |
+| enabled     | True                             |
+| id          | 8889c3598fdf4f2d81a9f36f7a3c8f1c |
+| is_domain   | False                            |
+| name        | admin                            |
+| parent_id   | 2951dc12a085405e849b2d1a9798b359 |
++-------------+----------------------------------+
+[root@controller1 ~]# 
+
+I un usuari admin:
+
+[root@controller1 ~]# openstack user create --domain default
+--password-prompt admin
+User Password:
+Repeat User Password:
++-----------+----------------------------------+
+| Field     | Value                            |
++-----------+----------------------------------+
+| domain_id | 2951dc12a085405e849b2d1a9798b359 |
+| enabled   | True                             |
+| id        | a73b420a0a764e59bc41ecc7889e6afe |
+| name      | admin                            |
++-----------+----------------------------------+
+[root@controller1 ~]# 
+
+(li he posat com passwd 'notnull')
+
+Creem el role:
+
+[root@controller1 ~]# openstack role create admin
++-----------+----------------------------------+
+| Field     | Value                            |
++-----------+----------------------------------+
+| domain_id | None                             |
+| id        | 493a4e8b4cdd42fba8864470ce75aa8f |
+| name      | admin                            |
++-----------+----------------------------------+
+[root@controller1 ~]#
+
+Associem el role 'admin' a l'usuari 'admin' i el projecte 'admin' 
+
+[root@controller1 ~]# openstack role add --project admin --user admin admin
+
+
+Creem el projecte 'service'
+
+[root@controller1 ~]# openstack project create --domain default --description
+"Service Project" service
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | Service Project                  |
+| domain_id   | 2951dc12a085405e849b2d1a9798b359 |
+| enabled     | True                             |
+| id          | cd907153c87445df984985b56c23d8c8 |
+| is_domain   | False                            |
+| name        | service                          |
+| parent_id   | 2951dc12a085405e849b2d1a9798b359 |
++-------------+----------------------------------+
+[root@controller1 ~]#
+
+Per realitzar tasques que no siguin d'administracio, creem un projecte i un
+usuari no privilegiats:
+
+[root@controller1 ~]# openstack project create --domain default --description
+"SITGRIB Project" sitgrib
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | SITGRIB Project                  |
+| domain_id   | 2951dc12a085405e849b2d1a9798b359 |
+| enabled     | True                             |
+| id          | dbece632c745474283469d0fd2ab9bfc |
+| is_domain   | False                            |
+| name        | sitgrib                          |
+| parent_id   | 2951dc12a085405e849b2d1a9798b359 |
++-------------+----------------------------------+
+[root@controller1 ~]# 
+
+Creem l'usuari sitgrib:
+
+[root@controller1 ~]# openstack user create --domain default
+--password-prompt sitgrib
+User Password:
+Repeat User Password:
++-----------+----------------------------------+
+| Field     | Value                            |
++-----------+----------------------------------+
+| domain_id | 2951dc12a085405e849b2d1a9798b359 |
+| enabled   | True                             |
+| id        | 5505d7d8e7d64fddb66ac698657a046f |
+| name      | sitgrib                          |
++-----------+----------------------------------+
+[root@controller1 ~]#
+
+(passwd li he posat 'sit-grib')
+
+I ara creem el role user:
+
+[root@controller1 ~]# openstack role create user
++-----------+----------------------------------+
+| Field     | Value                            |
++-----------+----------------------------------+
+| domain_id | None                             |
+| id        | b8087d5741154b5abd2332a2b6d16346 |
+| name      | user                             |
++-----------+----------------------------------+
+[root@controller1 ~]#
+
+i associarem l'usuari sitgrib i el projecte sitgrib a aquest role:
+
+[root@controller1 ~]# openstack role add --project sitgrib --user sitgrib user
+[root@controller1 ~]#
+
+Amb aquest procediment es poden crear altres projectes/usuaris
+
+Ara anem a verificar que l'identity service rula com cal:
+
+deshabilitem l'autenticacio del token:
+
+editem /etc/keystone/keystone-paste.ini i treiem admin_token_auth de les
+seccions [pipeline:public_api], [pipeline:admin_api],  [pipeline:api_v3]
+
+fem 
+[root@controller1 ~]# unset OS_TOKEN OS_URL
+[root@controller1 ~]# 
+
+[root@controller1 ~]# openstack --os-auth-url http://controller1:35357/v3
+--os-project-domain-name default --os-user-domain-name default
+--os-project-name admin --os-username admin token issue
+Password: 
++------------+----------------------------------------------------------------+
+| Field      | Value
+|
++------------+----------------------------------------------------------------+
+| expires    | 2016-10-06T11:28:21.002379Z
+|
+| id         | gAAAAABX9idFGEJFM4Ny3BAwVaqhR-DxSUwwkoCA0kMkbNc_kEa-
+|
+|            | E5N66GzuQK-C8tqB5iGrUQaHnxdBuiTBNBO62f55s3h5OCAaI0ZA2x8f0CbxxI
+|
+|            | bUkK_FVIv8Bgpz60jHnPjFHMyJrYshz5BwMUZ-Z61U4I-9E_s32y-
+|
+|            | IE64byMxDl4TBseQ
+|
+| project_id | 8889c3598fdf4f2d81a9f36f7a3c8f1c
+|
+| user_id    | a73b420a0a764e59bc41ecc7889e6afe
+|
++------------+----------------------------------------------------------------+
+[root@controller1 ~]#
+
+Ok. Ara ho provem com usuari sitgrib:
+[root@controller1 ~]# openstack --os-auth-url http://controller1:5000/v3
+--os-project-domain-name default --os-user-domain-name default
+--os-project-name sitgrib --os-username sitgrib token issue
+Password: 
++------------+----------------------------------------------------------------+
+| Field      | Value
+|
++------------+----------------------------------------------------------------+
+| expires    | 2016-10-06T11:30:41.065267Z
+|
+| id         | gAAAAABX9ifR5x9Xs0YM-OcRacVY1ZTMMoa_dxHafUljWghMNMWUF0ZBJLRx_v
+|
+|            | aij5XrWjJ77UUoIsjM8luV3LhZ6OQPhLXWQ9drcExxe1JnGozugt97AZeo6wH1
+|
+|            | RsyoaWpCjv0Z892VfzNPEbLMI5_9-end6RdB7U05sAr3HXEyc6bZjdu4Ypg
+|
+| project_id | dbece632c745474283469d0fd2ab9bfc
+|
+| user_id    | 5505d7d8e7d64fddb66ac698657a046f
+|
++------------+----------------------------------------------------------------+
+[root@controller1 ~]# 
+
+
+Ara creem scripts d'entorn pels clients:
+
+Un script per carregar les variables d'admin:
+
+[root@controller1 ~]# cat admin-openrc 
+export OS_PROJECT_DOMAIN_NAME=default
+export OS_USER_DOMAIN_NAME=default
+export OS_PROJECT_NAME=admin
+export OS_USERNAME=admin
+export OS_PASSWORD=notnull
+export OS_AUTH_URL=http://controller1:35357/v3
+export OS_IDENTITY_API_VERSION=3
+export OS_IMAGE_API_VERSION=2
+[root@controller1 ~]# 
+
+idem per l'usuari sitgrib:
+
+[root@controller1 ~]# cat sitgrib-openrc 
+export OS_PROJECT_DOMAIN_NAME=default
+export OS_USER_DOMAIN_NAME=default
+export OS_PROJECT_NAME=sitgrib
+export OS_USERNAME=sitgrib
+export OS_PASSWORD=sit-grib
+export OS_AUTH_URL=http://controller1:5000/v3
+export OS_IDENTITY_API_VERSION=3
+export OS_IMAGE_API_VERSION=2
+
+SERVEI d'IMATGE (per manegar les img de les vm)
+
+Necessitarem un db de mysql associada:
+
+
+[root@controller1 ~]# mysql -u root -p
+Enter password: 
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 22
+Server version: 10.1.12-MariaDB MariaDB Server
+
+Copyright (c) 2000, 2016, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [(none)]> CREATE DATABASE glance;
+Query OK, 1 row affected (0.00 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'localhost'
+IDENTIFIED BY 'gl4nc3';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'%' IDENTIFIED
+BY 'gl4nc3';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> 
+
+carreguem les variables d'admin d'openstack
+
+[root@controller1 ~]# openstack user create --domain default --password-prompt
+glance
+User Password:
+Repeat User Password:
++-----------+----------------------------------+
+| Field     | Value                            |
++-----------+----------------------------------+
+| domain_id | 2951dc12a085405e849b2d1a9798b359 |
+| enabled   | True                             |
+| id        | 84e81338d28c4033b1864e10e38d7a42 |
+| name      | glance                           |
++-----------+----------------------------------+
+[root@controller1 ~]# 
+
+(li poso el mateix passwd que al mysql: gl4nc3)
+
+Associem el role d'admin tanta l'usuari glance com al projecte service.
+
+[root@controller1 ~]# openstack role add --project service --user glance admin
+[root@controller1 ~]# 
+
+Ara creem un servei d'openstack, anomenat glance i que es d'image:
+
+[root@controller1 ~]# openstack service create --name glance --description
+"OpenStack Image" image
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | OpenStack Image                  |
+| enabled     | True                             |
+| id          | a0ba8553f9d344019ae05e83125cc55b |
+| name        | glance                           |
+| type        | image                            |
++-------------+----------------------------------+
+[root@controller1 ~]#
+
+Creem les regions:
+
+[root@controller1 ~]# openstack endpoint create --region RegionOne image
+public http://controller1:9292
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | a66c9837f33f4868bfc43744e2aa4b85 |
+| interface    | public                           |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | a0ba8553f9d344019ae05e83125cc55b |
+| service_name | glance                           |
+| service_type | image                            |
+| url          | http://controller1:9292          |
++--------------+----------------------------------+
+[root@controller1 ~]#
+
+[root@controller1 ~]# openstack endpoint create --region RegionOne image
+internal http://controller1:9292
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | 7519afa73b0f4359b52e01ab0979d1d5 |
+| interface    | internal                         |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | a0ba8553f9d344019ae05e83125cc55b |
+| service_name | glance                           |
+| service_type | image                            |
+| url          | http://controller1:9292          |
++--------------+----------------------------------+
+[root@controller1 ~]#
+
+[root@controller1 ~]# openstack endpoint create --region RegionOne image admin
+http://controller1:9292
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | bfdbaee157e04b15b4e198c03efdf698 |
+| interface    | admin                            |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | a0ba8553f9d344019ae05e83125cc55b |
+| service_name | glance                           |
+| service_type | image                            |
+| url          | http://controller1:9292          |
++--------------+----------------------------------+
+[root@controller1 ~]#
+
+Ara instal.lem els paquets del servei:
+
+yum install openstack-glance -y
+
+
+Editem /etc/glance/glance-api.conf i posem 
+
+registry_host = 172.20.16.194
+registry_port = 9292
+
+[database]
+...
+connection = mysql+pymysql://glance:gl4nc3@controller1/glance
+
+[keystone_authtoken]
+
+auth_uri = http://controller1:5000
+auth_url = http://controller1:35357
+memcached_servers = controller1:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = glance
+password = gl4nc3
+
+
+i la resta d'opcions les comentem
+
+[paste_deploy]
+...
+flavor = keystone
+
+
+[glance_store]
+...
+stores = file,http
+default_store = file
+filesystem_store_datadir = /var/lib/glance/images/
+
+
+Al fitxer: /etc/glance/glance-registry.conf
+
+[database]
+...
+connection = mysql+pymysql://glance:gl4nc3@controller1/glance
+
+[keystone_authtoken]
+...
+auth_uri = http://controller1:5000
+auth_url = http://controller1:35357
+memcached_servers = controller1:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = glance
+password = gl4nc3
+
+[paste_deploy]
+...
+flavor = keystone
+
+Poblem la db:
+
+/bin/sh -c "glance-manage db_sync" glance
+
+(hi ha missatges de deprecation que podem ignorar)
+
+Configurem el servei per a que engegui:
+
+[root@controller1 ~]# systemctl enable openstack-glance-api.service
+openstack-glance-registry.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-glance-api.service to
+/usr/lib/systemd/system/openstack-glance-api.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-glance-registry.service
+to /usr/lib/systemd/system/openstack-glance-registry.service.
+
+Engeguem els serveis:
+
+[root@controller1 ~]# systemctl start openstack-glance-api.service
+openstack-glance-registry.service
+
+el registry engega be pero el api no...finalment trobo el problema:
+
+[root@controller1 ~]# ls -l /var/log/glance/
+total 24
+-rw-r--r--. 1 root   root   8453 Oct  6 14:26 api.log
+-rw-r--r--. 1 glance glance 9240 Oct  6 15:14 registry.log
+[root@controller1 ~]# chown glance:glance /var/log/glance/api.log 
+[root@controller1 ~]#
+[root@controller1 ~]#
+
+Un cop ho hem resolt, podem fer la prova del servei:
+
+Baixem na imatge (cirrOS un linux minim)
+
+wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img
+
+La carreguem al servei d'imatges de l'openstack:
+
+[root@controller1 ~]# openstack image create "cirros" --file
+cirros-0.3.4-x86_64-disk.img --disk-format qcow2 --container-format bare
+--public
++------------------+------------------------------------------------------+
+| Field            | Value                                                |
++------------------+------------------------------------------------------+
+| checksum         | ee1eca47dc88f4879d8a229cc70a07c6                     |
+| container_format | bare                                                 |
+| created_at       | 2016-10-06T13:20:18Z                                 |
+| disk_format      | qcow2                                                |
+| file             | /v2/images/90e229a3-03fc-48e2-a224-cf904f77c1da/file |
+| id               | 90e229a3-03fc-48e2-a224-cf904f77c1da                 |
+| min_disk         | 0                                                    |
+| min_ram          | 0                                                    |
+| name             | cirros                                               |
+| owner            | 8889c3598fdf4f2d81a9f36f7a3c8f1c                     |
+| protected        | False                                                |
+| schema           | /v2/schemas/image                                    |
+| size             | 13287936                                             |
+| status           | active                                               |
+| tags             |                                                      |
+| updated_at       | 2016-10-06T13:20:18Z                                 |
+| virtual_size     | None                                                 |
+| visibility       | public                                               |
++------------------+------------------------------------------------------+
+[root@controller1 ~]#
+
+[root@controller1 ~]# openstack image list
++--------------------------------------+--------+--------+
+| ID                                   | Name   | Status |
++--------------------------------------+--------+--------+
+| 90e229a3-03fc-48e2-a224-cf904f77c1da | cirros | active |
++--------------------------------------+--------+--------+
+[root@controller1 ~]# 
+
+SERVEI de COMPUTE:
+
+Caldra configurar diferents serveis tant al controller com als compute nodes.
+
+a controller1:
+
+La DB associada
+
+
+[root@controller1 ~]# mysql -u root -p
+Enter password: 
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 40
+Server version: 10.1.12-MariaDB MariaDB Server
+
+Copyright (c) 2000, 2016, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [(none)]> CREATE DATABASE nova_api;
+Query OK, 1 row affected (0.00 sec)
+
+MariaDB [(none)]> CREATE DATABASE nova;
+Query OK, 1 row affected (0.00 sec)
+
+MariaDB [(none)]>
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'localhost'
+IDENTIFIED BY 'N0v4';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%' IDENTIFIED
+BY 'N0v4';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost'
+IDENTIFIED BY 'N0v4';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' IDENTIFIED BY
+'N0v4'; Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> 
+
+
+Creem el servei a openstack
+
+l'usuari:
+
+[root@controller1 ~]# openstack user create --domain default
+--password-prompt nova
+User Password:
+Repeat User Password:
++-----------+----------------------------------+
+| Field     | Value                            |
++-----------+----------------------------------+
+| domain_id | 2951dc12a085405e849b2d1a9798b359 |
+| enabled   | True                             |
+| id        | 64c2a08fea114cf9b8b7a7c62cc27896 |
+| name      | nova                             |
++-----------+----------------------------------+
+[root@controller1 ~]#
+
+(he posat de passwd 'N0v4')
+
+els rols:
+[root@controller1 ~]# openstack role add --project service --user nova admin
+[root@controller1 ~]#
+
+el servei en si:
+[root@controller1 ~]# openstack service create --name nova --description
+"OpenStack Compute" compute
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | OpenStack Compute                |
+| enabled     | True                             |
+| id          | 78ddc5a559b0428da275151240e965a7 |
+| name        | nova                             |
+| type        | compute                          |
++-------------+----------------------------------+
+[root@controller1 ~]#
+
+
+els API endpoints per la regio
+
+[root@controller1 ~]# openstack endpoint create --region RegionOne compute
+public http://controller1:8774/v2.1/%\(tenant_id\)s
++--------------+--------------------------------------------+
+| Field        | Value                                      |
++--------------+--------------------------------------------+
+| enabled      | True                                       |
+| id           | 6919dc4aab454f10acbdf9fd323758e1           |
+| interface    | public                                     |
+| region       | RegionOne                                  |
+| region_id    | RegionOne                                  |
+| service_id   | 78ddc5a559b0428da275151240e965a7           |
+| service_name | nova                                       |
+| service_type | compute                                    |
+| url          | http://controller1:8774/v2.1/%(tenant_id)s |
++--------------+--------------------------------------------+
+[root@controller1 ~]#
+
+
+ot@controller1 ~]# openstack endpoint create --region RegionOne compute
+internal http://controller1:8774/v2.1/%\(tenant_id\)s
++--------------+--------------------------------------------+
+| Field        | Value                                      |
++--------------+--------------------------------------------+
+| enabled      | True                                       |
+| id           | 613724e987d1479fb695bd366a035431           |
+| interface    | internal                                   |
+| region       | RegionOne                                  |
+| region_id    | RegionOne                                  |
+| service_id   | 78ddc5a559b0428da275151240e965a7           |
+| service_name | nova                                       |
+| service_type | compute                                    |
+| url          | http://controller1:8774/v2.1/%(tenant_id)s |
++--------------+--------------------------------------------+
+[root@controller1 ~]# openstack endpoint create --region RegionOne compute
+admin http://controller1:8774/v2.1/%\(tenant_id\)s
++--------------+--------------------------------------------+
+| Field        | Value                                      |
++--------------+--------------------------------------------+
+| enabled      | True                                       |
+| id           | d0560259e7274524ae12eb3460f74559           |
+| interface    | admin                                      |
+| region       | RegionOne                                  |
+| region_id    | RegionOne                                  |
+| service_id   | 78ddc5a559b0428da275151240e965a7           |
+| service_name | nova                                       |
+| service_type | compute                                    |
+| url          | http://controller1:8774/v2.1/%(tenant_id)s |
++--------------+--------------------------------------------+
+[root@controller1 ~]#
+
+Instal.lem els components:
+
+[root@controller1 ~]# yum install openstack-nova-api openstack-nova-conductor
+openstack-nova-console openstack-nova-novncproxy openstack-nova-scheduler -y
+
+
+Editem  /etc/nova/nova.conf
+
+[DEFAULT]
+...
+enabled_apis = osapi_compute,metadata
+
+[api_database]
+...
+connection = mysql+pymysql://nova:N0v4@controller1/nova_api
+
+[database]
+...
+connection = mysql+pymysql://nova:N0v4@controller1/nova
+
+[DEFAULT]
+...
+rpc_backend = rabbit
+
+[oslo_messaging_rabbit]
+...
+rabbit_host = controller1
+rabbit_userid = openstack
+rabbit_password = r4bb1t
+
+
+i tambe
+
+[DEFAULT]
+...
+auth_strategy = keystone
+
+[keystone_authtoken]
+...
+auth_uri = http://controller1:5000
+auth_url = http://controller1:35357
+memcached_servers = controller1:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = nova
+password = N0v4
+
+[DEFAULT]
+...
+my_ip = 172.20.16.194
+
+[DEFAULT]
+...
+use_neutron = True
+firewall_driver = nova.virt.firewall.NoopFirewallDriver
+
+[vnc]
+enabled=true
+vncserver_listen = 0.0.0.0
+vncserver_proxyclient_address = 172.20.16.194
+novncproxy_host=0.0.0.0
+novncproxy_port=6080
+novncproxy_base_url=http://172.20.16.194:6080/vnc_auto.html
+
+
+[glance]
+...
+api_servers = http://controller1:9292
+
+[oslo_concurrency]
+...
+lock_path = /var/lib/nova/tmp
+
+---
+
+Un cop fet, poblem la db:
+
+
+ot@controller1 ~]# /bin/sh -c "nova-manage api_db sync" nova
+[root@controller1 ~]# /bin/sh -c "nova-manage db sync" nova
+/usr/lib/python2.7/site-packages/pymysql/cursors.py:146: Warning: Duplicate
+index 'block_device_mapping_instance_uuid_virtual_name_device_name_idx'
+defined on the table 'nova.block_device_mapping'. This is deprecated and will
+be disallowed in a future release.
+  result = self._query(query)
+/usr/lib/python2.7/site-packages/pymysql/cursors.py:146: Warning: Duplicate
+index 'uniq_instances0uuid' defined on the table 'nova.instances'. This is
+deprecated and will be disallowed in a future release.
+  result = self._query(query)
+[root@controller1 ~]#
+
+podem ignorar els warnings.
+
+ As usual...confiurem els serveis per autoarrancar i els engeguem:
+
+[root@controller1 ~]# systemctl enable openstack-nova-api.service
+openstack-nova-consoleauth.service openstack-nova-scheduler.service
+openstack-nova-conductor.service openstack-nova-novncproxy.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-nova-api.service to
+/usr/lib/systemd/system/openstack-nova-api.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-nova-consoleauth.service
+to /usr/lib/systemd/system/openstack-nova-consoleauth.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-nova-scheduler.service
+to /usr/lib/systemd/system/openstack-nova-scheduler.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-nova-conductor.service
+to /usr/lib/systemd/system/openstack-nova-conductor.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-nova-novncproxy.service
+to /usr/lib/systemd/system/openstack-nova-novncproxy.service.
+[root@controller1 ~]# systemctl start openstack-nova-api.service
+openstack-nova-consoleauth.service openstack-nova-scheduler.service
+openstack-nova-conductor.service openstack-nova-novncproxy.service
+[root@controller1 ~]#
+
+Ara anem a instal.lar el que cal a un compute node:
+
+[root@compute2 ~]# yum install openstack-nova-compute -y
+
+llavors cal editar /etc/nova/nova.conf i modificar:
+
+
+[DEFAULT]
+...
+rpc_backend = rabbit
+uth_strategy = keystone
+my_ip = LAIPDELNODE
+use_neutron = True
+firewall_driver = nova.virt.firewall.NoopFirewallDriver
+
+
+
+[oslo_messaging_rabbit]
+...
+rabbit_host = controller1
+rabbit_userid = openstack
+rabbit_password = r4bb1t
+
+[keystone_authtoken]
+...
+auth_uri = http://controller1:5000
+auth_url = http://controller1:35357
+memcached_servers = controller1:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = nova
+password = N0v4
+
+[vnc]
+...
+enabled = True
+vncserver_listen = 0.0.0.0
+vncserver_proxyclient_address = $my_ip
+novncproxy_base_url = http://172.20.16.194:6080/vnc_auto.html
+
+[glance]
+...
+api_servers = http://controller1:9292
+
+[oslo_concurrency]
+...
+lock_path = /var/lib/nova/tmp
+
+
+----
+
+Ara comprovem que els compute nodes suporten virtualitzacio:
+
+egrep -c '(vmx|svm)' /proc/cpuinfo
+
+si retorna un valor > 1 ja va be:
+
+[root@compute1 ~]# egrep -c '(vmx|svm)' /proc/cpuinfo
+4
+[root@compute1 ~]# 
+
+[root@compute2 ~]# egrep -c '(vmx|svm)' /proc/cpuinfo
+8
+[root@compute2 ~]#
+
+Ok.
+
+ A /etc/nova/nova.conf podem posar a 
+
+[libvirt]
+
+virt_type = kvm
+
+Ara as usual:
+
+[root@compute2 ~]# systemctl enable libvirtd.service
+openstack-nova-compute.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-nova-compute.service to
+/usr/lib/systemd/system/openstack-nova-compute.service.
+[root@compute2 ~]# 
+
+Ara comprovem si xuta:
+
+Al controller1:
+
+[root@controller1 ~]# openstack compute service list
++----+---------------+---------------+----------+---------+-------+-----------------+
+| Id | Binary        | Host          | Zone     | Status  | State | Updated At
+|
++----+---------------+---------------+----------+---------+-------+-----------------+
+|  1 | nova-         | controller1   | internal | enabled | up    |
+2016-10-06T14:1 |
+|    | conductor     |               |          |         |       |
+9:04.000000     |
+|  4 | nova-         | controller1   | internal | enabled | up    |
+2016-10-06T14:1 |
+|    | consoleauth   |               |          |         |       |
+9:04.000000     |
+|  5 | nova-         | controller1   | internal | enabled | up    |
+2016-10-06T14:1 |
+|    | scheduler     |               |          |         |       |
+9:04.000000     |
+|  9 | nova-compute  | compute2      | nova     | enabled | up    |
+2016-10-06T14:1 |
+|    |               |               |          |         |       |
+9:00.000000     |
+| 10 | nova-compute  | compute1.prib | nova     | enabled | up    |
+2016-10-06T14:1 |
+|    |               | .upf.edu      |          |         |       |
+8:59.000000     |
++----+---------------+---------------+----------+---------+-------+-----------------+
+[root@controller1 ~]#
+
+OK
+
+NETWORKING SERVICE
+
+Al controller:
+
+creem la db:
+[root@controller1 ~]# mysql -u root -p
+Enter password: 
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 76
+Server version: 10.1.12-MariaDB MariaDB Server
+
+Copyright (c) 2000, 2016, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [(none)]> CREATE DATABASE neutron;
+Query OK, 1 row affected (0.00 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON neutron.* TO 'neutron'@'localhost'
+IDENTIFIED BY 'n3utr0n';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON neutron.* TO 'neutron'@'%'
+IDENTIFIED BY 'n3utr0n';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]>
+
+Al openstack:
+
+[root@controller1 ~]# openstack user create --domain default --password-prompt
+neutron
+User Password:
+Repeat User Password:
++-----------+----------------------------------+
+| Field     | Value                            |
++-----------+----------------------------------+
+| domain_id | 2951dc12a085405e849b2d1a9798b359 |
+| enabled   | True                             |
+| id        | b2e1aac59160416187591c049353258e |
+| name      | neutron                          |
++-----------+----------------------------------+
+[root@controller1 ~]#
+
+(poso n3utr0n)
+
+[root@controller1 ~]# openstack role add --project service --user neutron
+admin
+[root@controller1 ~]# 
+
+[root@controller1 ~]# openstack service create --name neutron --description
+"OpenStack Networking" network
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | OpenStack Networking             |
+| enabled     | True                             |
+| id          | 35033db771e64c8c9408721e93450a0f |
+| name        | neutron                          |
+| type        | network                          |
++-------------+----------------------------------+
+[root@controller1 ~]#
+
+[root@controller1 ~]# openstack endpoint create --region RegionOne network
+public http://controller1:9696
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | f740e721272549f39184b5761e50bfae |
+| interface    | public                           |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | 35033db771e64c8c9408721e93450a0f |
+| service_name | neutron                          |
+| service_type | network                          |
+| url          | http://controller1:9696          |
++--------------+----------------------------------+
+[root@controller1 ~]# 
+[root@controller1 ~]# openstack endpoint create --region RegionOne network
+internal http://controller1:9696
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | 8c5b4214f4254f10bab93912ad5649a9 |
+| interface    | internal                         |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | 35033db771e64c8c9408721e93450a0f |
+| service_name | neutron                          |
+| service_type | network                          |
+| url          | http://controller1:9696          |
++--------------+----------------------------------+
+[root@controller1 ~]# openstack endpoint create --region RegionOne network
+admin http://controller1:9696
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | 5e888c9e3bb143d38ea5fa7bf3c93d13 |
+| interface    | admin                            |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | 35033db771e64c8c9408721e93450a0f |
+| service_name | neutron                          |
+| service_type | network                          |
+| url          | http://controller1:9696          |
++--------------+----------------------------------+
+[root@controller1 ~]#
+
+Ara es poden configurar les opcions de xarxa, hi ha 2 maneres
+
+1.- provider :nomes l'admin pot configurar la xarxa i nomes es poden
+assignar xarxes 'externes' a les instancies
+
+2.- self-service : un usuari no privilegiat pot manegar xarxa, crear subxarxes
+privades, manegar routers,etc...
+
+Escollim la 1.
+
+Al controller:
+
+[root@controller1 ~]# yum install openstack-neutron openstack-neutron-ml2
+openstack-neutron-linuxbridge ebtables -y
+
+Configurem
+
+/etc/neutron/neutron.conf
+
+[database]
+...
+connection = mysql+pymysql://neutron:n3utr0n@controller1/neutron
+
+[DEFAULT]
+...
+core_plugin = ml2
+service_plugins =
+auth_strategy = keystone
+notify_nova_on_port_status_changes = True
+notify_nova_on_port_data_changes = True
+
+
+backend = rabbit
+
+[oslo_messaging_rabbit]
+...
+rabbit_host = controller1
+rabbit_userid = openstack
+rabbit_password = r4bb1t
+
+[keystone_authtoken]
+...
+auth_uri = http://controller1:5000
+auth_url = http://controller1:35357
+memcached_servers = controller1:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = neutron
+password = n3utr0n
+
+[nova]
+...
+auth_url = http://controller1:35357
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+region_name = RegionOne
+project_name = service
+username = nova
+password = N0v4
+
+[oslo_concurrency]
+...
+lock_path = /var/lib/neutron/tmp
+
+----
+Ara editem /etc/neutron/plugins/ml2/ml2_conf.ini i posem
+
+[ml2]
+...
+type_drivers = flat,vlan
+tenant_network_types =
+mechanism_drivers = linuxbridge
+extension_drivers = port_security
+
+[ml2_type_flat]
+...
+flat_networks = provider
+
+[securitygroup]
+...
+enable_ipset = True
+
+---
+editem ara /etc/neutron/plugins/ml2/linuxbridge_agent.ini
+
+[linux_bridge]
+physical_interface_mappings = provider:PROVIDER_INTERFACE_NAME
+
+(en el nostre cas, que nomes tenim una interface...es em1, normalment tots els
+nodes i el controller s'estan comunicant per una interficie de xarxa amb ip
+privada i el controller te tambe una interficie amb una altre rang)
+
+[vxlan]
+enable_vxlan = False
+
+[securitygroup]
+...
+enable_security_group = True
+firewall_driver = neutron.agent.linux.iptables_firewall.IptablesFirewallDriver
+
+---
+
+DHCP agent:
+
+/etc/neutron/dhcp_agent.ini
+
+
+[DEFAULT]
+
+interface_driver = neutron.agent.linux.interface.BridgeInterfaceDriver
+dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
+enable_isolated_metadata = True
+
+---
+
+Metadata:
+/etc/neutron/metadata_agent.ini
+
+[DEFAULT]
+...
+nova_metadata_ip = controller1
+metadata_proxy_shared_secret = METADATA_SECRET
+
+on METADATA_SECRET el substituim per 'metadata??'
+
+configura el servei de compute (NOVA) per fer servir neutron 
+
+/etc/nova/nova.conf
+
+[neutron]
+...
+url = http://controller1:9696
+auth_url = http://controller1:35357
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+region_name = RegionOne
+project_name = service
+username = neutron
+password = n3utr0n
+
+service_metadata_proxy = True
+metadata_proxy_shared_secret = metadata??
+---
+
+Despres fem:
+[root@controller1 ~]# ln -s /etc/neutron/plugins/ml2/ml2_conf.ini
+/etc/neutron/plugin.ini
+[root@controller1 ~]#
+
+Poblem la db:
+
+[root@controller1 ~]# /bin/sh -c "neutron-db-manage --config-file
+/etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini
+upgrade head" neutron
+No handlers could be found for logger "oslo_config.cfg"
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+  Running upgrade for neutron ...
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> kilo, kilo_initial
+INFO  [alembic.runtime.migration] Running upgrade kilo -> 354db87e3225,
+nsxv_vdr_metadata.py
+INFO  [alembic.runtime.migration] Running upgrade 354db87e3225 ->
+599c6a226151, neutrodb_ipam
+INFO  [alembic.runtime.migration] Running upgrade 599c6a226151 ->
+52c5312f6baf, Initial operations in support of address scopes
+INFO  [alembic.runtime.migration] Running upgrade 52c5312f6baf ->
+313373c0ffee, Flavor framework
+INFO  [alembic.runtime.migration] Running upgrade 313373c0ffee ->
+8675309a5c4f, network_rbac
+INFO  [alembic.runtime.migration] Running upgrade 8675309a5c4f ->
+45f955889773, quota_usage
+INFO  [alembic.runtime.migration] Running upgrade 45f955889773 ->
+26c371498592, subnetpool hash
+INFO  [alembic.runtime.migration] Running upgrade 26c371498592 ->
+1c844d1677f7, add order to dnsnameservers
+INFO  [alembic.runtime.migration] Running upgrade 1c844d1677f7 ->
+1b4c6e320f79, address scope support in subnetpool
+INFO  [alembic.runtime.migration] Running upgrade 1b4c6e320f79 ->
+48153cb5f051, qos db changes
+INFO  [alembic.runtime.migration] Running upgrade 48153cb5f051 -> 9859ac9c136,
+quota_reservations
+INFO  [alembic.runtime.migration] Running upgrade 9859ac9c136 -> 34af2b5c5a59,
+Add dns_name to Port
+INFO  [alembic.runtime.migration] Running upgrade 34af2b5c5a59 -> 59cb5b6cf4d,
+Add availability zone
+INFO  [alembic.runtime.migration] Running upgrade 59cb5b6cf4d -> 13cfb89f881a,
+add is_default to subnetpool
+INFO  [alembic.runtime.migration] Running upgrade 13cfb89f881a ->
+32e5974ada25, Add standard attribute table
+INFO  [alembic.runtime.migration] Running upgrade 32e5974ada25 ->
+ec7fcfbf72ee, Add network availability zone
+INFO  [alembic.runtime.migration] Running upgrade ec7fcfbf72ee ->
+dce3ec7a25c9, Add router availability zone
+INFO  [alembic.runtime.migration] Running upgrade dce3ec7a25c9 -> c3a73f615e4,
+Add ip_version to AddressScope
+INFO  [alembic.runtime.migration] Running upgrade c3a73f615e4 -> 659bf3d90664,
+Add tables and attributes to support external DNS integration
+INFO  [alembic.runtime.migration] Running upgrade 659bf3d90664 ->
+1df244e556f5, add_unique_ha_router_agent_port_bindings
+INFO  [alembic.runtime.migration] Running upgrade 1df244e556f5 ->
+19f26505c74f, Auto Allocated Topology - aka Get-Me-A-Network
+INFO  [alembic.runtime.migration] Running upgrade 19f26505c74f ->
+15be73214821, add dynamic routing model data
+INFO  [alembic.runtime.migration] Running upgrade 15be73214821 -> b4caf27aae4,
+add_bgp_dragent_model_data
+INFO  [alembic.runtime.migration] Running upgrade b4caf27aae4 -> 15e43b934f81,
+rbac_qos_policy
+INFO  [alembic.runtime.migration] Running upgrade 15e43b934f81 ->
+31ed664953e6, Add resource_versions row to agent table
+INFO  [alembic.runtime.migration] Running upgrade 31ed664953e6 ->
+2f9e956e7532, tag support
+INFO  [alembic.runtime.migration] Running upgrade 2f9e956e7532 ->
+3894bccad37f, add_timestamp_to_base_resources
+INFO  [alembic.runtime.migration] Running upgrade 3894bccad37f ->
+0e66c5227a8a, Add desc to standard attr table
+INFO  [alembic.runtime.migration] Running upgrade kilo -> 30018084ec99,
+Initial no-op Liberty contract rule.
+INFO  [alembic.runtime.migration] Running upgrade 30018084ec99, 8675309a5c4f
+-> 4ffceebfada, network_rbac
+INFO  [alembic.runtime.migration] Running upgrade 4ffceebfada -> 5498d17be016,
+Drop legacy OVS and LB plugin tables
+INFO  [alembic.runtime.migration] Running upgrade 5498d17be016 ->
+2a16083502f3, Metaplugin removal
+INFO  [alembic.runtime.migration] Running upgrade 2a16083502f3 ->
+2e5352a0ad4d, Add missing foreign keys
+INFO  [alembic.runtime.migration] Running upgrade 2e5352a0ad4d ->
+11926bcfe72d, add geneve ml2 type driver
+INFO  [alembic.runtime.migration] Running upgrade 11926bcfe72d ->
+4af11ca47297, Drop cisco monolithic tables
+INFO  [alembic.runtime.migration] Running upgrade 4af11ca47297 ->
+1b294093239c, Drop embrane plugin table
+INFO  [alembic.runtime.migration] Running upgrade 1b294093239c, 32e5974ada25
+-> 8a6d8bdae39, standardattributes migration
+INFO  [alembic.runtime.migration] Running upgrade 8a6d8bdae39 -> 2b4c2465d44b,
+DVR sheduling refactoring
+INFO  [alembic.runtime.migration] Running upgrade 2b4c2465d44b ->
+e3278ee65050, Drop NEC plugin tables
+INFO  [alembic.runtime.migration] Running upgrade e3278ee65050, 15e43b934f81
+-> c6c112992c9, rbac_qos_policy
+INFO  [alembic.runtime.migration] Running upgrade c6c112992c9 -> 5ffceebfada,
+network_rbac_external
+INFO  [alembic.runtime.migration] Running upgrade 5ffceebfada, 0e66c5227a8a ->
+4ffceebfcdc, standard_desc
+  OK
+[root@controller1 ~]#
+
+reengeguem el servei de comput:
+
+systemctl restart openstack-nova-api.service
+
+as usual fem que els serveis engeguin:
+
+[root@controller1 ~]# systemctl enable neutron-server.service
+neutron-linuxbridge-agent.service neutron-dhcp-agent.service
+neutron-metadata-agent.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/neutron-server.service to
+/usr/lib/systemd/system/neutron-server.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/neutron-linuxbridge-agent.service
+to /usr/lib/systemd/system/neutron-linuxbridge-agent.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/neutron-dhcp-agent.service to
+/usr/lib/systemd/system/neutron-dhcp-agent.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/neutron-metadata-agent.service to
+/usr/lib/systemd/system/neutron-metadata-agent.service.
+[root@controller1 ~]# systemctl start neutron-server.service
+neutron-linuxbridge-agent.service neutron-dhcp-agent.service
+neutron-metadata-agent.service
+[root@controller1 ~]#
+
+Ara cal instal.lar el tema de networking als compute nodes:
+
+[root@compute2 ~]# yum install openstack-neutron-linuxbridge ebtables ipset -y
+
+
+Configuracio:
+
+/etc/neutron/neutron.conf
+
+[DEFAULT]
+...
+rpc_backend = rabbit
+auth_strategy = keystone
+
+
+[oslo_messaging_rabbit]
+...
+rabbit_host = controller1
+rabbit_userid = openstack
+rabbit_password = r4bb1t
+
+[keystone_authtoken]
+...
+auth_uri = http://controller1:5000
+auth_url = http://controller1:35357
+memcached_servers = controller1:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = neutron
+password = n3utr0n
+
+[oslo_concurrency]
+...
+lock_path = /var/lib/neutron/tmp
+
+---
+Configure the Networking components on a compute node
+
+/etc/neutron/plugins/ml2/linuxbridge_agent.ini
+
+[linux_bridge]
+physical_interface_mappings = provider:PROVIDER_INTERFACE_NAME
+
+[vxlan]
+enable_vxlan = False
+
+[securitygroup]
+...
+enable_security_group = True
+firewall_driver = neutron.agent.linux.iptables_firewall.IptablesFirewallDriver
+
+Al nova:  /etc/nova/nova.conf
+
+
+[neutron]
+...
+url = http://controller1:9696
+auth_url = http://controller1:35357
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+region_name = RegionOne
+project_name = service
+username = neutron
+password = n3utr0n
+
+
+Reengeguem el servei:
+
+[root@compute2 ~]# systemctl restart openstack-nova-compute.service
+
+i posem que engegui l'altre
+
+[root@compute2 ~]# systemctl enable neutron-linuxbridge-agent.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/neutron-linuxbridge-agent.service
+to /usr/lib/systemd/system/neutron-linuxbridge-agent.service.
+[root@compute2 ~]# 
+
+[root@compute2 ~]# systemctl start neutron-linuxbridge-agent.service
+
+
+Verifiquem. Al controller:
+
+[root@controller1 ~]# neutron ext-list
++---------------------------+-----------------------------------------------+
+| alias                     | name                                          |
++---------------------------+-----------------------------------------------+
+| default-subnetpools       | Default Subnetpools                           |
+| availability_zone         | Availability Zone                             |
+| network_availability_zone | Network Availability Zone                     |
+| auto-allocated-topology   | Auto Allocated Topology Services              |
+| binding                   | Port Binding                                  |
+| agent                     | agent                                         |
+| subnet_allocation         | Subnet Allocation                             |
+| dhcp_agent_scheduler      | DHCP Agent Scheduler                          |
+| tag                       | Tag support                                   |
+| external-net              | Neutron external network                      |
+| net-mtu                   | Network MTU                                   |
+| network-ip-availability   | Network IP Availability                       |
+| quotas                    | Quota management support                      |
+| provider                  | Provider Network                              |
+| multi-provider            | Multi Provider Network                        |
+| address-scope             | Address scope                                 |
+| timestamp_core            | Time Stamp Fields addition for core resources |
+| extra_dhcp_opt            | Neutron Extra DHCP opts                       |
+| security-group            | security-group                                |
+| rbac-policies             | RBAC Policies                                 |
+| standard-attr-description | standard-attr-description                     |
+| port-security             | Port Security                                 |
+| allowed-address-pairs     | Allowed Address Pairs                         |
++---------------------------+-----------------------------------------------+
+[root@controller1 ~]#
+
+
+[root@controller1 ~]# neutron agent-list
++--------------------------------------+--------------------+-----------------------+-------------------+-------+----------------+---------------------------+
+| id                                   | agent_type         | host
+| availability_zone | alive | admin_state_up | binary                    |
++--------------------------------------+--------------------+-----------------------+-------------------+-------+----------------+---------------------------+
+| 7d7babb1-c3a3-4e0d-863f-91fa958c55f6 | Linux bridge agent | compute2
+|                   | :-)   | True           | neutron-linuxbridge-agent |
+| ac05c5d4-e3ca-4c8a-9680-3ecd1350b329 | Linux bridge agent | controller1
+|                   | :-)   | True           | neutron-linuxbridge-agent |
+| dcf0ea9c-9e2e-412a-91ba-2144196dd701 | DHCP agent         | controller1
+| nova              | :-)   | True           | neutron-dhcp-agent        |
+| e18f80d6-5ba3-4bfd-8bde-9d5de3fd7303 | Linux bridge agent |
+compute1.prib.upf.edu |                   | :-)   | True           |
+neutron-linuxbridge-agent |
+| f2aa16d3-d3b3-48c2-a341-c0b4987ac90c | Metadata agent     | controller1
+|                   | :-)   | True           | neutron-metadata-agent    |
++--------------------------------------+--------------------+-----------------------+-------------------+-------+----------------+---------------------------+
+[root@controller1 ~]# 
+
+
+
+Arribats a aquest punt ja podem intentar crear una instancia:
+
+
+1.- primer crearem la xarxa
+
+[root@controller1 ~]# neutron net-create --shared --provider:physical_network
+provider --provider:network_type flat provider
+Created a new network:
++---------------------------+--------------------------------------+
+| Field                     | Value                                |
++---------------------------+--------------------------------------+
+| admin_state_up            | True                                 |
+| availability_zone_hints   |                                      |
+| availability_zones        |                                      |
+| created_at                | 2016-10-06T15:57:23                  |
+| description               |                                      |
+| id                        | fd9c0b05-6c92-43be-8fe8-7909de0012a5 |
+| ipv4_address_scope        |                                      |
+| ipv6_address_scope        |                                      |
+| mtu                       | 1500                                 |
+| name                      | provider                             |
+| port_security_enabled     | True                                 |
+| provider:network_type     | flat                                 |
+| provider:physical_network | provider                             |
+| provider:segmentation_id  |                                      |
+| router:external           | False                                |
+| shared                    | True                                 |
+| status                    | ACTIVE                               |
+| subnets                   |                                      |
+| tags                      |                                      |
+| tenant_id                 | 8889c3598fdf4f2d81a9f36f7a3c8f1c     |
+| updated_at                | 2016-10-06T15:57:23                  |
++---------------------------+--------------------------------------+
+[root@controller1 ~]#
+
+
+ot@controller1 ~]# neutron subnet-create --name provider --allocation-pool
+start=172.20.16.240,end=172.20.16.244 --dns-nameserver 84.89.128.11 --gateway
+172.20.16.245 provider 172.20.16.0/24
+Created a new subnet:
++-------------------+----------------------------------------------------+
+| Field             | Value                                              |
++-------------------+----------------------------------------------------+
+| allocation_pools  | {"start": "172.20.16.240", "end": "172.20.16.244"} |
+| cidr              | 172.20.16.0/24                                     |
+| created_at        | 2016-10-06T16:00:23                                |
+| description       |                                                    |
+| dns_nameservers   | 84.89.128.11                                       |
+| enable_dhcp       | True                                               |
+| gateway_ip        | 172.20.16.245                                      |
+| host_routes       |                                                    |
+| id                | 2786b8d1-6135-4e26-88e8-34f4e49d2414               |
+| ip_version        | 4                                                  |
+| ipv6_address_mode |                                                    |
+| ipv6_ra_mode      |                                                    |
+| name              | provider                                           |
+| network_id        | fd9c0b05-6c92-43be-8fe8-7909de0012a5               |
+| subnetpool_id     |                                                    |
+| tenant_id         | 8889c3598fdf4f2d81a9f36f7a3c8f1c                   |
+| updated_at        | 2016-10-06T16:00:23                                |
++-------------------+----------------------------------------------------+
+[root@controller1 ~]# 
+
+
+creem una instancia (ridicula...per fer servir amb el cirrOS)
+
+[root@controller1 ~]# openstack flavor create --id 0 --vcpus 1 --ram 64 --disk
+1 m1.nano
++----------------------------+---------+
+| Field                      | Value   |
++----------------------------+---------+
+| OS-FLV-DISABLED:disabled   | False   |
+| OS-FLV-EXT-DATA:ephemeral  | 0       |
+| disk                       | 1       |
+| id                         | 0       |
+| name                       | m1.nano |
+| os-flavor-access:is_public | True    |
+| ram                        | 64      |
+| rxtx_factor                | 1.0     |
+| swap                       |         |
+| vcpus                      | 1       |
++----------------------------+---------+
+[root@controller1 ~]#
+
+Ara crearem una autenticacio ssh
+
+[root@controller1 ~]# . sitgrib-openrc 
+[root@controller1 ~]# ssh-keygen -q -N ""
+Enter file in which to save the key (/root/.ssh/id_rsa): 
+[root@controller1 ~]# 
+root@controller1 ~]# openstack keypair create --public-key ~/.ssh/id_rsa.pub
+mykey
++-------------+-------------------------------------------------+
+| Field       | Value                                           |
++-------------+-------------------------------------------------+
+| fingerprint | db:f2:01:00:6a:07:33:1a:46:be:e6:fd:94:9b:4b:32 |
+| name        | mykey                                           |
+| user_id     | 5505d7d8e7d64fddb66ac698657a046f                |
++-------------+-------------------------------------------------+
+[root@controller1 ~]#
+
+[root@controller1 ~]# openstack keypair list
++-------+-------------------------------------------------+
+| Name  | Fingerprint                                     |
++-------+-------------------------------------------------+
+| mykey | db:f2:01:00:6a:07:33:1a:46:be:e6:fd:94:9b:4b:32 |
++-------+-------------------------------------------------+
+[root@controller1 ~]# 
+
+Ara donem permis per poder fer ping i ssh a la instancia:
+
+[root@controller1 ~]# openstack security group rule create --proto icmp
+default
++-----------------------+--------------------------------------+
+| Field                 | Value                                |
++-----------------------+--------------------------------------+
+| id                    | 03274e3a-9dbe-489a-9d47-6845c6f677fb |
+| ip_protocol           | icmp                                 |
+| ip_range              | 0.0.0.0/0                            |
+| parent_group_id       | 460dd173-4e16-4143-bbe1-81eb6e6b2a77 |
+| port_range            |                                      |
+| remote_security_group |                                      |
++-----------------------+--------------------------------------+
+[root@controller1 ~]# openstack security group rule create --proto tcp
+--dst-port 22 default
++-----------------------+--------------------------------------+
+| Field                 | Value                                |
++-----------------------+--------------------------------------+
+| id                    | 66057a0e-34ec-4003-a217-1df293aa446d |
+| ip_protocol           | tcp                                  |
+| ip_range              | 0.0.0.0/0                            |
+| parent_group_id       | 460dd173-4e16-4143-bbe1-81eb6e6b2a77 |
+| port_range            | 22:22                                |
+| remote_security_group |                                      |
++-----------------------+--------------------------------------+
+[root@controller1 ~]# 
+
+Ara llençarem una instancia, per fer-ho, necessitem:
+
+ flavor, image name, network, security group, key, instance name
+
+[root@controller1 ~]# openstack flavor list
++----+-----------+-------+------+-----------+-------+-----------+
+| ID | Name      |   RAM | Disk | Ephemeral | VCPUs | Is Public |
++----+-----------+-------+------+-----------+-------+-----------+
+| 0  | m1.nano   |    64 |    1 |         0 |     1 | True      |
+| 1  | m1.tiny   |   512 |    1 |         0 |     1 | True      |
+| 2  | m1.small  |  2048 |   20 |         0 |     1 | True      |
+| 3  | m1.medium |  4096 |   40 |         0 |     2 | True      |
+| 4  | m1.large  |  8192 |   80 |         0 |     4 | True      |
+| 5  | m1.xlarge | 16384 |  160 |         0 |     8 | True      |
++----+-----------+-------+------+-----------+-------+-----------+
+[root@controller1 ~]# 
+
+
+[root@controller1 ~]# openstack image list
++--------------------------------------+--------+--------+
+| ID                                   | Name   | Status |
++--------------------------------------+--------+--------+
+| 90e229a3-03fc-48e2-a224-cf904f77c1da | cirros | active |
++--------------------------------------+--------+--------+
+[root@controller1 ~]# 
+
+[root@controller1 ~]# openstack network list
++--------------------------------------+----------+--------------------------------------+
+| ID                                   | Name     | Subnets
+|
++--------------------------------------+----------+--------------------------------------+
+| fd9c0b05-6c92-43be-8fe8-7909de0012a5 | provider |
+2786b8d1-6135-4e26-88e8-34f4e49d2414 |
++--------------------------------------+----------+--------------------------------------+
+[root@controller1 ~]#
+
+[root@controller1 ~]# openstack security group list
++--------------------------------------+---------+------------------------+----------------------------------+
+| ID                                   | Name    | Description            |
+Project                          |
++--------------------------------------+---------+------------------------+----------------------------------+
+| 460dd173-4e16-4143-bbe1-81eb6e6b2a77 | default | Default security group |
+dbece632c745474283469d0fd2ab9bfc |
++--------------------------------------+---------+------------------------+----------------------------------+
+[root@controller1 ~]# 
+
+Per tant ja podem crear-la:
+
+[root@controller1 ~]# openstack server create --flavor m1.nano --image cirros
+--security-group default --key-name mykey prova1
++--------------------------------------+-----------------------------------------------+
+| Field                                | Value
+|
++--------------------------------------+-----------------------------------------------+
+| OS-DCF:diskConfig                    | MANUAL
+|
+| OS-EXT-AZ:availability_zone          |
+|
+| OS-EXT-STS:power_state               | 0
+|
+| OS-EXT-STS:task_state                | scheduling
+|
+| OS-EXT-STS:vm_state                  | building
+|
+| OS-SRV-USG:launched_at               | None
+|
+| OS-SRV-USG:terminated_at             | None
+|
+| accessIPv4                           |
+|
+| accessIPv6                           |
+|
+| addresses                            |
+|
+| adminPass                            | nm9pSUai2Qot
+|
+| config_drive                         |
+|
+| created                              | 2016-10-06T16:39:36Z
+|
+| flavor                               | m1.nano (0)
+|
+| hostId                               |
+|
+| id                                   | 8b9671fe-a9f0-4a55-a1ab-152993c239dd
+|
+| image                                | cirros
+(4b2abdd5-1139-4b92-b23f-f1cb44b9ba46) |
+| key_name                             | mykey
+|
+| name                                 | prova1
+|
+| os-extended-volumes:volumes_attached | []
+|
+| progress                             | 0
+|
+| project_id                           | dbece632c745474283469d0fd2ab9bfc
+|
+| properties                           |
+|
+| security_groups                      | [{u'name': u'default'}]
+|
+| status                               | BUILD
+|
+| updated                              | 2016-10-06T16:39:36Z
+|
+| user_id                              | 5505d7d8e7d64fddb66ac698657a046f
+|
++--------------------------------------+-----------------------------------------------+
+[root@controller1 ~]#
+[root@controller1 ~]# openstack server list
++--------------------------------------+--------+--------+------------------------+
+| ID                                   | Name   | Status | Networks
+|
++--------------------------------------+--------+--------+------------------------+
+| 8b9671fe-a9f0-4a55-a1ab-152993c239dd | prova1 | ACTIVE |
+provider=172.20.16.241 |
++--------------------------------------+--------+--------+------------------------+
+[root@controller1 ~]#
+
+Podem accedir a la instancia:
+
+[root@controller1 ~]# openstack console url show prova1
++-------+----------------------------------------------------------------------------------+
+| Field | Value
+|
++-------+----------------------------------------------------------------------------------+
+| type  | novnc
+|
+| url   |
+http://controller1:6080/vnc_auto.html?token=d486d251-b7f2-4e3e-b5a9-d22ee1e6c61d
+|
++-------+----------------------------------------------------------------------------------+
+[root@controller1 ~]#
+
+funciona
+
+He pogut entrar via ssh (usuari cirros & passwd cubswin:), pero com no puc
+entrar com root ho mato:
+
+[root@controller1 ~]# openstack server stop prova1
+
+[root@controller1 ~]# openstack server list
++--------------------------------------+--------+---------+------------------------+
+| ID                                   | Name   | Status  | Networks
+|
++--------------------------------------+--------+---------+------------------------+
+| 8b9671fe-a9f0-4a55-a1ab-152993c239dd | prova1 | SHUTOFF |
+provider=172.20.16.241 |
++--------------------------------------+--------+---------+------------------------+
+[root@controller1 ~]#
+
+Ara podem seguir mirant coses:
+
+dashboard (dona una web interface) i el servei de storage.
+
+Instal.lacio de dahsboard:
+
+[root@controller1 ~]# yum install openstack-dashboard -y
+
+Configuracio: editem /etc/openstack-dashboard/local_settings
+
+OPENSTACK_HOST = "controller1"
+ALLOWED_HOSTS = ['*', ]
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+
+CACHES = {
+    'default': {
+         'BACKEND': 'django.core.cache.backends.memcached.MemcachedCache',
+         'LOCATION': 'controller:11211',
+    }
+}
+
+OPENSTACK_KEYSTONE_URL = "http://%s:5000/v3" % OPENSTACK_HOST
+OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT = True
+OPENSTACK_API_VERSIONS = {
+    "identity": 3,
+    "image": 2,
+    "volume": 2,
+}
+OPENSTACK_KEYSTONE_DEFAULT_DOMAIN = "default"
+OPENSTACK_KEYSTONE_DEFAULT_ROLE = "user"
+OPENSTACK_NEUTRON_NETWORK = {
+    'enable_router': False,
+    'enable_quotas': False,
+    'enable_distributed_router': False,
+    'enable_ha_router': False,
+    'enable_lb': False,
+    'enable_firewall': False,
+    'enable_vpn': False,
+    'enable_fip_topology_check': False,
+}
+TIME_ZONE = "Europe/Madrid"
+
+
+----
+Reengeguem els serveis httpd i memcached:
+[root@controller1 ~]# systemctl restart httpd.service memcached.service
+
+Ja podem anar a http://172.20.16.194/dashboard
+
+i entrar domain: default
+user/pass o be posem admin/notnull o be sitgrib/sit-grib
+
+Ara anem a posar alguna altra imatge i alguna altra instancia, abans de
+continuar amb el block storage i altres serveis:
+
+
+[root@controller1 ~]# wget
+http://cloud.centos.org/centos/6/images/CentOS-6-x86_64-GenericCloud-1508.qcow2
+
+[root@controller1 ~]# . admin-openrc 
+[root@controller1 ~]# openstack image create CentOS6 --file
+CentOS-6-x86_64-GenericCloud-1508.qcow2 --disk-format qcow2 --container-format
+bare --public
++------------------+------------------------------------------------------+
+| Field            | Value                                                |
++------------------+------------------------------------------------------+
+| checksum         | f8192c0b6a77c8c0513e2b17d75257ba                     |
+| container_format | bare                                                 |
+| created_at       | 2016-10-07T08:43:52Z                                 |
+| disk_format      | qcow2                                                |
+| file             | /v2/images/a062525a-6ad0-4032-ad06-05a71e83c745/file |
+| id               | a062525a-6ad0-4032-ad06-05a71e83c745                 |
+| min_disk         | 0                                                    |
+| min_ram          | 0                                                    |
+| name             | CentOS6                                              |
+| owner            | 8889c3598fdf4f2d81a9f36f7a3c8f1c                     |
+| protected        | False                                                |
+| schema           | /v2/schemas/image                                    |
+| size             | 1173094400                                           |
+| status           | active                                               |
+| tags             |                                                      |
+| updated_at       | 2016-10-07T08:43:59Z                                 |
+| virtual_size     | None                                                 |
+| visibility       | public                                               |
++------------------+------------------------------------------------------+
+[root@controller1 ~]#
+
+Ara crearem una instancia com usuari sitgrib:
+
+[root@controller1 ~]# . sitgrib-openrc 
+[root@controller1 ~]# openstack server create --flavor m1.medium --image
+CentOS6 --security-group default --key-name mykey prova2
++--------------------------------------+------------------------------------------------+
+| Field                                | Value
+|
++--------------------------------------+------------------------------------------------+
+| OS-DCF:diskConfig                    | MANUAL
+|
+| OS-EXT-AZ:availability_zone          |
+|
+| OS-EXT-STS:power_state               | 0
+|
+| OS-EXT-STS:task_state                | scheduling
+|
+| OS-EXT-STS:vm_state                  | building
+|
+| OS-SRV-USG:launched_at               | None
+|
+| OS-SRV-USG:terminated_at             | None
+|
+| accessIPv4                           |
+|
+| accessIPv6                           |
+|
+| addresses                            |
+|
+| adminPass                            | 2u9rZJjGFKUY
+|
+| config_drive                         |
+|
+| created                              | 2016-10-07T08:49:57Z
+|
+| flavor                               | m1.medium (3)
+|
+| hostId                               |
+|
+| id                                   | 281a4386-7c39-481c-a912-06e86ee66497
+|
+| image                                | CentOS6
+(a062525a-6ad0-4032-ad06-05a71e83c745) |
+| key_name                             | mykey
+|
+| name                                 | prova2
+|
+| os-extended-volumes:volumes_attached | []
+|
+| progress                             | 0
+|
+| project_id                           | dbece632c745474283469d0fd2ab9bfc
+|
+| properties                           |
+|
+| security_groups                      | [{u'name': u'default'}]
+|
+| status                               | BUILD
+|
+| updated                              | 2016-10-07T08:49:58Z
+|
+| user_id                              | 5505d7d8e7d64fddb66ac698657a046f
+|
++--------------------------------------+------------------------------------------------+
+[root@controller1 ~]#
+
+
+ot@controller1 ~]# openstack server list
++--------------------------------------+--------+---------+------------------------+
+| ID                                   | Name   | Status  | Networks
+|
++--------------------------------------+--------+---------+------------------------+
+| 281a4386-7c39-481c-a912-06e86ee66497 | prova2 | BUILD   |
+|
+| 8b9671fe-a9f0-4a55-a1ab-152993c239dd | prova1 | SHUTOFF |
+provider=172.20.16.241 |
++--------------------------------------+--------+---------+------------------------+
+[root@controller1 ~]# 
+
+[root@controller1 ~]# openstack server list
++-----------------------------------+--------+---------+-----------------------------------+
+| ID                                | Name   | Status  | Networks
+|
++-----------------------------------+--------+---------+-----------------------------------+
+| 281a4386-7c39-481c-a912-06e86ee66 | prova2 | ACTIVE  |
+provider=172.20.16.243,           |
+| 497                               |        |         | 172.20.16.244
+|
+| 8b9671fe-a9f0-4a55-a1ab-          | prova1 | SHUTOFF |
+provider=172.20.16.241            |
+| 152993c239dd                      |        |         |
+|
++-----------------------------------+--------+---------+-----------------------------------+
+[root@controller1 ~]# 
+
+[root@controller1 ~]# ssh 172.20.16.244
+The authenticity of host '172.20.16.244 (172.20.16.244)' can't be established.
+RSA key fingerprint is 49:a0:74:87:3b:7c:f7:53:3c:6d:bd:52:3c:0a:21:c8.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added '172.20.16.244' (RSA) to the list of known hosts.
+Please login as the user "centos" rather than the user "root".
+
+Connection to 172.20.16.244 closed.
+[root@controller1 ~]# ssh centos@172.20.16.244
+[centos@prova2 ~]$
+
+[centos@prova2 ~]$ sudo su -
+[root@prova2 ~]# passwd root
+Changing password for user root.
+New password: 
+BAD PASSWORD: it is based on a dictionary word
+Retype new password: 
+passwd: all authentication tokens updated successfully.
+[root@prova2 ~]#
+
+Posem de passwd 'no-tocar'
+
+Fem el mateix per l'usuari centos i per la instancia de cirros.
+
+Desde el Dashboard intento fer una migracio pero em peta...
+
+Cal mirar:
+
+http://docs.openstack.org/admin-guide/compute-configuring-migrations.html
+
+Interessant tambe:
+
+http://docs.openstack.org/image-guide/modify-images.html
+
+Storage:
+
+http://docs.openstack.org/ops-guide/arch-storage.html
+
+
+Ara de moment anem a instal.lar i configurar block storage (per poder donar
+espai a les instancies)
+
+Al controller:
+
+[root@controller1 ~]#  mysql -u root -p
+Enter password: 
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 525
+Server version: 10.1.12-MariaDB MariaDB Server
+
+Copyright (c) 2000, 2016, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [(none)]> CREATE DATABASE cinder;
+Query OK, 1 row affected (0.00 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'localhost'
+IDENTIFIED BY 'c1nd3r';
+Query OK, 0 rows affected (0.01 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'%' IDENTIFIED
+BY 'c1nd3r';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> 
+
+[root@controller1 ~]# . admin-openrc 
+[root@controller1 ~]# openstack user create --domain default --password-prompt
+cinder
+User Password:
+Repeat User Password:
++-----------+----------------------------------+
+| Field     | Value                            |
++-----------+----------------------------------+
+| domain_id | 2951dc12a085405e849b2d1a9798b359 |
+| enabled   | True                             |
+| id        | 6cce930b28c84afa8ce3b33cf6cf33f4 |
+| name      | cinder                           |
++-----------+----------------------------------+
+[root@controller1 ~]#
+
+(li poso el mateix pass que a la db: c1nd3r)
+
+Afegim els roles:
+
+[root@controller1 ~]# openstack role add --project service --user cinder admin
+[root@controller1 ~]#
+
+Creem 2 volums: volume i volumev2, amb noms cinder i cinderv2
+
+[root@controller1 ~]# openstack service create --name cinder  --description
+"OpenStack Block Storage" volume
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | OpenStack Block Storage          |
+| enabled     | True                             |
+| id          | 80746f7ea0b8445a956d8d6496163e96 |
+| name        | cinder                           |
+| type        | volume                           |
++-------------+----------------------------------+
+[root@controller1 ~]#
+[root@controller1 ~]# openstack service create --name cinderv2  --description
+"OpenStack Block Storage" volumev2
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | OpenStack Block Storage          |
+| enabled     | True                             |
+| id          | bb2f4a153a604e59868a327da75ea519 |
+| name        | cinderv2                         |
+| type        | volumev2                         |
++-------------+----------------------------------+
+[root@controller1 ~]#
+
+Creem els api endpoints per les tres regions, pels dos volums:
+
+[root@controller1 ~]# openstack endpoint create --region RegionOne volume
+public http://controller1:8776/v1/%\(tenant_id\)s
++--------------+------------------------------------------+
+| Field        | Value                                    |
++--------------+------------------------------------------+
+| enabled      | True                                     |
+| id           | 2c860d2ca7a1478296142e06dc57403c         |
+| interface    | public                                   |
+| region       | RegionOne                                |
+| region_id    | RegionOne                                |
+| service_id   | 80746f7ea0b8445a956d8d6496163e96         |
+| service_name | cinder                                   |
+| service_type | volume                                   |
+| url          | http://controller1:8776/v1/%(tenant_id)s |
++--------------+------------------------------------------+
+[root@controller1 ~]#
+
+[root@controller1 ~]# openstack endpoint create --region RegionOne volume
+internal http://controller1:8776/v1/%\(tenant_id\)s
++--------------+------------------------------------------+
+| Field        | Value                                    |
++--------------+------------------------------------------+
+| enabled      | True                                     |
+| id           | 989308af96704cd8ae270b62bcdf59d1         |
+| service_id   | 80746f7ea0b8445a956d8d6496163e96         |
+| service_name | cinder                                   |
+| service_type | volume                                   |
+| url          | http://controller1:8776/v1/%(tenant_id)s |
++--------------+------------------------------------------+
+[root@controller1 ~]# openstack endpoint create --region RegionOne volume
+admin http://controller1:8776/v1/%\(tenant_id\)s
++--------------+------------------------------------------+
+| Field        | Value                                    |
++--------------+------------------------------------------+
+| enabled      | True                                     |
+| id           | 18821f19cd884e41be217c7466f52eb0         |
+| interface    | admin                                    |
+| region       | RegionOne                                |
+| region_id    | RegionOne                                |
+| service_id   | 80746f7ea0b8445a956d8d6496163e96         |
+| service_name | cinder                                   |
+| service_type | volume                                   |
+| url          | http://controller1:8776/v1/%(tenant_id)s |
++--------------+------------------------------------------+
+[root@controller1 ~]# openstack endpoint create --region RegionOne volumev2
+public http://controller1:8776/v2/%\(tenant_id\)s
++--------------+------------------------------------------+
+| Field        | Value                                    |
++--------------+------------------------------------------+
+| enabled      | True                                     |
+| id           | 9bbf14a3314a461c89eacc81215b6c4c         |
+| interface    | public                                   |
+| region       | RegionOne                                |
+| region_id    | RegionOne                                |
+| service_id   | bb2f4a153a604e59868a327da75ea519         |
+| service_name | cinderv2                                 |
+| service_type | volumev2                                 |
+| url          | http://controller1:8776/v2/%(tenant_id)s |
++--------------+------------------------------------------+
+[root@controller1 ~]# openstack endpoint create --region RegionOne volumev2
+internal http://controller1:8776/v2/%\(tenant_id\)s
++--------------+------------------------------------------+
+| Field        | Value                                    |
++--------------+------------------------------------------+
+| enabled      | True                                     |
+| id           | 3a2c296729af481785a0895dd575a402         |
+| interface    | internal                                 |
+| region       | RegionOne                                |
+| region_id    | RegionOne                                |
+| service_id   | bb2f4a153a604e59868a327da75ea519         |
+| service_name | cinderv2                                 |
+| service_type | volumev2                                 |
+| url          | http://controller1:8776/v2/%(tenant_id)s |
++--------------+------------------------------------------+
+[root@controller1 ~]# openstack endpoint create --region RegionOne volumev2
+admin http://controller1:8776/v2/%\(tenant_id\)s
++--------------+------------------------------------------+
+| Field        | Value                                    |
++--------------+------------------------------------------+
+| enabled      | True                                     |
+| id           | 8e5b17ffce6c4c998aa2595981b3dc25         |
+| interface    | admin                                    |
+| region       | RegionOne                                |
+| region_id    | RegionOne                                |
+| service_id   | bb2f4a153a604e59868a327da75ea519         |
+| service_name | cinderv2                                 |
+| service_type | volumev2                                 |
+| url          | http://controller1:8776/v2/%(tenant_id)s |
++--------------+------------------------------------------+
+[root@controller1 ~]# 
+
+Instal.lem els paquets:
+
+yum install openstack-cinder -y
+
+Configurem
+
+/etc/cinder/cinder.conf
+
+[database]
+...
+connection = mysql+pymysql://cinder:c1nd3r@controller1/cinder
+
+[DEFAULT]
+...
+my_ip = 172.20.16.194
+rpc_backend = rabbit
+auth_strategy = keystone
+
+
+[oslo_messaging_rabbit]
+...
+rabbit_host = controller1
+rabbit_userid = openstack
+rabbit_password = r4bb1t
+
+[keystone_authtoken]
+...
+auth_uri = http://controller1:5000
+auth_url = http://controller1:35357
+memcached_servers = controller1:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = cinder
+password = c1nd3r
+
+[oslo_concurrency]
+...
+lock_path = /var/lib/cinder/tmp
+
+Despres poblem al db:
+/bin/sh -c "cinder-manage db sync" cinder
+
+
+Ara editem /etc/nova/nova.conf per fer servir block storage
+
+[cinder]
+os_region_name = RegionOne
+
+reengeguem el servei:
+[root@controller1 ~]# systemctl restart openstack-nova-api.service
+
+l'engeguem i el configurem per a que arranqui automaticament al boot:
+
+[root@controller1 ~]# systemctl enable openstack-cinder-api.service
+openstack-cinder-scheduler.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-cinder-api.service to
+/usr/lib/systemd/system/openstack-cinder-api.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-cinder-scheduler.service
+to /usr/lib/systemd/system/openstack-cinder-scheduler.service.
+[root@controller1 ~]#  systemctl start openstack-cinder-api.service
+openstack-cinder-scheduler.service
+[root@controller1 ~]# 
+
+Ara hem d'instal.lar i configurar un storage node, nosaltres farem servir
+store1 amb ip=172.20.16.196
+
+[root@store1 ~]# yum install lvm2 -y
+[root@store1 ~]# systemctl enable lvm2-lvmetad.service
+Created symlink from
+/etc/systemd/system/sysinit.target.wants/lvm2-lvmetad.service to
+/usr/lib/systemd/system/lvm2-lvmetad.service.
+[root@store1 ~]# systemctl start lvm2-lvmetad.service
+[root@store1 ~]# 
+
+Preparem el disc que farem servir per block:
+
+[root@store1 ~]# pvcreate /dev/sdb
+  Physical volume "/dev/sdb" successfully created
+[root@store1 ~]# 
+
+[root@store1 ~]# vgcreate cinder-volumes /dev/sdb
+  Volume group "cinder-volumes" successfully created
+[root@store1 ~]#
+
+Ara hem de modificar el lvm.conf per evitar que si hi ha altres LVM el cinder
+la lii. No volem que cinder tingui control sobre altres lvm:
+
+a /etc/lvm/lvm.conf
+
+devices {
+...
+filter = [ "a/sdb/", "r/.*/"]
+
+Pero si hi ha lvm al OSi tambe els hem d'incloure: filter = [ "a/sda/", "a/sdb/", "r/.*/"]
+
+(i.e. nomes si hi hagues un /dev/sdc amb LVM on no hi ha ni OS ni
+cinder-volume, quedaria exclos, en el nostre cas no afecta. Idem pels compute
+nodes)
+
+Instal.lem els paquets al sorage node:
+
+yum install openstack-cinder targetcli python-keystone -y
+
+Editem /etc/cinder/cinder.conf
+
+[database]
+...
+connection = mysql+pymysql://cinder:c1nd3r@controller1/cinder
+
+[DEFAULT]
+...
+rpc_backend = rabbit
+auth_strategy = keystone
+my_ip = 172.20.16.196
+enabled_backends = lvm
+nce_api_servers = http://controller1:9292
+
+
+[oslo_messaging_rabbit]
+...
+rabbit_host = controller1
+rabbit_userid = openstack
+rabbit_password = r4bb1t
+
+[keystone_authtoken]
+...
+auth_uri = http://controller1:5000
+auth_url = http://controller1:35357
+memcached_servers = controller1:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = cinder
+password = c1nd3r
+
+[lvm]
+...
+volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
+volume_group = cinder-volumes
+iscsi_protocol = iscsi
+iscsi_helper = lioadm
+
+[oslo_concurrency]
+...
+lock_path = /var/lib/cinder/tmp
+
+
+Un cop modificat:
+
+[root@store1 ~]# systemctl enable openstack-cinder-volume.service
+target.service
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/openstack-cinder-volume.service to
+/usr/lib/systemd/system/openstack-cinder-volume.service.
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/target.service to
+/usr/lib/systemd/system/target.service.
+[root@store1 ~]#  systemctl start openstack-cinder-volume.service
+target.service
+[root@store1 ~]# 
+
+
+verifiquem:
+
+[root@controller1 ~]# . admin-openrc
+[root@controller1 ~]#
+
+[root@controller1 ~]# cinder service-list
++------------------+-------------------------+------+---------+-------+----------------------------+-----------------+
+|      Binary      |           Host          | Zone |  Status | State |
+Updated_at         | Disabled Reason |
++------------------+-------------------------+------+---------+-------+----------------------------+-----------------+
+| cinder-scheduler |       controller1       | nova | enabled |   up  |
+2016-10-11T08:19:12.000000 |        -        |
+|  cinder-volume   | store1.prib.upf.edu@lvm | nova | enabled |   up  |
+2016-10-11T08:19:19.000000 |        -        |
++------------------+-------------------------+------+---------+-------+----------------------------+-----------------+
+[root@controller1 ~]# 
+
+Afegim block storage a una instancia
+
+creem un volum de 10Gb
+
+[root@controller1 ~]# . sitgrib-openrc 
+[root@controller1 ~]# openstack volume create --size 10 volume1
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| attachments         | []                                   |
+| availability_zone   | nova                                 |
+| bootable            | false                                |
+| consistencygroup_id | None                                 |
+| created_at          | 2016-10-11T08:21:59.264094           |
+| description         | None                                 |
+| encrypted           | False                                |
+| id                  | 79afa031-2ce1-4512-b8ce-a3c4e6b052a9 |
+| multiattach         | False                                |
+| name                | volume1                              |
+| properties          |                                      |
+| replication_status  | disabled                             |
+| size                | 10                                   |
+| snapshot_id         | None                                 |
+| source_volid        | None                                 |
+| status              | creating                             |
+| type                | None                                 |
+| updated_at          | None                                 |
+| user_id             | 5505d7d8e7d64fddb66ac698657a046f     |
++---------------------+--------------------------------------+
+[root@controller1 ~]# 
+
+[root@controller1 ~]#  openstack volume list
++--------------------------------------+--------------+-----------+------+-------------+
+| ID                                   | Display Name | Status    | Size |
+Attached to |
++--------------------------------------+--------------+-----------+------+-------------+
+| 79afa031-2ce1-4512-b8ce-a3c4e6b052a9 | volume1      | available |   10 |
+|
++--------------------------------------+--------------+-----------+------+-------------+
+[root@controller1 ~]#
+
+Afegim el volum a la instancia:
+
+[root@controller1 ~]# openstack server list
++--------------------------------------+--------+--------+------------------------+
+| ID                                   | Name   | Status | Networks
+|
++--------------------------------------+--------+--------+------------------------+
+| c7b46cef-345a-4898-a163-f81c0499f723 | test-2 | ACTIVE |
+provider=172.20.16.243 |
+| 0ba45a7f-d1b7-461b-a147-0f28a68cea42 | prova2 | ACTIVE |
+provider=172.20.16.241 |
++--------------------------------------+--------+--------+------------------------+
+[root@controller1 ~]# openstack server add volume prova2 volume1
+[root@controller1 ~]#
+
+[root@controller1 ~]# openstack volume list
++--------------------------------------+--------------+-----------+------+-------------+
+| ID                                   | Display Name | Status    | Size |
+Attached to |
++--------------------------------------+--------------+-----------+------+-------------+
+| 79afa031-2ce1-4512-b8ce-a3c4e6b052a9 | volume1      | attaching |   10 |
+|
++--------------------------------------+--------------+-----------+------+-------------+
+
+
+esta fent l'attach i despres peta sense donar error...afegeixo a store1 les
+regles de firewall per permetre que pugui parlar amb controller1, compute1,
+compute2...repeteixo la operacio d'afegir volum i voila:
+
+[root@controller1 ~]# openstack volume list
++--------------------------------------+--------------+--------+------+---------------------------------+
+| ID                                   | Display Name | Status | Size |
+Attached to                     |
++--------------------------------------+--------------+--------+------+---------------------------------+
+| 79afa031-2ce1-4512-b8ce-a3c4e6b052a9 | volume1      | in-use |   10 |
+Attached to prova2 on /dev/vdb  |
++--------------------------------------+--------------+--------+------+---------------------------------+
+[root@controller1 ~]#
+
+
+ot@prova2 ~]# fdisk /dev/vdb
+Device contains neither a valid DOS partition table, nor Sun, SGI or OSF
+disklabel
+Building a new DOS disklabel with disk identifier 0x2ee61e83.
+Changes will remain in memory only, until you decide to write them.
+After that, of course, the previous content won't be recoverable.
+
+Warning: invalid flag 0x0000 of partition table 4 will be corrected by w(rite)
+
+WARNING: DOS-compatible mode is deprecated. It's strongly recommended to
+         switch off the mode (command 'c') and change display units to
+         sectors (command 'u').
+
+Command (m for help): n
+Command action
+   e   extended
+   p   primary partition (1-4)
+p
+Partition number (1-4): 1
+First cylinder (1-20805, default 1): 
+Using default value 1
+Last cylinder, +cylinders or +size{K,M,G} (1-20805, default 20805): 
+Using default value 20805
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+[root@prova2 ~]# mkfs /dev/vdb1
+mke2fs 1.41.12 (17-May-2010)
+Filesystem label=
+OS type: Linux
+Block size=4096 (log=2)
+Fragment size=4096 (log=2)
+Stride=0 blocks, Stripe width=0 blocks
+655360 inodes, 2621422 blocks
+131071 blocks (5.00%) reserved for the super user
+First data block=0
+Maximum filesystem blocks=2684354560
+80 block groups
+32768 blocks per group, 32768 fragments per group
+8192 inodes per group
+Superblock backups stored on blocks: 
+	32768, 98304, 163840, 229376, 294912, 819200, 884736, 1605632
+
+Writing inode tables: done                            
+Writing superblocks and filesystem accounting information: done
+
+This filesystem will be automatically checked every 36 mounts or
+180 days, whichever comes first.  Use tune2fs -c or -i to override.
+[root@prova2 ~]#
+
+root@prova2 ~]# mkdir /VOLUM
+
+[root@prova2 ~]# mount /dev/vdb1 /VOLUM/
+[root@prova2 ~]# df -h
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1       7.8G  676M  6.7G   9% /
+tmpfs           1.9G     0  1.9G   0% /dev/shm
+/dev/vdb1       9.9G   23M  9.4G   1% /VOLUM
+[root@prova2 ~]#
+
+Mes info a:
+
+http://docs.openstack.org/user-guide/common/cli-manage-volumes.html
+
+Via dashboard tambe podem attach/dettach volums de les VM
+
+
+MIGRAR INSTANCIES:
+
+per migrar instancies mirareem de tenir les instancies compartides per NFS
+
+Al controller:
+
+editem /etc/exports i posem
+[root@controller1 ~]# cat /etc/exports
+/var/lib/nova/instances 172.20.16.0/24(rw,sync,fsid=0,no_root_squash)
+[root@controller1 ~]# 
+
+engeguem el servidor nfs
+
+[root@controller1 ~]# systemctl enable nfs-server
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/nfs-server.service to
+/usr/lib/systemd/system/nfs-server.service.
+[root@controller1 ~]#
+root@controller1 ~]# systemctl start nfs-server
+
+root@controller1 ~]# systemctl status nfs-server
+● nfs-server.service - NFS server and services
+   Loaded: loaded (/usr/lib/systemd/system/nfs-server.service; enabled; vendor
+preset: disabled)
+   Active: active (exited) since Thu 2016-10-13 15:36:49 CEST; 4s ago
+  Process: 15946 ExecStart=/usr/sbin/rpc.nfsd $RPCNFSDARGS (code=exited,
+status=0/SUCCESS)
+  Process: 15944 ExecStartPre=/usr/sbin/exportfs -r (code=exited,
+status=0/SUCCESS)
+ Main PID: 15946 (code=exited, status=0/SUCCESS)
+   CGroup: /system.slice/nfs-server.service
+
+Oct 13 15:36:49 controller1 systemd[1]: Starting NFS server and services...
+Oct 13 15:36:49 controller1 systemd[1]: Started NFS server and services.
+[root@controller1 ~]# exportfs -v
+/var/lib/nova/instances
+		172.20.16.0/24(rw,wdelay,no_root_squash,no_subtree_check,fsid=0,sec=sys,rw,secure,no_root_squash,no_all_squash)
+[root@controller1 ~]# 
+
+Als nodes de comput (amb el serveid e nova aturat) afegim 
+
+controller1:/var/lib/nova/instances	/var/lib/nova/instances nfs defaults
+0 0
+
+al /etc/fstab
+
+[root@compute1 ~]# mount /var/lib/nova/instances/
+[root@compute1 ~]# df -h
+Filesystem                           Size  Used Avail Use% Mounted on
+/dev/mapper/centos-root               50G  3.6G   47G   8% /
+devtmpfs                             3.9G     0  3.9G   0% /dev
+tmpfs                                3.9G     0  3.9G   0% /dev/shm
+tmpfs                                3.9G  8.5M  3.9G   1% /run
+tmpfs                                3.9G     0  3.9G   0% /sys/fs/cgroup
+/dev/mapper/centos-home              3.6T   33M  3.6T   1% /home
+/dev/sda1                            497M  135M  362M  28% /boot
+tmpfs                                789M     0  789M   0% /run/user/0
+controller1:/var/lib/nova/instances   50G  6.5G   44G  13%
+/var/lib/nova/instances
+
+Ara cal configurar libvirt per a que pugui parlar via xarxa
+
+Als compute nodes:
+
+/etc/libvirt/libvirtd.conf
+
+listen_tcp = 1
+tcp_port = "16509"
+listen_addr = "0.0.0.0"
+auth_tcp = "none"
+
+/etc/sysconfig/libvirtd 
+
+LIBVIRTD_ARGS="--listen --config /etc/libvirt/libvirtd.conf"
+
+reengeguem el servei
+
+A /etc/nova/nova.conf posem a la seccio [libvirt] 
+
+live_migration_flag=VIR_MIGRATE_UNDEFINE_SOURCE,VIR_MIGRATE_PEER2PEER,VIR_MIGRATE_LIVE,VIR_MIGRATE_TUNNELLED
+
+auth_tcp = "none"
+
+tant al controller1 com a compute1 i compute2
+
+reengegeum nova service
+
+
+
+
+Tinc 3 instancies engegades a compute2, a traves del dashboard, com admin,
+selecciono 1 i i dic de migrar cap a compute1...dona un error:
+
+[Error: Unexpected vif_type=binding_failed
+
+Aparentment ha migrat pero queda en un estat catatonic...impossible de
+bootar...me la carrego, la creem de nou i mirem que causa l'error del
+vif_type: es neutron (el servei de xarxa) que no estaba up a compute1:
+
+A compute1
+
+systemctl enable neutron-linuxbridge-agent.service
+systemctl start neutron-linuxbridge-agent.service
+
+i tornem a repetir el live-migration OK
+
+

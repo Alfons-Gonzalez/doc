@@ -1,0 +1,319 @@
+Instal.lant logstash, elasticserach i kibana per ecntralitzar logs a un centOS 7
+
+Server: sauron
+
+[root@sauron ~]# cat /etc/redhat-release 
+CentOS Linux release 7.2.1511 (Core) 
+[root@sauron ~]# 
+
+[root@sauron ~]# uname -a
+Linux sauron.prib.upf.edu 3.10.0-229.el7.x86_64 #1 SMP Fri Mar 6 11:36:42 UTC 2015 x86_64 x86_64 x86_64 GNU/Linux
+[root@sauron ~]#
+
+1.- Instalem java 1.8 de Oracle recomanat per elasticsearch
+
+[root@sauron ~]# wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u65-b17/jdk-8u65-linux-x64.rpm"
+
+
+[root@sauron ~]# yum localinstall jdk-8u65-linux-x64.rpm
+
+
+2.- Instal.lem elasticsearch
+
+rpm --import http://packages.elastic.co/GPG-KEY-elasticsearch
+
+vi /etc/yum.repos.d/elasticsearch.repo
+
+[root@sauron ~]# cat /etc/yum.repos.d/elasticsearch.repo 
+[elasticsearch-2.x]
+name=Elasticsearch repository for 2.x packages
+baseurl=http://packages.elastic.co/elasticsearch/2.x/centos
+gpgcheck=1
+gpgkey=http://packages.elastic.co/GPG-KEY-elasticsearch
+enabled=1
+
+[root@sauron ~]#
+
+yum install elasticsearch -y
+
+un cop fet, editem el fitxer de config:
+
+vi /etc/elasticsearch/elasticsearch.yml
+
+i descomentem la linea on hi ha network.host per a que quedi
+
+network.host: localhost
+
+engeguem el servei i configurem per a que arranqui al fer boot
+
+[root@sauron ~]# systemctl start elasticsearch
+[root@sauron ~]# systemctl enable elasticsearch
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/elasticsearch.service to
+/usr/lib/systemd/system/elasticsearch.service.
+[root@sauron ~]# 
+
+3.- instal.lem kibana
+
+[root@sauron ~]# vi /etc/yum.repos.d/kibana.repo
+[root@sauron ~]# cat /etc/yum.repos.d/kibana.repo 
+[kibana-4.4]
+name=Kibana repository for 4.4.x packages
+baseurl=http://packages.elastic.co/kibana/4.4/centos
+gpgcheck=1
+gpgkey=http://packages.elastic.co/GPG-KEY-elasticsearch
+enabled=1
+
+[root@sauron ~]#
+
+[root@sauron ~]# yum install kibana -y
+
+modifiquem la configuracio de tal manera que:
+
+[root@sauron ~]# grep server.host /opt/kibana/config/kibana.yml
+server.host: "localhost"
+[root@sauron ~]# 
+
+l'engeguem i configurem que arranqui el servei al boot
+
+[root@sauron ~]# systemctl start kibana
+[root@sauron ~]# systemctl enable kibana
+Created symlink from
+/etc/systemd/system/multi-user.target.wants/kibana.service to
+/usr/lib/systemd/system/kibana.service.
+[root@sauron ~]#
+
+4.- instal.lem apache per fer un proxypass amb el Kibana
+
+[root@sauron ~]# yum install httpd httpd-devel mod_proxy_html mod_ssl -y
+
+[root@sauron ~]# systemctl enable httpd
+Created symlink from /etc/systemd/system/multi-user.target.wants/httpd.service
+to /usr/lib/systemd/system/httpd.service.
+[root@sauron ~]# systemctl start httpd
+[root@sauron ~]# systemctl status httpd
+● httpd.service - The Apache HTTP Server
+   Loaded: loaded (/usr/lib/systemd/system/httpd.service; enabled; vendor
+preset: disabled)
+   Active: active (running) since Wed 2016-02-17 10:52:18 CET; 40s ago
+     Docs: man:httpd(8)
+           man:apachectl(8)
+ Main PID: 3398 (httpd)
+   Status: "Total requests: 0; Current requests/sec: 0; Current traffic:   0
+B/sec"
+   CGroup: /system.slice/httpd.service
+           ├─3398 /usr/sbin/httpd -DFOREGROUND
+           ├─3399 /usr/sbin/httpd -DFOREGROUND
+           ├─3400 /usr/sbin/httpd -DFOREGROUND
+           ├─3401 /usr/sbin/httpd -DFOREGROUND
+           ├─3402 /usr/sbin/httpd -DFOREGROUND
+           ├─3403 /usr/sbin/httpd -DFOREGROUND
+           └─3404 /usr/sbin/httpd -DFOREGROUND
+
+Feb 17 10:52:18 sauron.prib.upf.edu systemd[1]: Starting The Apache HTTP
+Server...
+Feb 17 10:52:18 sauron.prib.upf.edu systemd[1]: Started The Apache HTTP
+Server.
+[root@sauron ~]# 
+
+AL server tenim obert el port:
+
+[root@sauron ~]# firewall-cmd --list-all
+public (default, active)
+  interfaces: em1
+  sources: 
+  services: 
+  ports: 80/tcp
+  masquerade: no
+  forward-ports: 
+  icmp-blocks: 
+  rich rules: 
+	rule family="ipv4" source address="172.20.16.0/24" service name="ssh"
+accept
+[root@sauron ~]#
+
+configurem el ProxyPass
+
+[root@sauron conf.d]# pwd
+/etc/httpd/conf.d
+[root@sauron conf.d]# cat kibana.conf 
+ProxyPass / http://localhost:5601
+ProxyPassReverse / http://localhost:5601
+[root@sauron conf.d]#
+
+reengeguem l'apache i ja podem accedir al Kibana a traves de
+http://sauron.prib.upf.edu
+
+Per impedir que tothom pugui accedir al kibana sense passwd canvio el
+kibana.conf
+
+htpasswd -c /etc/httpd/conf.d/htpasswd.users admin
+New password: 
+Re-type new password: 
+Adding password for user admin
+[root@sauron conf.d]# vi kibana.conf 
+
+[root@sauron conf.d]# cat kibana.conf 
+<VirtualHost *:80>
+ServerName sauron.prib.upf.edu
+
+<Location / >
+
+AuthName "Protected"
+AuthType Basic
+AuthUserFile /etc/httpd/conf.d/htpasswd.users
+Require user admin
+</Location>
+ProxyPass / http://localhost:5601/
+ProxyPassReverse / http://localhost:5601/
+
+</VirtualHost>
+[root@sauron conf.d]#
+
+I ara cal entrar amb User: admin Password: notnull
+
+5.- instal.lem el logstash
+
+[root@sauron ~]# vi /etc/yum.repos.d/logstash.repo
+[root@sauron ~]# cat /etc/yum.repos.d/logstash.repo 
+[logstash-2.2]
+name=logstash repository for 2.2 packages
+baseurl=http://packages.elasticsearch.org/logstash/2.2/centos
+gpgcheck=1
+gpgkey=http://packages.elasticsearch.org/GPG-KEY-elasticsearch
+enabled=1
+
+[root@sauron ~]# yum install logstash -y
+
+6.- Ara hem de generar els certificats per a que clients de logstash puguin
+comunicar amb el server
+
+cd /etc/pki/tls
+[root@sauron tls]# openssl req -subj '/CN=sauron.prib.upf.edu/' -x509 -days
+3650 -batch -nodes -newkey rsa:2048 -keyout private/logstash-forwarder.key
+-out certs/logstash-forwarder.crt
+Generating a 2048 bit RSA private key
+................+++
+........+++
+writing new private key to 'private/logstash-forwarder.key'
+-----
+[root@sauron tls]# 
+
+Despres copiarem el  logstash-forwarder.crt als clients. Pero seguim amb la
+config del server
+
+7.- configuracio
+
+Configurem un input:
+
+[root@sauron ~]# vi /etc/logstash/conf.d/02-beats-input.conf
+[root@sauron ~]# cat /etc/logstash/conf.d/02-beats-input.conf
+input {
+      beats {
+        port => 5044
+        ssl => true
+        ssl_certificate => "/etc/pki/tls/certs/logstash-forwarder.crt"
+        ssl_key => "/etc/pki/tls/private/logstash-forwarder.key"
+      }
+    }
+
+[root@sauron ~]#
+
+Configurem el filtre pels rsync logs que enviaran els clients:
+
+[root@sauron ~]# cat /etc/logstash/conf.d/10-rsynclog-filter.conf
+filter {
+        if [type] == "rsync_log" {
+                grok {
+                match => [ "message", "total size is %{NUMBER:bytes_copied}" ]
+                add_field => [ "received_at", "%{@timestamp}" ]
+                add_field => [ "received_from", "%{host}" ]
+                add_field => [ "copiats", "%{bytes_copied}" ]
+                }
+        }
+}
+[root@sauron ~]#
+
+Configurem l'output:
+
+[root@sauron ~]# cat /etc/logstash/conf.d/30-elasticsearch-output.conf
+output {
+      elasticsearch {
+        hosts => ["localhost:9200"]
+        sniffing => true
+        manage_template => false
+        index => "%{[@metadata][beat]}-%{+YYYY.MM.dd}"
+        document_type => "%{[@metadata][type]}"
+      }
+    }
+
+[root@sauron ~]#
+
+Ara testegem si hi ha errors de sintaxi a la configuracio:
+
+[root@sauron ~]# service logstash configtest
+Configuration OK
+[root@sauron ~]# 
+
+Ara engeguem el servei i el configurem per a que arranqui al boot
+
+
+[root@sauron ~]# systemctl restart logstash
+[root@sauron ~]# systemctl enable logstash
+logstash.service is not a native service, redirecting to /sbin/chkconfig.
+Executing /sbin/chkconfig logstash on
+[root@sauron ~]# 
+
+Ara carregarem alguns complements pel Kibana que ens aniran be:
+
+curl -L -O
+https://download.elastic.co/beats/dashboards/beats-dashboards-1.1.0.zip
+
+unzip beats-dashboards-1.1.0.zip
+cd beats-dashboards-1.1.0/
+./load.sh
+
+I aixi podrem configurar els index del kibana seleccionant el Filebeat index
+pattern
+
+
+Idem per l'elasticsearch
+
+[root@sauron beats-dashboards-1.1.0]# cd ..
+[root@sauron ~]# curl -O
+https://gist.githubusercontent.com/thisismitch/3429023e8438cc25b86c/raw/d8c479e2a1adcea8b1fe86570e42abab0f10f364/filebeat-index-template.json
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time
+  % Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   991  100   991    0     0   1659      0 --:--:-- --:--:-- --:--:--  1657
+[root@sauron ~]# curl -XPUT 'http://localhost:9200/_template/filebeat?pretty'
+-d@filebeat-index-template.json
+{
+  "acknowledged" : true
+}
+[root@sauron ~]#
+
+
+Ara ja podem configurar els clients: veure doc logstash-client.txt
+
+Com enviaran les dades al port 5044 cal obrir-lo:
+
+root@sauron ~]# firewall-cmd  --zone=public --add-port=5044/tcp
+success
+[root@sauron ~]# firewall-cmd  --zone=public --add-port=5044/tcp --permanent
+success
+[root@sauron ~]# firewall-cmd --list-all
+public (default, active)
+  interfaces: em1
+  sources: 
+  services: 
+  ports: 80/tcp 5044/tcp
+  masquerade: no
+  forward-ports: 
+  icmp-blocks: 
+  rich rules: 
+	rule family="ipv4" source address="172.20.16.0/24" service name="ssh"
+accept
+[root@sauron ~]#
+
+

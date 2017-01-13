@@ -1,0 +1,140 @@
+
+rack the node, plug powercord, ethernet, DVI monitor & keyboard
+
+boot it (it takes a long time)
+
+once it is in the graphical login screen of CentOS 7
+
+ctrl+alt+F2
+
+login: root/acellera
+
+systemctl disable libvirtd
+systemctl set-default mult-user.target
+vi /etc/default/grub
+
+modify the line GRUB_CMDLINE_LINUX to be:
+
+GRUB_CMDLINE_LINUX="crashkernel=auto rd.lvm.lv=centos/root rd.lvm.lv=centos/swap rhgb quiet rdblacklist=nouveau net.ifnames=0 biosdevname=0"
+
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+reboot
+
+ifconfig -a
+
+note the MAC address of eth0 and write it down.
+Go to the dhcp server and add the mac address to dhcpd.conf
+
+like this:
+host ace4 { hardware ethernet 34:97:f6:5d:09:f3; fixed-address ace4; option host-name "ace4";}
+
+in the dhcpd server, restart the dhcpd service
+
+back in the node:
+
+systemctl restart NetworkManager
+
+We should already have network
+
+modify the /etc/hosts with the line:
+
+10.254.0.1	vhost1 
+
+(vhost1 is the temporary slurm master & dhcpd server, but it would be replace for a new server...therefore any other reference to vhost1 in this document refers to the hostname of master slurm server)
+
+firewall-cmd --add-rich-rule="rule family='ipv4' source address='10.254.0
+.0/16' accept" --permanent
+
+firewall-cmd --reload
+
+wget http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-8.no
+arch.rpm
+
+rpm -ivh epel-release-7-8.noarch.rpm 
+
+yum install munge munge-devel -y
+
+scp root@vhost1:/etc/munge/munge.key /etc/munge/munge.key
+
+chown munge:munge /etc/munge/munge.key
+
+systemctl enable munge.service
+
+systemctl restart munge.service
+
+scp root@vhost1:/root/slurm-15.08.11.tar.bz2 .
+
+tar -jxvf slurm-15.08.11.tar.bz2
+
+cd slurm-15.08.11
+
+./configure --prefix=/usr/local/slurm-15.08.11 --with-munge && make && ma
+ke install
+
+ln -s /usr/local/slurm-15.08.11 /usr/local/slurm
+
+mkdir /usr/local/slurm/init.d
+
+mkdir /usr/local/slurm/etc
+
+groupadd -g 800 slurm
+
+useradd -u 800 -g 800 slurm
+
+cd /usr/local/slurm/etc/
+
+scp root@vhost1:/usr/local/slurm/etc/slurm.conf .
+
+scp root@vhost1:/usr/local/slurm/etc/gres.conf .
+
+cd /usr/local/slurm/init.d/
+
+scp root@vhost1:/usr/local/slurm/etc/init.d.slurm .
+
+cd /etc/systemd/system/
+
+scp root@vhost1:/usr/local/slurm/etc/slurmd.service .
+
+cd /root
+
+scp root@vhost1:/root/NVIDIA-Linux-x86_64-367.44.run .
+
+sh NVIDIA-Linux-x86_64-367.44.run
+
+Once the NVIDIA driver is installed:
+
+add to /etc/rc.local the lines: 
+
+for T in `seq 0 3`; do
+	mknod -m 666 /dev/nvidia$T c 195 $T;
+done
+/usr/bin/nvidia-smi -pm 1
+
+
+chmod +x /etc/rc.d/rc.local
+
+/etc/rc.local
+
+chown -R slurm:slurm /usr/local/slurm
+
+systemctl enable slurmd
+
+systemctl  start slurmd
+
+back to the master
+
+scontrol: show node ace4
+
+NodeName=ace4 Arch=x86_64 CoresPerSocket=4
+   CPUAlloc=0 CPUErr=0 CPUTot=8 CPULoad=0.34 Features=(null)
+   Gres=gpu:4
+   NodeAddr=ace4 NodeHostName=ace4 Version=15.08
+   OS=Linux RealMemory=15830 AllocMem=0 FreeMem=61997 Sockets=1 Boards=1
+   State=IDLE ThreadsPerCore=2 TmpDisk=60347 Weight=1 Owner=N/A
+   BootTime=2016-10-26T10:26:53 SlurmdStartTime=2016-10-26T11:28:02
+   CapWatts=n/a
+   CurrentWatts=0 LowestJoules=0 ConsumedJoules=0
+   ExtSensorsJoules=n/s ExtSensorsWatts=0 ExtSensorsTemp=n/s
+
+

@@ -1,0 +1,665 @@
+
+ DRBL (Diskless Remote Boot in Linux)
+======================================
+
+Instalamos DRBL porque esta aplicación nos permite:
+
+a. Arrancar las workstation en modo PXE conectándose a un servidor.
+b. Lleva incorporado la utilidad CloneZilla que nos permite crear imágenes del
+disco de una máquina y a continuación, volcarlas en un grupo de máquinas.
+
+Esta aplicación además, nos permite poder arrancar también mediante PXE un 
+systema Linux remoto que se encuentra en el servidor y trabajar con él (la 
+WorkStation se convierte en un terminal 'tonto'). Como de momento esto no nos 
+interesa, se dejará esta opción deshabilitada (solo nos interesa poer usar la 
+utilidad CloneZilla).
+
+INSTALACION
+===========
+
+Servicio DHCP
+-------------
+
+Es necesario para el funcionamiento del servidor PXE, de hecho, este depende y 
+cuelga del servicio dhcpd.
+
+1.- Primero instalamos el servicio DHCP (lo podemos hacer usando yum) y 
+configuramos el fichero  dhcp.conf para que solo de IP's a las maquina que nos 
+interese (metemos todos los nodos aunque  luego cabe la posibilidad de añadir 
+nuevos). Para obtener las  mac address del cluster se puede  hacer servir el 
+siguiente script que está probado en gaudi y funciona:
+
+[root@gaudi ~]# cat nodes-mac-address.sh 
+#!/bin/sh
+
+# Con este script obtengo todas las mac address de los nodos del cluster.
+
+
+HOSTMAC="host-mac.txt"
+ONLYMAC="mac.txt"
+
+NODELIST="node1 node2 node3 node4 node5 node6 node7 node8 node9 node10 node11 
+node12 node13 node14 node15 node16 node17 node18 node19 node20 node21 node22 
+node23 node24 node25 node26 node27 node28 node29 node30 node31 node32 node33 
+node34 node35 node36 node37 node38 node39 node40 node41 node42 node43 node44 
+node45 node46 node47 node48 node49 node50 node51"
+
+# Si existen los ficheros los borramos
+if [ -f $HOSTMAC ]; then
+        rm -f $HOSTMAC
+fi
+if [ -f $ONLYMAC ]; then
+        rm -f $ONLYMAC
+fi
+
+# Vamos obteniendo las mac address haciendo servir pings a los nodos
+# y luego las guardamos en los ficheros de salida
+
+echo "Fichero con la lista de hostname y su mac address: $HOSTMAC"
+echo "Fichero solo con la lista de mac address: $ONLYMAC"
+
+for NODE in $NODELIST
+do
+        ping -c 1 $NODE > /dev/null
+        arp -a $NODE | awk '{print $1 " " $4}' >> $HOSTMAC
+        arp -a $NODE | awk '{print $4}' >> $ONLYMAC
+done
+[root@gaudi ~]# 
+
+
+Y de esta manera tendremos en un fichero todas las mac address de todos los 
+nodos del cluster. 
+
+El fichero dhcp.conf quedaría de la siguiente manera
+
+	#
+	# DHCP Server Configuration file.
+	#   see /usr/share/doc/dhcp*/dhcpd.conf.sample
+	#
+
+	# Directivas globales: se aplicarán a todos los apartados subnet. Si queremos
+	# que cada uno tenga su propia configuración, pe, de subnet-mask entonces
+	# cada subnet tendrá su propio 'option subnet-mask'.
+
+	ddns-update-style interim;       # Tipo de actualizació dinámica del DNS
+	ignore client-updates;           # Ignorar cualquier tipo de solicitud de actualización DNS
+	default-lease-time 604800;       # Validez de una ip concedida by default: 7 días
+	max-lease-time 604800;           # tiempo máx que el servidor concederá un misma ip
+	lease-file-name "/var/lib/dhcpd/dhcpd.leases"; # Lista de las ip dadas por el dhcp activas (creo ...)
+	server-name drbl;
+
+	subnet 192.168.100.0 netmask 255.255.255.0 {
+	        option subnet-mask 255.255.255.0;               # Mascara de red
+	        option broadcast-address 192.168.100.255;       # Dirección de broadcast
+	        option routers 192.168.100.1;                   # Gateway
+	        option nis-domain "cluster";                    # NIS Domain Name
+	#       option domain-name "imim.es";                   # Domain Name
+	#       ddns-rev-domainname "in-addr.arpa";             # Dominio inverso en el que se actualizan los DNS
+	#       option domain-name-servers 193.144.6.107, 193.144.6.252;        # DNS servers que usarán los clientes
+	
+	#       range 192.168.100.2 192.168.100.254;
+	
+	        host nodo1 {
+	                hardware ethernet 00:02:b3:eb:29:31;
+	                fixed-address 192.168.100.2;
+			option host-name "node1";
+	        }
+	
+		nost nodo2 {
+			...
+		}
+		
+		...
+		...
+	}
+
+Verificamos mediante chkconfig que el servicio dhcpd arranque en el inicio del 
+sistema y paramos el servicio dhcrelay (hace de bridge entre una subnet que no 
+tiene un servidor dhcp y otra subnet que sí que lo tiene y que ha de atender 
+las peticiones de la primera, o algo así):
+
+	# chkconfig dhcpd on
+	# chkconfig dhcrelay off
+	# service dhcrelay stop -> Ya debería de estar parado
+	# service dhcp start
+
+IMPORTANTE: Cuando instalemos DRBL este modificará el fichero dhcp.conf para que 
+a trabés de este servicio los cliente se puedan conectar al servidor de PXE y 
+usar el CloneZilla. Lo que hice 
+fue hacer una copia del fichro dhcp.conf, dejar que al instalar DRBL me lo 
+machaque y luego al recuperar mi dhcp.conf, añadí unas lineas necesarias para 
+que funcionase el arranque mediante pxe en los nodos
+
+2.- Editamos el contenido del fichero de configuración /etc/sysconfig/dhcpd para 
+que el servidor solo escuche por la interficie eth1 que es la que esta conectada 
+a ala red privada (gaudi tiene dos ethernet: eth0 con ip pública conectada a la 
+red del imim y eth1, con ip privada conectada a la red privada del cluster que 
+es por donde ha de anunciarse el dhcp):
+
+	# cat /etc/sysconfig/dhcpd	
+
+	# Command line options here
+	DHCPDARGS=eth1
+
+DRBL
+-----
+
+1.- Nos bajamos el rpm desde la web:
+
+	http://drbl.sourceforge.net
+
+2.- Instalacion:
+
+	yum install drbl-1.10.90-1drbl.noarch.rpm
+
+Por defecto queda instalado en /opt/drbl.
+
+ATENCION: LOS DOS PASOS QUE VIENEN A CONTINUACION VAN A MODIFICAR LOS FICHEROS 
+DE CONFIGURACINO DEL DHCP, NFS, NIS, IPTABLES, ETC, POR LO TANTO, HACER COPIAS 
+DE TODOS ELLOS !!!!!, POR LO QUE PUEDA PASAR ...
+
+3.- Ejecuto el instalador del servicio: 
+
+	/opt/drbl/sbin/drblsrv -i
+
+Si no recuerdo mal, nos instalarà todos los paquetes que necesita como 
+clonezilla. Dejamos que vaya haciendo. A las preguntas que nos va haciendo, 
+contestamos lo siguiente:
+
+	- No instalo ni la versión unestable ni la testing.
+
+	- A la siguiente pregunta:
+ 
+	Do you want to install the network installation boot images so that you 
+	can let the client computer install some GNU/Linux distributions 
+	(Debian, Ubuntu, RedHat Linux, Fedora Core, Mandriva, CentOS and 
+	OpenSuSE...) via a network connection?  !!NOTE!! This will download a 
+	lot of files (Typically > 100 MB) so it might take a few minutes. If 
+	the client computer has a hard drive that you may install GNU/Linux 
+	onto, put a Y here. If you answer "no" here, you can run 
+	"drbl-netinstall" to install them later.
+	[y/N] N
+
+	Decimos que NO, de esta manera no podremos arrancar via PXE una imagen 
+	de linux que estaría en el servidor.
+
+	- Durante las pruebas, indicaba que la workstation usaba la misma 
+	arquitectura que en el servidor. Creo que en gaudi hice lo mismo.  
+	
+	- En las pruebas, el kernel que cogía era el release (usa el kernel 
+	oficial de Fedora). Diria que en gaudi también seleccioné este kernel.
+
+	- No upgrade the operative system
+
+	- Después de esta última pregunta empieza a bajar e instalar paquetes: 
+	dhcp, tftp, nfs, yp, mkpxeinitrd-net... (lo hace via yum, veo en 
+	pantalla el echo de las instalaciones)
+
+	- Para el resto de preguntas que no se mencionan, se dejan la respuestas 
+	por defecto (de hecho muchas de estas ya son las repuestas por defecto).
+
+4.- Antes de lanzar el proceso de configuración de DRBL, metemos en el fichero 
+macadr-eth1.txt (si no existe lo creamos) todas las Mac Address de los nodos, 
+una debajo de la otra (lo hemos obtenido previamente con el script 
+nodes-mac-address.sh, mirar punto 1 de instalación y configuracion de DHCP):
+
+	00:02:b3:eb:29:31
+	00:02:b3:3b:34:3a
+	...
+	...
+
+En la versión de DRBL con la que se hicieron las pruebas, este fichero tenía que 
+estar en el directorio /etc/drbl, mientras que enla versión que se instaló en
+gaudi, se tubo que poner en /opt/drbl/sbin:
+
+También podemos editar este fichero: /opt/drbl/conf/client-ip-hostname y poner 
+dentro el hostname que queremos que tenga cada cliente. Lo probé y no le ví su 
+utilidad, además, para el volcado de imágenes no nos sirve de nada así que 
+podemos pasar de modificarlo. El fichero macadr-eth1.txt si que és importante 
+(y mucho !!)
+
+5.- Ahora vamos ha hacer la configuración del DRBL. Este proceso también
+configura los servidios dhcp, iptables y ypbind de los que dependerá, de ahí
+la importancia de que si tenemos estos servicios ya configurados, HACER UN
+BACKUP para poder recuperar nuestra configuración. Muchas de las cosas que nos
+pregunta no son importante ya que luego lo cambiaremos, como el prefix para el
+hostname o el NIS domain name. Todo esto lo hacemos con el comando: 
+
+	/opt/drbl/sbin/drblpush -i:
+
+	- Domain name: default
+	- NIS domain name: cluster
+	- Please enter the client hostname prefix:
+          This prefix is used to automatically create hostname for clients. If 
+	  you want to overwrite some or all automatically created hostnames, 
+	  press Ctrl-C to quit this program now, edit 
+	  /opt/drbl/conf/client-ip-hostname, then run this program again.
+          [node]
+
+	- Que NO busque las direcciones mac automáticamente, que las coja del 
+	fichero macadr-eth2.txt:
+
+	Now we can collect the MAC address of clients!
+	If you want to let the DHCP service in DRBL server offer same IP address 
+	to client every time when client boot, and you never did this procedure, 
+	you should do it now! If you already have those MAC addresses of 
+	clients, you can put them into different group files (These files 
+	number is the same number of networks cards for DRBL service). In this 
+	case, you can skip this step. This step helps you to record the MAC 
+	addresses of clients, then divide them into different groups. It will 
+	save your time and reduce the typos. The MAC addresses will be recorded 
+	turn by turn according to the boot of clients, and they will be put into 
+	different files according to the network card in server, file name will 
+	be like macadr-eth1.txt, macadr-eth2.txt... You can find them in 
+	directory /etc/drbl. Please boot the clients by order, make sure they 
+	boot from etherboot or PXE! Do you want to collect them?
+	[y/N]  N
+
+	- Sí, que se fije las direcciones IP por MacAddress
+
+	Do you want to let the DHCP service in DRBL server offer same IP address 
+	to the client every time when client boots (If you want this function, 
+	you have to collect the MAC addresses of clients, and save them in 
+	file(s) (as in the previous procedure)). This is for the clients 
+	connected to DRBL server's ethernet network interface eth2 ?
+	[y/N] Y
+
+
+	- Que empiece por el 2 a dar las ip's el dhcp
+
+	- A esta pregunta le digo que N quiero proveer de diskless linux, solo 
+	CloneZilla:
+
+	In the system, there are 3 modes for diskless linux services:
+	[0] Full DRBL mode, every client has its own NFS based /etc and /var.
+	[1] DRBL SSI (Single system image) mode, every client uses tmpfs based 
+	/etc and /var. In this mode, the loading and necessary disk space of 
+	server will be lighter. NOTE! (a) The client machine memory is 
+	recommended at least 256 MB. (b) The setting and config files of client 
+	will not be saved to the DRBL server! They are just used once and will 
+	vanish after the machine shutdowns! Besides, if you modify any file in 
+	the template client (located in /tftpboot/nodes), you have to run 
+	/opt/drbl/sbin/drbl-gen-ssi-files to create the template tarball in 
+	/tftpboot/node_root/drbl_ssi/. (c) If you want to provide some file to 
+	overwrite the setting in the template tarball when client boots, check 
+	/tftpboot/node_root/drbl_ssi/clients/00_README for more details.
+	[2] I do NOT want to provide diskless Linux service to client.
+	Which mode do you prefer?
+	[0] 2
+
+	- Cuando nos pregunte por el Modo de trabajo con Clonezilla le decimos 
+	que queremos usar el modo Clonezila Box Mode.
+
+	- Que las imágenes las guarde en /partimg (por ejemplo)
+
+	- No set pxe linux password
+
+	- No set boot prompt for clients
+
+	- No graphic background for PXE
+
+	- IMPORTANTE: NO NAT !!! (si usa NAT, entre cosas cosas nos arma un buen 
+	cristo en el iptables)
+
+6.- Ya tenemos DRBL instalado y configurado. Ahora vamos a retocar un par de 
+cosas en los ficheros de configuración
+que ha modificado:
+
+	/etc/exports: todo lo que pone aquí hace falta, lo he probado. Para 
+	simplificar yo lo dejé así (añade un export por màquina):
+
+		# Generated by DRBL at 13:00:39 2009/09/30
+		/tftpboot/node_root 192.168.100.0/24(ro,sync,async,no_root_squash,subtree_check)
+		/usr 192.168.100.0/24(ro,sync,async,no_root_squash,subtree_check)
+		/opt 192.168.100.0/24(ro,sync,async,no_root_squash,subtree_check)
+		/home 192.168.100.0/24(rw,sync,async,no_root_squash,no_subtree_check)
+		/var/spool/mail 192.168.100.0/24(rw,sync,async,root_squash,no_subtree_check)
+		/image-nodes 192.168.100.0/24(rw,sync,async,no_root_squash,no_subtree_check)
+
+	/etc/hdcp.conf: Si le hechamos un vistazo, veremos que deja lo que ya 
+		teníamos y añade cositas para que arranque servicio de pxe, como 
+		por ejemplo las lineas:
+
+			server-name	drbl;
+			filename = "pxelinux.0";
+			class "DRBL-Client" {
+  				match if
+  				(substring(option vendor-class-identifier, 0, 9) = "PXEClient") or
+  				(substring(option vendor-class-identifier, 0, 9) = "Etherboot") or
+  				(substring(option vendor-class-identifier, 0, 10) = "DRBLClient") ;
+			}
+
+		y un montón de lineas comentadas (queda muy guarro, se pueden 
+		borrar y listos). En la instalación de gaudi, como yo ya tenia 
+		el servicio dhcp configurado, recupere el fichero de configuración
+		y añadiendo la siguiente linea ya me funcionó para arrancar
+		los nodos con pxe:
+			
+			filename = "pxelinux.0";
+	
+	/etc/sysconfig/iptables: no recuerdo lo que acababa modificando, pero si 
+		recuperamos el fichero de iptables original de gaudi añadiendo 
+		(si no estaba ya):
+
+			-A RH-Firewall-1-INPUT -s 192.168.1.0/24 -j ACCEPT
+
+		ya xuta. 
+
+	/etc/yp.conf: igual con con el dhcp, cuando instalé el DRBL en en gaudi 
+		el NIS también lo tenái configurado, así que recuperé los
+		ficheros de configuración (/etc/yp.conf y /var/yp) aunque creo
+		recordar que si cuando nos preguntó el domain name del paso 5 
+		pusimos cluster, tal y como los lo deja el DRBL ya servia. 
+
+7.- Si en algún momento queremos añadir una nueva mac address al DRBL:
+
+	1º. Se añade el nodo con su mac y nombre de nodo en el fichero 
+	dhcp.conf. Reiniciamos el servicio.
+	2º. Ejecutamos el siguiente comando indicando la ip que cogerá el nodo 
+	y el nombre del host:
+	
+		/opt/drbl/sbin/drbl-gen-client-files -h [ip] -a [hostname]
+
+8.- Ficheros del drbl:
+
+	/etc/drbl -> Ficheros de configuración creados por drblpush y ficheros 
+		con la macaddress de los nodos 
+		(HOST_MAC_TABLE).
+
+	/opt/drbl -> directorio de instalación de la aplicación. Tiene algunos 
+		ficheros de configuración en el directori conf.
+	/tftpboot -> imagenes que se usan durante el boot de las workstation 
+		por pxe (/tftpboot/node_root) y directorios particulares de cada 
+		nodo (/tftpboot/nodes/102.168.100.x, para el volcado de imágenes 
+		no es importante).
+
+
+PROBLEMA: MAC ADDRESS !!!!
+==========================
+
+La clonacioń de imágenes tiene un problema: todos los nodos tendrán la misma
+mac address. Para solucionarlo, es decir, que cada nodo tenga su mac adress:
+
+1.- Se ejecuta un script en el POST_RUN del volcado de la imagen que borra el 
+fichero /mnt/etc/udev/rules.d/70-persistent-net.rules. La no existencia de este 
+fichero obliga al sistema a hacer un hardware detect con el cual lo volverá a 
+generar pero con la mac address correcta.
+
+[root@gaudi DRBL]# cat rm-persistent-net-rules.sh 
+#!/bin/sh
+
+# Eliminant aquest fitxer aconseguim que en el següent inici del sistema autodetecti
+# les noves targes de xarxa del node.
+
+mount /dev/sda1 /mnt
+
+rm -f /mnt/etc/udev/rules.d/70-persistent-net.rules
+
+umount /mnt
+
+Este script, para que sea ejecutado cuando acabe el volcado de la imagen lo 
+hemos de copiar en:
+
+	/opt/drbl/share/ocs/postrun
+
+2.- En la imagen, antes de crearla se le ha puesto en el fichero /etc/rc.local 
+que tiene que ejecutar un script que cambia en los ficheros de configuración 
+de la red la mac address que tenia el nodo que se uso de plantilla por la nueva
+mac address. Una vez hecho esto, modifica el fichero /etc/rc.local para que
+no vuelva a ejectuar el script y borra el script.
+
+[root@node1 ~]# cat /etc/rc.local 
+#!/bin/sh
+#
+# This script will be executed *after* all the other init scripts.
+# You can put your own initialization stuff in here if you don't
+# want to do the full Sys V style init stuff.
+
+touch /var/lock/subsys/local
+
+/root/fix-network.sh
+
+
+[root@node1 ~]# cat /root/fix-network.sh
+#!/bin/sh
+
+# Variables
+
+udev_net="/etc/udev/rules.d/70-persistent-net.rules"
+
+device_eth0="/etc/sysconfig/networking/devices/ifcfg-eth0"
+script_eth0="/etc/sysconfig/network-scripts/ifcfg-eth0"
+profile_eth0="/etc/sysconfig/networking/profiles/default/ifcfg-eth0"
+
+device_eth1="/etc/sysconfig/networking/devices/ifcfg-eth1"
+script_eth1="/etc/sysconfig/network-scripts/ifcfg-eth1"
+profile_eth1="/etc/sysconfig/networking/profiles/default/ifcfg-eth1"
+
+
+# --> ETH0
+
+# Obtenemos la nueva dirección hardware del dispositivo eht0
+HWaddr_eth0=`grep eth0 $udev_net | awk '{ print $4 }' | cut -d'"' -f2`
+
+# Obtenemos la vieja direccion hardware del dispositivo eth0
+old_HWaddr_eth0=`grep HWADDR $device_eth0 | cut -d= -f2`
+
+# Substituimos la vieja dirección hardware por la nueva en la nueva para el dispositivo eth0
+# (se ha de crear un fichero intermedio ya que si se hace la copia directamente sobre el fichero el resultado es un fichero vacio)
+cat $device_eth0 | sed -e s/$old_HWaddr_eth0/$HWaddr_eth0/ > $device_eth0.tmp
+mv $device_eth0.tmp $device_eth0
+
+# Como los ficheros etc/sysconfig/networking/devices/ifcfg-eth0, etc/sysconfig/network-scripts/ifcfg-eth0 y 
+# /etc/sysconfig/networking/profiles/default/ifcfg-eth0 son iguales copio el primero sobre los otros dos.
+cp -f $device_eth0 $script_eth0
+cp -f $device_eth0 $profile_eth0
+
+# --> ETH1
+
+# Obtenemos la nueva dirección hardware del dispositivo eht1
+HWaddr_eth1=`grep eth1 $udev_net | awk '{ print $4 }' | cut -d'"' -f2`
+
+# Obtenemos la vieja direccion hardware del dispositivo eth1
+old_HWaddr_eth1=`grep HWADDR $device_eth1 | cut -d= -f2`
+
+# Substituimos la vieja dirección hardware por la nueva en la nueva para el dispositivo eth0
+cat $device_eth1 | sed -e s/$old_HWaddr_eth1/$HWaddr_eth1/ > $device_eth1.tmp
+mv $device_eth1.tmp $device_eth1
+
+# Como los ficheros etc/sysconfig/networking/devices/ifcfg-eth1, etc/sysconfig/network-scripts/ifcfg-eth1 y
+# /etc/sysconfig/networking/profiles/default/ifcfg-eth1 son iguales copio el primero sobre los otros dos.
+cp -f $device_eth1  $script_eth1
+cp -f $device_eth1 $profile_eth1
+
+# Quitamos este scipt del rc.local para que no se ejecute cada vez que arranca la máquina
+sed /fix-network/d /etc/rc.local > /etc/rc.local.tmp
+mv /etc/rc.local.tmp /etc/rc.local
+
+# Ahora lo borramos
+rm -f /root/fix-network.sh
+
+# Rebotamos el nodo para que arranque ya con la red correctamente configurada.
+/usr/bin/reboot
+
+
+CREACION DE IMAGENES
+====================
+
+Lo primero es tener un nodo con todo el soft instalado y configurado 
+adecuadamente (NIS, NFS, NTP, etc). A continuación, hemos de seguir las
+instrucciones del punto anterior para que el nodo coja su mac address correcta.
+Básicamente hemos de:
+
+1.- Copiar el script fix-addres.sh en el home de root
+
+2.- Poner en el rc.local que se ejecute este scipt (ver el punto 1 del
+apartado anterior)
+
+Una vez hecho todo esto seguiremos los siguientes pasos para crear una imagen 
+del disco duro del nodo que hará de plantilla.
+
+* Desde el servidor de DRBL (que será gaudí), con los servicios de DHCP, NFS y
+NIS arrancados, hemos de configurar CloneZilla de la siguiente manera:
+
+1.- Ejecutamos la aplicación que nos permite configurar/arrancar/parar la 
+utilidad CloneZilla que será servida por el servidor de PXE DRBL:
+
+	/opt/drbl/sbin/dcs
+
+2.- Seleccionamos en la primera ventana "Part Select Clientes by IP or MAC 
+address".
+
+3.- En la siguiente, "by MAC_addr_list Set mode by clients MAC address list".
+
+4.- Seleccionamos de la lista el nodo del cual queremos hacer la imagen del 
+disco.
+
+5.- Arrancamos Clonezila seleccionando la opción 'Clonezila Start'.
+
+6.- Seleccionamos 'Expert Mode'.
+
+7.- Aquí tenemos varias opciones: si elegimos la última opción, el control de 
+lo que vamos ha hacer (crear imagen, restaurar, etc) lo tenemos desde el cliente 
+una vez este se ha conectado por PXE al servidor. La otra opción es que se lo 
+demos todo hecho y configurado y el cliente se comporta como un terminal tonto: 
+arranca, el servidor le dice lo que tiene que hacer sin intervención del usuario 
+y listos. Nosotros haremos lo segundo, para ello le decimos que vamos ha hacer 
+una copia de todo el disco con la opción 'Save disk'.
+
+8.- A la pregunta "Input the image and device name now in this DRBL server or 
+Later in template client?" contestamos "Now in server".
+
+9.- Indicamos el nombre de la imagen. Yo puse sc1535 (al generar la imágen, a 
+este nombre le concatena la fecha).
+
+10.- Seleccionamos el disco del cliente del cual se hará la imagen, como todos 
+los nodos tienen un solo disco y todos están como 'sda' pues eso, 'sda'.
+
+11.- Elegimos la lista de prioridades de las herrameintas que se usarán para 
+intentar generar las imágenes. Nosotros pondremos el primero (primero intenta
+usar partclone para generar la imágen, si no existe esta erramienta hará servir
+partimage y si esta tampoco la tiene harà un dd): 
+
+	-q2 -> Partclone -> partimage -> dd.
+
+12.- En la siguiente ventana de opciones no hace falta activar nada.
+
+13.- Para cuando acabe de hacer la imagen, indicamos que se reinicie el nodo.
+
+14.- Como sistema de compresión usé la opción -z1p.
+
+13.- Si queremos dividir la imagen en ficheros de x Mb lo ponemos aquí. 
+Nosotros dejamos 0 para que no parta la imagen.
+
+14.- Hecho, desaparecen la ventanas gráficas, vemos un xurro de lineas que hemos 
+de leer para ver que no aparezca ningún error, se nos informa de la linea de 
+configuracioń que podemos lanzar desde un terminal para volver a repetir estos 
+pasos y listos (la que usé en gaudi está guardada en el fichero) 
+	
+	/root/DRBL/build-img/ocs-sc1435-2012-02-21-11-2012-02-21-12-02
+
+Un detalle que se ha de tener en cuenta es que, después de hacer la imagen, si 
+queremos volver a crear otra hemos de volver a repetir todos estos pasos. De ahí 
+la utilidad de guardarnos la linea con el comando que podemos ejecutar en
+un terminal que nos aparece cuando acabamos de hacer todos estos pasos 
+(también se guarda en un fichero bajo /tmp).
+
+* Desde el cliente:
+
+1.- Configuramos por BIOS que arranque con el PXE.
+
+2.- Al arrancar automáticamente se conectara al servidor via PXE  y se empezará 
+a crear y guardar la imagen en el directorio /partimg de gaudi. Cuando acaba se 
+reinicia. Se volverá a conectar al servidor de pxe de gauri pero como no tiene 
+activado el hacer nada arrancarà directo del disco duro, es decir, que no hace
+daño el dejar el nodo configurado para arrancar por PXE.
+
+En gaudi, la imagen que se dio por buena ocupa 1.8 Gb.
+
+CLONACIÓN DE IMÁGENES
+=====================
+
+Ahora ya podemos ir a volcar las imágenes. Igual que para hacer la imagen.
+
+1.- Ejecutamos la aplicación que nos permite configurar/arrancar/parar la 
+utilidad CloneZilla que será servida por el servidor de PXE DRBL:
+
+	/opt/drbl/sbin/dcs
+
+2.- Seleccionamos 'Part Select client by ip or mac addres'.
+
+3.- En la siguiente ventana, 'by mac addr list set mode by client mac addres 
+list'.Con este paso, el anterior y el siguiente lo que conseguimos es poder 
+filtrar por mac address los nodos que se podrán
+bajar la imagen.
+
+4.- Seleccionamos las mac de los clientes que se podran descargar la imagen.
+
+5.- Arrancamos ClonZilla seleccionando 'Clonezila-Start'.
+
+6.- Elegimos el modo 'expert mode'.
+
+7.- Igual que para hacer la imagen, o dejamos que se pueda indicar que es lo 
+que se quiere hacer desde el cliente (Save o Restore) o dejamos todos los pasos 
+a seguir configurados en el servidor (para clonar, es mucho mejor lo segundo, 
+así una configuracion sirve para n nodos en vez de tener que indicar los pasos 
+n veces, una por nodo). Por lo tanto, seleccionamos 'Restore Disk'.
+
+8.- En la ventana de opciones seleccionamos -v (verbose) y -o1 (POSTRUN) para 
+que sea ejecutado el script de postrun que será lanzada cuando acabe la 
+clonación. Debemos de tener ya copiado el script de postrun que arregal el
+problema con la mac address de la targeta de red ya copiado en el directorio 
+que toca. 
+
+9.- En la segunda pantalla, cuando se nos pregunte que queremos hacer con la 
+tabla de particiones, como todos los nodos tienen discos del mismo tamaño
+seleccionamos 'Use the partition table from the image'. 
+
+10.- En la siguiente ventana 'skip this option' (no se lo que es esto)
+
+11.- En la siguiente ventana, que cuando acabe se reinicie el nodo.
+
+12.- Elegimos la imagen de la lista de imagenes que hay guardadas en /partimg.
+
+13.- Seleccionamos el disco destino. Como los nodos solo tienen un disco no hay 
+mucho donde elegir, que el disco de destino sea sda.
+
+14.- Aquí siempre he puesto unicast: es menos eficiente pero funcinoa y no 
+da problemas. Probé con multicast y no me funcionó y la verdad es que no me 
+molesté en ver cual era el problema. En gaudi se hicieron volcados de imágen a
+diez o más nodos a la vez y ha pesar de ser unicast no hubo ningún problema y 
+fué ràpido.
+
+15.- Listos, vemos otra vez el echo en pantalla de como se configura el 
+servidor, la linea que podemos ejecutar desde un terminal para repetir estos 
+pasos y si no aparece ningún error queda todo listo.
+
+Igual que cuando se hacía la imagen, si queremos volver a volcar la imagen en 
+un nodo sobre el cual ya hemos hecho el volcado de imagen hemos de volver a 
+repetir todos estos pasos (es decir, esta configuracioń solo es válida para un 
+intento de volcado de imagen por cada nodo, al siguiente arranque del nodo no 
+se vuelve a lanzar el volcado de imagen).
+
+* Desde el cliente:
+
+1.- Configuramos por BIOS que arranque con el PXE.
+
+2.- Al arrancar automáticamente se conectara al servidor via PXE  y se empezará 
+a bajar la imagen. Cuando acaba se reinicia y desaparece del menú de arranque 
+la opción de volcar imagen, arranca directo del disco duro. La primera vez 
+que arranque veremos que se reinicia el nodo ya que se ejecuta el script que
+soluciona lo de la mac address.
+
+NOTA: Si al querer volcar la imagen en un nuevo nodo, una vez que este ya coge ip
+del dhcp y que se conecta con el servidio de drbl para descargar la imagen, tenemos 
+un error que nos dice que no puede montar la partición raiz, puede ser por que falte 
+añadirlo al fichero /etc/exports del nodo master para que pueda montar por NFS la 
+partición raiz:
+
+/tftpboot/node_root 192.168.1.22(ro,async,no_root_squash,no_subtree_check)
+/usr 192.168.1.22(ro,async,no_root_squash,no_subtree_check)
+/opt 192.168.1.222(ro,async,no_root_squash,no_subtree_check)
+/home 192.168.1.22(rw,sync,no_root_squash,no_subtree_check)
+/var/spool/mail 192.168.1.22(rw,sync,root_squash,no_subtree_check)
+
+

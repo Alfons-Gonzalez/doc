@@ -1,0 +1,47 @@
+[alfons@pinsker ~]$ export PATH=/usr/local/slurm/bin:$PATH
+[alfons@pinsker ~]$ cd /cadd2/users/
+[alfons@pinsker users]$ cd alfons/
+[alfons@pinsker alfons]$ pwd
+/cadd2/users/alfons
+[alfons@pinsker alfons]$ more exemple-sense-gpu.sh 
+#!/bin/bash
+
+# set the partition where the job will run
+#SBATCH --partition=phi
+
+# set the number of nodes
+#SBATCH --nodes=1
+
+# set max wallclock time
+#SBATCH --time=1:00:00
+
+# mail alert at start, end and abortion of execution
+#SBATCH --mail-type=ALL
+
+# send mail to this address
+#SBATCH --mail-user=itgrib@imim.es
+
+# run the application
+date > /home/alfons/$1.log
+sleep 600
+date >> /home/alfons/$1.log
+
+[alfons@pinsker alfons]$ vi exemple-sense-gpu.sh 
+[alfons@pinsker alfons]$ sbatch exemple-sense-gpu.sh test1
+Submitted batch job 51
+[alfons@pinsker alfons]$ sbatch exemple-sense-gpu.sh test2
+Submitted batch job 52
+[alfons@pinsker alfons]$ sbatch exemple-sense-gpu.sh test3
+Submitted batch job 53
+[alfons@pinsker alfons]$ sbatch exemple-sense-gpu.sh test4
+Submitted batch job 54
+[alfons@pinsker alfons]$ sbatch exemple-sense-gpu.sh test5
+Submitted batch job 55
+[alfons@pinsker alfons]$ squeue 
+             JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+                55       phi exemple-   alfons PD       0:00      1 (Resources)
+                51       phi exemple-   alfons  R       0:17      1 dwalin
+                52       phi exemple-   alfons  R       0:14      1 gimli
+                53       phi exemple-   alfons  R       0:11      1 balin
+                54       phi exemple-   alfons  R       0:08      1 thorin
+[alfons@pinsker alfons]$

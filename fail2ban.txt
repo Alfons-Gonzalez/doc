@@ -1,0 +1,91 @@
+fail2ban es un programa tipo nuestro scriptillo en zeus, pero que en vez de
+bloquear a nivel de tcpwrappers, lo hace a nivel de iptables, y no de manera
+permanente, sino durante un periodo de tiempo configurable
+
+fichero de configuracion:  /etc/fail2ban/jail.local (hay un .conf, pero no hay que tocarlo, la configuracion 'personal' se pone en este jail.local)
+
+
+para ver lo que esta bloqueando:
+
+[root@zeus ~]# iptables -L
+Chain INPUT (policy ACCEPT)
+target     prot opt source               destination
+f2b-sshd   tcp  --  anywhere             anywhere            multiport dports
+ssh
+ACCEPT     all  --  anywhere             anywhere            state
+RELATED,ESTABLISHED
+ACCEPT     icmp --  anywhere             anywhere
+ACCEPT     all  --  anywhere             anywhere
+ACCEPT     tcp  --  172.20.16.0/24       anywhere            tcp dpt:ssh
+ACCEPT     tcp  --  84.89.134.128/25     anywhere            tcp dpt:ssh
+ACCEPT     tcp  --  anywhere             anywhere            tcp dpt:ssh
+ACCEPT     tcp  --  172.20.16.222        anywhere            tcp dpt:rxmon
+ACCEPT     tcp  --  172.20.16.221        anywhere            tcp dpt:rxmon
+ACCEPT     tcp  --  172.20.16.25         anywhere            tcp dpt:bacula-fd
+REJECT     all  --  anywhere             anywhere            reject-with
+icmp-host-prohibited
+
+Chain FORWARD (policy ACCEPT)
+target     prot opt source               destination
+REJECT     all  --  anywhere             anywhere            reject-with
+icmp-host-prohibited
+
+Chain OUTPUT (policy ACCEPT)
+target     prot opt source               destination
+
+Chain f2b-sshd (1 references)
+target     prot opt source               destination
+REJECT     all  --  52.66.19.95.dynamic.jazztel.es  anywhere
+reject-with icmp-port-unreachable
+REJECT     all  --  85.145.195.113.adsl-pool.jx.chinaunicom.com  anywhere
+reject-with icmp-port-unreachable
+REJECT     all  --  61.147.103.162       anywhere            reject-with
+icmp-port-unreachable
+root@zeus ~]#
+
+
+ves que hay un Chain f2b-sshd de iptables con las ip que esta bloqueando.
+
+tal como esta configurado, se autodesbloquean a las 3h (se bloquean si hay
+tres intentos fallidos en menos de 10')
+
+para desbloquear 'a mano' (por ejemplo el 30/12 llamo Nuria Lopez diciendo que
+zeus le daba un connection refused...)
+
+iptables -L (vemos que regla dentro de la cadena f2b-sshd es la que queremos
+eliminar, en el caso de nuria era la primera que bloqueaba
+52.66.19.95.dynamic.jazztel.es)
+
+ iptables -D f2b-sshd 1
+
+y ya puede entrar.
+Se puede mirar tambien de la siguiente manera:
+[root@zeus ~]# fail2ban-client status sshd
+Status for the jail: sshd
+|- Filter
+|  |- Currently failed: 0
+|  |- Total failed:     0
+|  `- File list:        /var/log/secure
+`- Actions
+   |- Currently banned: 1
+   |- Total banned:     1
+   `- Banned IP list:   95.19.66.52
+[root@zeus ~]#
+
+y desbloquear la ip via cliente con
+
+fail2ban-client set sshd unbanip IP
+
+El fail2ban es un servicio:
+
+[root@zeus ~]# chkconfig --list | grep fail2ban
+fail2ban        0:off   1:off   2:on    3:on    4:on    5:on    6:off
+[root@zeus ~]#
+
+[root@zeus ~]# service fail2ban status
+fail2ban-server (pid  4444) is running...
+Status
+|- Number of jail:      1
+`- Jail list:   sshd
+[root@zeus ~]#
+

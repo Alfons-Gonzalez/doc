@@ -1,0 +1,258 @@
+Configurar prioritats a Slurm
+=============================
+
+1.- Activem les prioritats
+2.- Configurem el comportament de les prioritats
+	2.1.- Comportamiento del tipo de prioridad multifactor
+	2.1.1.- FairShare
+		2.1.1.1.- Recursos que intervienen en el cálculo del FairShare
+3.- Dar prioridad a jobs pequeños
+4.- Comandos
+5.- Referencias
+
+
+Es molt configurable. Tot s'ha de ficar al fitxer slurm.conf (poder es podría 
+ficar en un altre fitxer i fer un include). Depén d'aquests paràmetres:
+
+1.- Activem les prioritats
+==========================
+
+Primer em de configurar aquests dos paràmetres que son els encarregats de 
+'activar' el sistema de prioritats (de fet, fent servir aquests dos paràmetres 
+ja tenim les prioritats funcionant de una manera molt bàsica):
+
+- PriorityType= :
+
+	priority/basic: No hay prioridad, FIFO.
+
+	priority/multifactor: Los jobs son priorizados según 6 criterios. It
+		requires the accounting database !!!!. Los criterios son:
+
+		Job age: how long the job has been waiting in the queue (Note 
+			that the job age parameter is bounded so that priority 
+			stops increasing when the bound is attained).
+		User fairshare: a measure of past usage of the cluster by the 
+			user. It has a 'forgetting' parameter that leads to 
+			considering only the recent history of the user and not 
+			its total use over the time life of the cluster.
+		Job size: the number of CPUs a job requests. It can be configured 
+			to favor small or large jobs (requiere que se especifiquen
+			la cpu, mem, gres, que necesita el job y en su defecto, que
+			estén los valores por defecto configurados).
+		Partition: the partition to which a job is submitted , specified with the --partition submission 				parameter. Creo que tiene importancia cuando o puede resultar
+			necesario cuando un nodo está presente en más de una partición.
+		TRES : se le da un peso a cada uno de los recursos que solicita el
+			job y en función a estos pesos el job obtiene más o menos
+			prioridad. The more a given TRES Type is requested/allocated 
+			on a job, the greater the job priority will be for that job. 
+			-> No lo entiendo, la def de antes parece que diga que cuantos más
+			recursos se pidan, más prioridad obtiene el job, no?
+		QOS: a quality of service associated with the job, specified with the --qos sub	 
+
+	priority/multifactor2: una variante del anterior ¿?
+
+- SchedulerType= :
+
+	sched/builtin: Todos los jobs serán ejecutados según su orden de prioridad.
+
+	sched/backfill: Trabajos con menos prioridad pueden entrar antes en ejecución
+		para aprovechar slots libres si estos van a acabar antes que jobs
+		con una prioridad más alta. Requires declaration of max execution 
+		time of jobs (DefaultTime or MaxTime on Partition, MaxWall from 
+		accounting association).
+
+	sched/wiki: scheduling es gestinoado por Maui.
+
+	sched/wiki2: scheduling es gestinoado por Moab.
+
+2.- Configurem el comportament de les prioritats
+================================================
+
+Ara hi temin tota una serie de paràmeters amb els que, un cop activades el
+funcionament de les prioritats, podem dir com volem que es comportin:
+
+- PriorityDecayHalfLife=30-0 : Se indica que para el factor de uso FairShare se 
+tenga en cuenta el uso en los últimos 30 días para calcular la prioridad (el 
+valor por defecto es siete días). Si se pone 0, que es inifinito, se recomienda
+usar PriorityUsageResetPeriod para indicar cada cuando tiempo se reseta el 
+FaisShare a 0 (por defecto es nunca).
+
+- PriorityUsageResetPeriod: Cada cuanto tiempo se resetan el FairShare a 0 (by 
+default es nunca).
+
+- PriorityMaxAge=7-0 -> Un job alcanza el total de prioridad que puede obtener  por
+tiempo de espera a los 7 días de estar en cola. (es el default value)
+
+- PriorityCalcPeriod=00:00:30 -> Cada cuanto tiempo se recalculan las prioridades
+	(en este caso 30 seg). Por defecto son 5 minutos, pero claro, que pasa si los
+	jobs tardan menos de 5 minutos??
+
+2.1.- Comportamiento del tipo de prioridad multifactor
+-----------------------------------------------------
+
+Como se ha dicho antes, cuando activamos como tipo de prioridad 'multifactor' 
+este depende de seis factores. Podemos definir la importancia de tiene cada uno 
+de estos seis factores a la hora de calcular las prioridades:
+
+PriorityWeightAge=1000 : Contribución del tiempo que lleva el job en espera en 
+el cálculo de la prioridad (relacionado con el parámetro PriorityMaxAge).
+
+PriorityWeightFairshare=10000 : Contribución de los recursos consumidos por los 
+jobs del usuario que ya han acabado (se tienen en cuenta los días indicados en el parámetro 
+PriorityDecayHalfLife).
+
+PriorityWeightJobSize=1000 : Creo que esta contribución al cálculo de la prioridad 
+es en función de si es un job muy costoso o no (require muchas CPU, mucho tiempo 
+de cálculo, mucha memória, etc). Claro, para que esto sirva de algo el usuario 
+ha de especificar en el job los recursos que necesita para que Slurm pueda valorar
+si se trata de un job muy costoso o no (esto no me acaba de quedar claro del todo).
+
+PriorityWeightPartition=0 : Contribución de la prioridad que se le asigne a cada 
+una de las Particiones del cluster. Entiendo que dependiendo de la partición que
+quieras hacer servir y de la prioridad que tenga esa partición, el job gana más
+o menos prioridad (no lo tenemos definido, con un 0 indicamos que no se tenga en 
+cuenta).
+
+PriorityWeightQOS=0 : Contribución al cálculo de la prioridad del QoS (no lo 
+tenemos definido, con un 0 indicamos que no se tenga en cuenta).
+
+PriorityWeightTRES= : A comma separated list of TRES Types and weights that sets 
+the degree that each TRES Type contributes to the job's priority, ej: 
+
+PriorityWeightTRES=CPU=1000,Mem=2000,GRES/gpu=3000
+
+NOTA: Los TRES aquí definidos han de estar presentes en la lista de recursos que
+se ponen en la variable AccountingStorageTRES (ver más abajo).
+
+2.1.1.- FairShare
+-----------------
+
+Ahora toca configurar como queremos que se comporte el FairShare: queremos que
+solo tenga en cuenta el uso de la CPU, de la memoria, de algún GRES definido por
+nosotros (ex, GPUs)? que importáncia tiene el uso de cada uno de estos recursos?
+
+
+2.1.1.1.- Recursos que intervienen en el cálculo del FairShare
+--------------------------------------------------------------
+
+Primero hemos de tener en cuenta el concepto TRES:
+
+Trackable Resources (TRES): CPUs, nodes, memory, licenses and generic resources (GRES). 
+Son los recursos que puede hacer servir un job y de los cuales se puede guardar 
+accounting de su uso (Trackable). Es este accounting el que hace que Slurm pueda calcular 
+los FairShare.
+
+Las directivas son las siguientes:
+
+- AccountingStorageTRES : Que recursos son trackables (rastreados) en el sistema. 
+Por defecto son: CPU, Energy, Memory and Node. Si queremos añadir/quitar lo hemos
+de indicar. Por ejemplo, si queremos añadir que también se rastreen las GPU:
+
+
+	AccountingStorageTRES=gres/gpu
+
+	# scontrol show config | grep AccountingStorageTRES
+	AccountingStorageTRES   = cpu,mem,energy,node,gres/gpu
+
+- TRESBillingWeights: Se ha de indicar en la configuración de la particion. En 
+esta directiva es donde indicamos que peso tiene cada recurso
+registrao en los TRES y que recursos cuentan para este cálculo (by default, solo se
+tiene en cuenta la CPU). OJO, solo podemos hacer referencia a recursos definidos
+en AccountingStorageTRES ya que son solo estos recursos de los que se guarda el
+accounting !!.
+
+TRESBillingWeights="CPU=1.0,Mem=0.25G,GRES/gpu=2.0"
+
+By default the billing of TRES is calculated as the sum of all TRES types 
+multiplied by their corresponding billing weight. Si un job ha usado 1 CPU, 8 GB
+de RAM y 2 GPU:
+
+(1*1.0) + (8*0.25) + (2*2.0) = 7.0
+
+Si indicamos esto en la configuracion:
+
+PriorityFlags=MAX_TRES
+
+entonces se coge el valor máximo de la suma de los individual TRES (CPU, mem, gres) y los global TRES (e.g. licenses):
+
+MAX(1*1.0, 8*0.25) + (2*2.0) = 4.0
+
+(ESTO ÚLTIMO NO LO ENTENDI MUY BIEN, que son los gres como individual gres y los global TRES?)
+
+Ejemplo:
+
+PartitionName=multiscale Nodes=ace1,ace2,ace3,pink,arancio,bianco,blu,green,loro,oliva,rosa Default=YES MaxTime=INFINITE State=UP TRESBillingWeights="CPU=1.0,Mem=0.25G,GRES/gpu=2.0"
+
+scontrol show partition
+PartitionName=multiscale
+   AllowGroups=ALL AllowAccounts=ALL AllowQos=ALL
+   AllocNodes=ALL Default=YES QoS=N/A
+   DefaultTime=NONE DisableRootJobs=NO ExclusiveUser=NO GraceTime=0 Hidden=NO
+   MaxNodes=UNLIMITED MaxTime=UNLIMITED MinNodes=1 LLN=NO MaxCPUsPerNode=UNLIMITED
+   Nodes=ace1,ace2,ace3,pink,arancio,bianco,blu,green,loro,oliva,rosa
+   Priority=1 RootOnly=NO ReqResv=NO Shared=NO PreemptMode=OFF
+   State=UP TotalCPUs=128 TotalNodes=11 SelectTypeParameters=N/A
+   DefMemPerNode=UNLIMITED MaxMemPerNode=UNLIMITED
+   TRESBillingWeights=CPU=1.0,Mem=0.25G,GRES/gpu=2.0
+
+
+3.- Dar prioridad a jobs pequeños
+=================================
+
+Tenemos una directica que se llama PriorityFavorSmall que convinada con el factor 
+PriorityWeightJobSize nos permite indicar si en nuestro cluster queremos 
+priorizar small jobs (jobs que piden poca memoria/cpu/GRES y que tienen definido 
+poco tiempo de ejecución) o jobs grandes. 
+
+Lo primero es indicar correctametne el boleano de la directiva:
+
+PriorityFavorSmall=[YES|NO] (by default is NO)
+
+y entonces, en funcion al valor que le hemos dado, provocamos que PriorityWeightJobSize 
+haga que suba la prioridad de un job que va a consumir pocos recursos, o por lo 
+contrario, que lo haga cuando este job está solicitando muchos recursos. 
+
+
+4.- Comandos
+============
+
+- Ver el peso (prioridad) de un job (si estamos con PriorityType=multifactor es 
+valor calculado según los 5 criterios anteriores):
+
+sprio -w : Muestra los factores que se usan para calcular una prioridad.
+
+sprio : Muestra de los jobs en Pending, que prioridad recoge de cada uno de los 
+factores que se usan para su cálculo.
+
+- Ver los FairShare de cada usuario: 
+
+sshare -a (sin la -a lo muestra por account)
+
+- Par añadir a squeue el campo de prioridad de los jobs (hemos de usar --format %Q):
+
+squeue -o "%.18i %.9P %.8j %.8u %.8a %.2t %.10M %.6D %.10R %.20Q"
+
+- Para ver con el comando sacct los TRES pedidos por el job (Request TRES)y 
+los que que se han hecho servir  (Allocated Tres) podemos añadir los flags ReqTres 
+y AllocTres  al modificar format:
+
+sacct --format JobID,jobname,NTasks,nodelist,MaxRSS,MaxVMSize,AveRSS,AveVMSize,AllocTres,ReqTres -S2016-05-01 
+
+- Para ver la lista de TRES que tenemos disponibles en nuestro cluster:
+
+sacctmgr show tres
+
+- Desde la versió 15.08 de slurm podemos sacar reportes con el comando sreport y 
+su opcion  option --tres=xxx (lista saparada por comas de los TRES que queremos ver)
+
+sreport cluster utilization --tres gres/gpu,cpu
+
+5.- Referencias
+===============
+
+http://www.ceci-hpc.be/slurm_prio.html
+http://slurm.schedmd.com/priority_multifactor.html
+http://slurm.schedmd.com/tres.html
+http://slurm.schedmd.com/SLUG15/TRES.pdf
+
+

@@ -1,0 +1,860 @@
+
+Preparacio entorn al GRIB per fer servir EasyBuild + Moduls
+===========================================================
+
+1.- Dependencies EasyBuild
+
+	1.1.- Lua
+	1.2.- Luarocks
+	1.3.- Lmod
+
+2.- Instal·lació EasyBuild
+
+	2.1.- Configuració per que el prefix sigui /soft/system/easybuild
+	2.2.- Fitxer de configuració
+	2.3.- .bashrc del usuario manager
+	2.4.- Modificacions al fitxer de configuració
+
+3.- ToolChain a fer servir
+
+4.- Estructura de directoris
+
+	4.1.- /soft/system
+	4.2.- /soft/EB_repo
+	4.3.- /soft/devel i /soft/bio
+
+5.- Móduls de configuració
+
+6.- Com fer una instal·lació
+
+7.- Paràmetres EasyBuild
+
+
+///////////////////////////////////
+
+
+Aprofitant que em de generar el nou repositori de soft per els Centos 7 ho farem
+fent servir EasyBuild i Modules. Ens guiarem de com ho tenen fer en el SIT.
+
+1.- Dependencies EasyBuild
+==========================
+
+Les seves dos principals dependéncies son lua i Lmod:
+
+1.1.- Lua
+=========
+
+OJO !! Centos lleva by default lua-5.1. Seguramente serviría pero prefiero tener
+una instalación de Lua en el directorio de soft compartido y que TODOS los ordenadores
+usen esta versión, así evitamos posibles incompatibilidades entre PC's pq uno tiene
+instalado un update de lua y otro no.
+
+Como el lua-5.1 que lleva Centos7 no se puede desintalar pq de él dependen 
+chorrocientas cosas, evita por lo menos instalar el lua-devel para que al compilar
+cosas no use libs o header de este lua.
+
+yum install readline readline-devel
+
+curl -R -O http://www.lua.org/ftp/lua-5.3.3.tar.gz
+tar xvzf lua-5.3.3.tar.gz
+cd lua-5.3.3/
+make linux
+make install INSTALL_TOP=/soft/system/lua-5.3.3
+
+ln -s /soft/system/lua-5.3.3 /soft/system/lua
+export PATH=/soft/system/lua/bin:$PATH
+
+1.2.- Luarocks
+==============
+
+La instalación de Lmod pide tener además de lua instalado, que este tenga soporte 
+para luaposix y luafilesystem (son dos módulos de lua). Estos módulos se pueden
+instalar con la utilidad luarocks:
+
+wget https://luarocks.org/releases/luarocks-2.4.1.tar.gz
+tar zxpf luarocks-2.4.1.tar.gz
+cd luarocks-2.4.1
+./configure --prefix=/soft/system/luarocks-2.4.1 --with-lua-include=/soft/system/lua/include
+make bootstrap
+ln -s /soft/system/luarocks-2.4.1 /soft/system/luarocks
+export PATH=/soft/system/luarocks/bin:$PATH
+
+luarocks install luaposix; luarocks install luafilesystem
+
+# Atenció; aquestes variables d'entorn les hem de carregar SEMPRE abans de fer servir
+# Lmod, so, les fiquen en el fitxer .sh que es carregar en el login de quansevol usuari (/etc/profile.d).
+LUAROCKS_PREFIX=/soft/system/luarocks
+export LUA_PATH="$LUAROCKS_PREFIX/share/lua/5.3/?.lua;$LUAROCKS_PREFIX/share/lua/5.3/?/init.lua;;"
+export LUA_CPATH="$LUAROCKS_PREFIX/lib/lua/5.3/?.so;;"cd ..
+
+1.3- Lmod
+=========
+
+wget http://downloads.sourceforge.net/project/lmod/Lmod-6.6.tar.bz2
+tar xvf Lmod-6.6.tar.bz2
+cd Lmod-6.6
+./configure --prefix=/soft/system
+make install
+
+Un cop instal·lat, generem el script que en el moment de fer l'usuari log in 
+cargará en el sistema les variables d'entorn per que xuti el Lmod que em
+instal·lat al /soft/system junt amb el lua:
+
+[root@easybuild ~]# cat /etc/profile.d/lmod.sh 
+shell=`/bin/basename \`/bin/ps -p $$ -ocomm=\``
+
+
+# Fem que la versió de lua que tenim al /soft sigui la by default (idem per luarocks).
+export PATH=/soft/system/lua/bin:/soft/system/luarocks/bin:$PATH
+
+# Per tindre els moduls de luafilesystem and luaposix, sense aixó carregat el Lmod no xuta
+LUAROCKS_PREFIX=/soft/system/luarocks
+export LUA_PATH="$LUAROCKS_PREFIX/share/lua/5.3/?.lua;$LUAROCKS_PREFIX/share/lua/5.3/?/init.lua;;"
+export LUA_CPATH="$LUAROCKS_PREFIX/lib/lua/5.3/?.so;;"
+
+export LMOD_IGNORE_CACHE=1
+
+
+if [ -f /soft/system/lmod/lmod/init/$shell ]
+then
+#  . /soft/system/lmod/lmod/init/$shell
+   . /soft/system/lmod/lmod/init/profile
+else
+  . /soft/system/lmod/lmod/init/sh
+fi
+
+# Ya veremos si nos interesa cargar MODULEPATH aquí.
+export MODULEPATH=/soft/devel:/soft/bio/sequence:/soft/bio/structure:/soft/bio/md:/soft/bio/math:/soft/bio/graphics:/soft/bio/generic:${MODULEPATH}
+
+[root@easybuild ~]# 
+
+2.- Instal·lació EasyBuild
+==========================
+
+Ara el EasyBuild el tindrem instal·lat en el /usr/local de la màquina des de la cual
+farem les instal·lacions. 
+
+El PREFIX de les instal·lacions es farán al /soft
+
+EasyBuild no deixa fer servir l'usuari root per fer les instal·lacions, llavors
+es crea un usuari que es diu 'manager' a l'ordinador des de el cual farem les
+instal·lacions i farem servir aquest usuari tant per instal·lar EasyBuild com per
+fer les instalacions.
+
+groupadd -g 900 manager
+adduser -u 900 -g 900 manager
+mkdir /usr/local/EasyBuild
+chown -R manager: /usr/local/EasyBuild
+
+I ara amb l'usuari 'manager' instal·lem EasyBuild:
+
+su - manager
+EASYBUILD_PREFIX=/usr/local/EasyBuild
+curl -O https://raw.githubusercontent.com/hpcugent/easybuild-framework/develop/easybuild/scripts/bootstrap_eb.py
+python bootstrap_eb.py $EASYBUILD_PREFIX
+
+I afegin al .bashrc del usuari manager un parell de coses per que el EasyBuild 
+faci servir Lmod i per que es carregin el directori on está el modulepath on está
+el modulefile del EasyBuild:
+
+[manager@easybuild ~]$ cat ~/.bashrc 
+# .bashrc
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+	. /etc/bashrc
+fi
+
+# Uncomment the following line if you don't like systemctl's auto-paging feature:
+# export SYSTEMD_PAGER=
+
+# User specific aliases and functions
+
+export EASYBUILD_MODULES_TOOL=Lmod
+
+EASYBUILD_PREFIX=/usr/local/EasyBuild
+module use $EASYBUILD_PREFIX/modules/all
+[manager@easybuild ~]$ 
+
+Ara quan fem log in amb el usuri manager, si fem un 'module avail' ja veurem
+que tenim disponible el EasyBuild
+
+[manager@easybuild ~]$ module avail
+
+--------------------------------------------------------- /usr/local/EasyBuild/modules/all ----------------------------------------------------------
+   EasyBuild/2.9.0
+
+------------------------------------------------------ /soft/system/lmod/lmod/modulefiles/Core ------------------------------------------------------
+   lmod/6.6    settarg/6.6
+
+Use "module spider" to find all possible modules.
+Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
+
+[manager@easybuild ~]$ 
+
+I si carreguem el EasyBuild ja podem començar a fer instal·lacions:
+
+[manager@easybuild ~]$ module load EasyBuild/2.9.0
+[manager@easybuild ~]$ eb --list-easyblocks
+EasyBlock
+|-- EB_ant
+|-- Binary
+|   |-- EB_Allinea
+|   |-- EB_ABAQUS
+|   |-- EB_CUDA
+|   |-- EB_CPLEX
+...
+...
+...
+ 
+
+2.1.- Configuració per que el prefix sigui /soft/system/easybuild
+==================================================================
+
+Editem el fitxer:
+
+/usr/local/EasyBuild/modules/all/EasyBuild/3.0.0.lua
+
+i afegim aquestes linies:
+
+
+-- Afegim el directori on volem que estigui el fitxer de configuración
+setenv("XDG_CONFIG_DIRS","/soft/system/easybuild")
+
+-- Afegim el modulepath on tenim els moduls a carregar abans de fer una instal·lació.
+prepend_path("MODULEPATH","/soft/system/easybuild/modulefiles")
+
+
+NOTA: Durante todo el proceso de implementación sacaron la release de EasyConfig-3.0, de
+ahí que en algunas lineas empieza a aparecer como versión 3.0.
+
+
+2.2.- Fitxer de configuració
+============================
+
+Ara generarem el fitxer de configuració del EasyBuild que es guardará a:
+
+/soft/system/easybuild/easybuild.d
+
+per fer-ho, em de carregar primer el EasyBuild:
+
+[manager@easybuild ~]$ module use /usr/local/EasyBuild/modules/all
+[manager@easybuild ~]$ module avail
+
+------------------------------------------------------------- /usr/local/EasyBuild/modules/all -------------------------------------------------------------
+   EasyBuild/3.0.0
+
+--------------------------------------------------------- /soft/system/lmod/lmod/modulefiles/Core ----------------------------------------------------------
+   lmod/6.6    settarg/6.6
+
+Use "module spider" to find all possible modules.
+Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
+
+[manager@easybuild ~]$ module load EasyBuild/3.0.0
+
+i ara ja podem generar la plantilla del fitxer de configuració:
+
+[manager@easybuild ~]$ eb --confighelp > /soft/system/easybuild/easybuild.d/config.cfg
+[manager@easybuild ~]$ ll /soft/system/easybuild/easybuild.d/config.cfg
+-rw-rw-r-- 1 manager manager 15814 Nov 22 17:11 /soft/system/easybuild/easybuild.d/config.cfg
+[manager@easybuild ~]$ 
+
+2.3.- .bashrc del usuario manager
+=================================
+
+Ahora, para que el usuario manager tenga en su entorno ya cargado el modulo de
+EasyBuild añado esto a su .bashrc:
+
+export EASYBUILD_MODULES_TOOL=Lmod
+
+EASYBUILD_PREFIX=/usr/local/EasyBuild
+module use $EASYBUILD_PREFIX/modules/all
+
+
+2.4.- Modificacions al fitxer de configuració
+=============================================
+
+Para comprobar que realmente EasyBuild está usando el fichero de configuración
+de /soft:
+
+[manager@easybuild ~]$ eb --show-default-configfiles
+Default list of configuration files:
+
+[with $XDG_CONFIG_HOME: (not set), $XDG_CONFIG_DIRS: /soft/system/easybuild]
+
+* user-level: ${XDG_CONFIG_HOME:-$HOME/.config}/easybuild/config.cfg
+  -> /home/manager/.config/easybuild/config.cfg => not found
+* system-level: ${XDG_CONFIG_DIRS:-/etc}/easybuild.d/*.cfg
+  -> {/soft/system/easybuild}/easybuild.d/*.cfg => /soft/system/easybuild/easybuild.d/config.cfg
+
+Default list of existing configuration files (1): /soft/system/easybuild/easybuild.d/config.cfg
+[manager@easybuild ~]$ 
+
+Estas son algunas de las lineas que he modificado en el fichero de configuración:
+
+
+(este primer cambio es donde copiará los .eb, donde estará el directorio de build, etc) 
+# Change prefix for buildpath, installpath, sourcepath and repositorypath (used prefix for defaults /home/manager/.local/easybuild)
+prefix=/soft/system/easyconfig
+
+(es muy posible que más adelante esto lo pongamos a True para tener espacio libre
+en /soft). Al ponerlo a False no se eliminan los ficheros una vez acabada una compilacion.
+# Cleanup build dir after successful installation. (def True)
+cleanup-builddir=False
+
+2.4- module name scheme
+=======================
+
+No nos gusta la nomenclatura que usaba by defaults EasyBuild para el soft ya que
+al añadir el ToolChain en la versión del soft hacía que fuera algo confuso:
+
+Bowtie2/2.2.5-goolf-1.7.20 
+
+La solución fué modificar el Name Scheme para solo se vea el nombre del soft y la 
+versión:
+
+Bowtie2/2.2.5
+
+Para conseguir esto, primero se crea un nuevo NameScheme en el directorio:
+
+/usr/local/EasyBuild/software/EasyBuild/3.0.0/lib/python2.7/site-packages/easybuild_framework-3.0.0-py2.7.egg/easybuild/tools/module_naming_scheme/
+
+que se llame 'grib_module_name_scheme.py' con este contenido:
+
+[manager@easybuild ~]$ cd /usr/local/EasyBuild/software/EasyBuild/3.0.0/lib/python2.7/site-packages/easybuild_framework-3.0.0-py2.7.egg/easybuild/tools/module_naming_scheme
+
+[manager@easybuild module_naming_scheme]$ cat grib_module_name_scheme.py
+import os
+
+from easybuild.tools.module_naming_scheme import ModuleNamingScheme
+from easybuild.tools.module_naming_scheme.utilities import det_full_ec_version
+
+
+class GRIBModuleNamingScheme(ModuleNamingScheme):
+    """Class implementing the GRIB module naming scheme"""
+
+    REQUIRED_KEYS = ['name', 'version', 'versionsuffix', 'toolchain']
+
+    def det_full_module_name(self, ec):
+        """
+        Determine full module name from given easyconfig, according to the EasyBuild module naming scheme.
+
+        :param ec: dict-like object with easyconfig parameter values (e.g. 'name', 'version', etc.)
+        :return: string with module name <name>/<installversion>, e.g.: 'gzip/1.5'
+        """
+#        return os.path.join(ec['name'], det_full_ec_version(ec))
+	return os.path.join(ec['name'], ec['version'])
+
+[manager@easybuild module_naming_scheme]$ 
+
+I ara indiquem a EasyBuild que volem fer servir aquest module naming scheme 
+al fitxer de configuració /soft/system/easybuild/easybuild.d/config.cfg:
+
+[manager@easybuild ftdock]$ vi /soft/system/easybuild/easybuild.d/config.cfg
+...
+...
+# Module naming scheme to use (def EasyBuildMNS)
+module-naming-scheme=GRIBModuleNamingScheme
+...
+...
+
+NOTA: La docu oficial de EasyBuild recomana NO barrejar en un mateix repo varis 
+module naming scheme !!
+
+3.- ToolChain a fer servir
+==========================
+
+Ara que ja tenim tot l'entorn preparar em de tindre en consideració el toolchain
+que farem servir. Nosaltres ho instal·larem tot amb:
+
+Goolf-1.7.20
+
+Aquest toolchain implica:
+
+goolf: BLACS, FFTW, GCC, OpenBLAS, OpenMPI, ScaLAPACK
+
+i més extensament (amb versions):
+
+$ eb goolf-1.7.20.eb -Dr
+
+ * [x] $CFGS/g/GCC/GCC-4.8.4.eb (module: GCC/4.8.4)
+ * [x] $CFGS/o/OpenBLAS/OpenBLAS-0.2.13-GCC-4.8.4-LAPACK-3.5.0.eb (module: OpenBLAS/0.2.13)
+ * [x] $CFGS/m/M4/M4-1.4.17-GCC-4.8.4.eb (module: M4/1.4.17)
+ * [x] $CFGS/l/libtool/libtool-2.4.5-GCC-4.8.4.eb (module: libtool/2.4.5)
+ * [x] $CFGS/a/Autoconf/Autoconf-2.69-GCC-4.8.4.eb (module: Autoconf/2.69)
+ * [x] $CFGS/a/Automake/Automake-1.15-GCC-4.8.4.eb (module: Automake/1.15)
+ * [x] $CFGS/n/numactl/numactl-2.0.10-GCC-4.8.4.eb (module: numactl/2.0.10)
+ * [x] $CFGS/h/hwloc/hwloc-1.10.1-GCC-4.8.4.eb (module: hwloc/1.10.1)
+ * [x] $CFGS/o/OpenMPI/OpenMPI-1.8.4-GCC-4.8.4.eb (module: OpenMPI/1.8.4)
+ * [x] $CFGS/g/gompi/gompi-1.7.20.eb (module: gompi/1.7.20)
+ * [x] $CFGS/f/FFTW/FFTW-3.3.4-gompi-1.7.20.eb (module: FFTW/3.3.4)
+ * [x] $CFGS/s/ScaLAPACK/ScaLAPACK-2.0.2-gompi-1.7.20-OpenBLAS-0.2.13-LAPACK-3.5.0.eb (module: ScaLAPACK/2.0.2)
+ * [x] $CFGS/g/goolf/goolf-1.7.20.eb (module: goolf/1.7.20)
+
+Llavors, a l'hora de fer una instal·lació:
+
+	a.- Cas ideal: el soft a instal·lar està disponible amb EasyBuild i per
+	el toolchain Goolf-1.7.20 -> Ho instal·lem i llestos
+
+	b.- Cas alternatiu: el soft a instal·lar está disponible amb EasyBuild pero
+	NO per el tollchain Goolf-1.7.20. No panic. Ens baixem el el fitxer .eb
+	i el modifiquem per que faci servir el toolchain goolf-1.7.20 (aquest proces
+	es una mica més manual).
+
+Per que fer servir sempre el mateix ToolChain? Unes de les principals raons es
+per mantindre un ordre i evitar tindre, per exemple, 4 o 5 versions diferentes del 
+mateix soft amb mínimes diferencies de versions. No cal tindre instal·lats:
+GCC/4.8.2
+GCC/4.8.3
+GCC/4.8.4
+GCC/4.8.5
+
+(i aixó replicat amb moltes més dependencies).
+
+Ens queden amb el GCC que fa servir el goolf-1.7.20 que es el 4.8.4 i ja hi ha prou,
+ho compil·lem tot amb aixó. No caldrá instal·lar un altre GCC a no ser que faci falta, 
+llavors podem tindre un GCC/4.x i un GCC/5.x.
+
+Dona més feina fer-ho així pero queda tot molt més endreçat.
+
+
+
+4.- Estructura de directoris
+============================
+
+L'estructura de directoris es important per dos coses:
+
+- que quedi reflectit que el toolchain que es fa servir es goolf-2.7.20
+- per que a l'hora de llista el soft instal·lat amb 'module availabe' la info sigui
+clara.
+
+
+4.1.- /soft/system
+==================
+
+Aquí es on tenim tot els soft necesari per que tot aixó funcioni. 
+Básicament es el easybuild més les seves dependencies:
+
+[manager@easybuild ~]$ cd /soft/system/
+[manager@easybuild system]$ ll
+total 0
+drwxrwxr-x 9 manager manager 116 Nov 30 12:26 easybuild
+drwxr-xr-x 3 manager manager  27 Nov  9 15:30 lmod
+lrwxrwxrwx 1 manager manager  22 Nov  9 15:20 lua -> /soft/system/lua-5.3.3
+drwxr-xr-x 7 manager manager  62 Nov  9 15:20 lua-5.3.3
+lrwxrwxrwx 1 manager manager  27 Nov  9 15:27 luarocks -> /soft/system/luarocks-2.4.1
+drwxr-xr-x 6 manager manager  48 Nov  9 15:28 luarocks-2.4.1
+[manager@easybuild system]$ 
+
+Dintre del directori easybuild tenim:
+
+[manager@easybuild system]$ cd easybuild/
+[manager@easybuild easybuild]$ ll
+total 12
+drwxrwxr-x 70 manager manager 4096 Dec 19 10:43 build
+drwxrwxr-x  2 manager manager   23 Dec 20 11:14 easybuild.d
+drwxrwxr-x 72 manager manager 4096 Dec 19 11:28 ebfiles_repo
+drwxrwxr-x  2 manager manager  106 Dec 15 13:04 modulefiles
+drwxrwxr-x 23 manager manager 4096 Dec 16 11:05 sources
+[manager@easybuild easybuild]$ 
+
+on:
+
+build: directori on es fan les compilacions.
+
+easybuild.d: on está el fitxer de configuració de EasyBuild.
+
+ebfiles_repo: on guardem els nostre .eb files tunejats.
+
+modulefiles: on fiquem els modulefiles per carregar configuracions que ens ajuda
+	a que els soft quedi instal·lat on volem.
+sources: on tenim tots els sources del soft instal·lat, endreçat per l'inicial
+	del nom de cada programa.
+
+4.2.- /soft/EB_repo
+===================
+
+Aquí es on queden instal·lats els programes amb els seus modulefiles. Com a 
+mostra mirem on s'instal·la el soft de bio/structure:
+
+[manager@easybuild ~]$ cd /soft/EB_repo/bio/structure/
+[manager@easybuild structure]$ ll
+total 0
+drwxrwxr-x 3 manager manager 18 Dec 13 16:03 modulefiles
+drwxrwxr-x 3 manager manager 18 Dec 13 18:51 programs
+[manager@easybuild structure]$ 
+
+modulefiles: aquí es guarden tots els modulefiles
+
+programs: aquí está tot el soft instal·lat
+
+Per mantindre un cert ordre i tenint en compt que en algún moment podem tindre
+que instal·lar un soft compilat amb un altre toolchain, dintre de cada un
+d'aquests directoris tenim els directoris
+
+/soft/EB_repo/bio/structure/modulefiles/goolf/1.7.20/
+/soft/EB_repo/bio/structure/programs/goolf/1.7.20/
+
+D'aquesta manera, si per exemple en algún moment necesitem instal·lar un soft amb un toolchain
+que faci servir els compiladors de intel, ho podriem tindre instal·lat a:
+
+/soft/EB_repo/bio/structure/modulefiles/ictce/7.3.5/
+/soft/EB_repo/bio/structure/programs/ictce/7.3.5/
+
+El software instal·lat segueix sempre la seguent estructura de directoris: <nom-soft>/<versio>
+
+[manager@easybuild 1.7.20]$ ls /soft/EB_repo/bio/structure/programs/goolf/1.7.20/pymol/
+1.8.4.0 1.6.2.0
+[manager@easybuild 1.7.20]$ ls /soft/EB_repo/bio/structure/programs/goolf/1.7.20/pymol/1.8.4.0/
+modules  pymol
+[manager@easybuild 1.7.20]$ 
+
+Al directori dels modulefiles ho fem igual. Només un detall: EasyBuild mira 
+d'organitzar els modulefiles amb families:
+
+[manager@easybuild 1.7.20]$ ll /soft/EB_repo/devel/modulefiles/goolf/1.7.20/
+all/       compiler/  devel/     lib/       mpi/       system/    tools/     
+base/      data/      lang/      math/      numlib/    toolchain/ vis/     
+
+Nosaltres sempre farem servir el subdirectori 'all' que es on está tot:
+
+[manager@easybuild 1.7.20]$ ls /soft/EB_repo/bio/structure/modulefiles/goolf/1.7.20/all/
+Modeller  pymol 
+[manager@easybuild 1.7.20]$ 
+
+La única diferencia amb els modulefiles es que la versió del soft no es un 
+directori si no que es el modulefile en format lua:
+
+[manager@easybuild 1.7.20]$ ll /soft/EB_repo/bio/structure/modulefiles/goolf/1.7.20/all/Modeller/9.13.lua
+-rw-rw-r-- 1 manager manager 1398 Dec 13 16:09 /soft/EB_repo/bio/structure/modulefiles/goolf/1.7.20/all/Modeller/9.13.lua
+
+[manager@easybuild 1.7.20]$ cat /soft/EB_repo/bio/structure/modulefiles/goolf/1.7.20/all/Modeller/9.13.lua
+help([[  MODELLER is used for homology or comparative modeling of protein 
+ three-dimensional structures (1,2). The user provides an alignment of a sequence to 
+ be modeled with known related structures and MODELLER automatically calculates 
+ a model containing all non-hydrogen atoms. - Homepage: http://salilab.org/modeller/]])
+
+whatis([[Description:   MODELLER is used for homology or comparative modeling of protein 
+ three-dimensional structures (1,2). The user provides an alignment of a sequence to 
+ be modeled with known related structures and MODELLER automatically calculates 
+ a model containing all non-hydrogen atoms. - Homepage: http://salilab.org/modeller/]])
+
+local root = "/soft/EB_repo/bio/structure/programs/goolf/1.7.20/Modeller/9.13"
+
+conflict("Modeller")
+
+if not isloaded("goolf/1.7.20") then
+    load("goolf/1.7.20")
+end
+
+if not isloaded("Python/2.7.11") then
+    load("Python/2.7.11")
+end
+
+prepend_path("LD_LIBRARY_PATH", pathJoin(root, "lib/x86_64-intel8"))
+prepend_path("LIBRARY_PATH", pathJoin(root, "lib"))
+prepend_path("PATH", pathJoin(root, "bin"))
+prepend_path("PYTHONPATH", pathJoin(root, "lib/x86_64-intel8/python2.5"))
+prepend_path("PYTHONPATH", pathJoin(root, "modlib"))
+setenv("EBROOTMODELLER", root)
+setenv("EBVERSIONMODELLER", "9.13")
+setenv("EBDEVELMODELLER", pathJoin(root, "easybuild/Modeller-9.13-easybuild-devel"))
+
+-- Built with EasyBuild version 3.0.0
+[manager@easybuild 1.7.20]$ 
+
+
+4.3.- /soft/devel i /soft/bio
+=============================
+
+Aquests dos directoris son softlinks al directoris on están els modulefiles. Ho
+fem així per que aquests serán els directoris carregats al MODULEPATH, es a dir,
+el que veuran els usuaris quan mirin quin soft tenen disponible. Així evien
+que no vegin:
+
+/soft/EB_repo/devel/modulefiles/goolf/1.7.20/all/
+
+i el que vegin sigui:
+
+/soft/devel
+
+Per a ells es molt més cómode i entenen millor el que veuen i per nosaltres, 
+internament mantenim l'estructura de directoris amb el toolchain que ens
+permet tindre tot mes estructurat.
+
+Quedaría així:
+
+[manager@easybuild ~]$ ll /soft/devel
+lrwxrwxrwx 1 manager manager 48 Nov 24 15:27 /soft/devel -> /soft/EB_repo/devel/modulefiles/goolf/1.7.20/all
+[manager@easybuild ~]$ ll /soft/bio/
+total 0
+lrwxrwxrwx 1 manager manager 37 Nov 21 12:20 generic -> /soft/EB_repo/bio/generic/modulefiles/goolf/1.7.20/all
+lrwxrwxrwx 1 manager manager 37 Nov 21 12:20 graphic -> /soft/EB_repo/bio/graphic/modulefiles/goolf/1.7.20/all
+lrwxrwxrwx 1 manager manager 51 Nov 30 15:47 math -> /soft/EB_repo/bio/math/modulefiles/goolf/1.7.20/all
+lrwxrwxrwx 1 manager manager 32 Nov 21 12:21 md -> /soft/EB_repo/bio/md/modulefiles/goolf/1.7.20/all
+lrwxrwxrwx 1 manager manager 38 Nov 21 12:21 sequence -> /soft/EB_repo/bio/sequence/modulefiles/goolf/1.7.20/all
+lrwxrwxrwx 1 manager manager 56 Dec 13 16:14 structure -> /soft/EB_repo/bio/structure/modulefiles/goolf/1.7.20/all
+[manager@easybuild ~]$ 
+
+i per tant, en el fitxer de configuració del entorn:
+
+/etc/profile.d/lmod.sh
+
+hi tindrem aquesta definició per que aixó funcioni:
+
+# Fem el load dels modulefiles
+export MODULEPATH=/soft/devel:/soft/bio/sequence:/soft/bio/structure:/soft/bio/md:/soft/bio/math:/soft/bio/graphics:/soft/bio/generic:${MODULEPATH}
+
+i els usuaris veuran:
+
+[root@hashomer ~]# module av
+
+---------------------------------------------------- /soft/devel ----------------------------------------------------
+   APR/1.5.2                 Java/1.8.0_92   (D)    ScaLAPACK/2.0.2   (L)    goolf/1.7.20        (L)
+   APR-util/1.5.4            LibTIFF/4.0.4          Serf/1.3.8               hwloc/1.10.1        (L)
+   Autoconf/2.69             M4/1.4.17              Subversion/1.8.17        kbproto/1.0.6
+   Automake/1.15             NASM/2.11.06           Szip/2.1                 libffi/3.1
+   Autotools/20150215        OpenBLAS/0.2.13 (L)    Tcl/8.6.4         (L)    libjpeg-turbo/1.4.0
+   Bison/3.0.4               OpenMPI/1.8.4   (L)    Tk/8.6.4          (L)    libpng/1.6.17
+   CMake/3.5.2               PCRE/8.38              XZ/5.2.2                 libreadline/6.3     (L)
+   Doxygen/1.8.11            PROJ/4.9.2             bzip2/1.0.6       (L)    libtool/2.4.5
+   FFTW/3.3.4         (L)    Perl/5.22.2            cURL/7.43.0              libtool/2.4.6       (D)
+   GCC/4.8.4          (L)    Python/2.7.11   (L)    expat/2.1.0              libxml2/2.9.2
+   GDAL/2.1.0                Python/3.5.2    (D)    flex/2.6.0               ncurses/5.9         (L)
+   GMP/6.1.0          (L)    Ruby/2.1.0             freetype/2.6             netCDF/4.4.1
+   HDF5/1.8.17               SCons/2.5.0            gettext/0.19.2           numactl/2.0.10      (L)
+   Java/1.7.0_80             SQLite/3.9.2    (L)    gompi/1.7.20      (L)    zlib/1.2.8          (L)
+
+------------------------------------------------ /soft/bio/structure ------------------------------------------------
+   Modeller/9.13    PatchDock    ftdock    pymol/1.8.4.0    x3dna/2.3
+
+-------------------------------------------------- /soft/bio/math ---------------------------------------------------
+   R/2.15.3    R/3.2.0    R/3.3.1 (D)
+
+-------------------------------------- /soft/system/lmod/lmod/modulefiles/Core --------------------------------------
+   lmod/6.6    settarg/6.6
+
+  Where:
+   L:  Module is loaded
+   D:  Default Module
+
+Use "module spider" to find all possible modules.
+Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
+
+[root@hashomer ~]# 
+
+NOTA: Si afegin un soft compil·lat amb un nou toolchain hauriem de pensar com
+generem els softlinks que apuntin a aquess soft, per exemple, si compil·lem soft
+amb intel:
+
+/soft/bio-icte/sequence -> /soft/EB_repo/bio/sequence/modulefiles/ictce/7.3.5/all
+
+o
+
+/soft/bio/sequence-icte -> /soft/EB_repo/bio/sequence/modulefiles/ictce/7.3.5/all
+
+
+5.- Móduls de configuració
+==========================
+
+Un cop tenim tot aixó en funcionament em de fer que quan instal·lem un nou programa, 
+aquest quedi instal·lat al directori on ha d'anar. Per fer aixó, abans de fer la 
+instal·lació primer em de carregar el módul que anomenem 'moduls de configuració'
+que son els modulefiles que son al directori:
+
+[manager@easybuild ~]$ ll /soft/system/easybuild/modulefiles/
+total 24
+-rw-rw-r-- 1 manager manager  893 Nov 23 19:00 EB_devel
+-rw-rw-r-- 1 manager manager 1037 Nov 22 18:33 EB_generic
+-rw-rw-r-- 1 manager manager  923 Dec 15 13:04 EB_graphic
+-rw-rw-r-- 1 manager manager  908 Nov 30 14:45 EB_math
+-rw-rw-r-- 1 manager manager  928 Dec  5 17:56 EB_sequence
+-rw-rw-r-- 1 manager manager  933 Dec  5 17:55 EB_structure
+[manager@easybuild ~]$ 
+
+Cadascún d'aquest móduls ens prepara l'entorn per que tant el soft a instal·lar 
+mes el seu modulefile vagi a on volem que vagi. 
+
+Les variables importants que defineixen aquest modules son:
+
+setenv EASYBUILD_INSTALLPATH /soft/EB_repo/devel/
+setenv EASYBUILD_SUBDIR_SOFTWARE programs/goolf/${goolfversion}
+setenv EASYBUILD_SUBDIR_MODULES modulefiles/goolf/${goolfversion}
+
+EASYBUILD_INSTALLPATH: el prefix o directori base per fer les instal·lacions.
+
+EASYBUILD_SUBDIR_SOFTWARE: on va el software a instal·lar, ho concatena amb EASYBUILD_INSTALLPATH
+EASYBUILD_SUBDIR_MODULES: on val ensl móduls, ho concatena amb  EASYBUILD_INSTALLPATH.
+
+Llavors, per instal·lar un soft a devel, abans de fer la instal·lació del soft em
+de carregar el módul de configuració per devel.
+
+NOTA: Aquests móduls no están escrits en lua, pero xuten igual.
+
+6.- Com fer una instal·lació
+============================
+
+Tenint en compte el que s'ha explicat al punt 5, fariem:
+
+1.- ens posem com a usuari manager. Aixó implica que s'ececutará el fitxer
+/etc/profile.d/lmod.sh que carregla l'entorn de móduls i en especial, per l'usuari
+manager, afegeix el MODULEPATH de EasyBuild (aixó últim ho té al .bashrc):
+
+[root@easybuild ~]# su - manager
+Last login: Fri Dec 16 18:16:41 CET 2016 on pts/0
+[manager@easybuild ~]$
+[manager@easybuild ~]$ env | grep -e "MODULE" -e "EASYBUILD"
+EASYBUILD_MODULES_TOOL=Lmod
+LMOD_DEFAULT_MODULEPATH=/usr/local/EasyBuild/modules/all:/soft/devel:/soft/bio/sequence:/soft/bio/structure:/soft/bio/md:/soft/bio/math:/soft/bio/graphics:/soft/bio/generic:/soft/modulefiles/Linux:/soft/modulefiles/Core:/soft/system/lmod/lmod/modulefiles/Core
+MODULEPATH_ROOT=/soft/modulefiles
+MODULEPATH=/usr/local/EasyBuild/modules/all:/soft/devel:/soft/bio/sequence:/soft/bio/structure:/soft/bio/md:/soft/bio/math:/soft/bio/graphics:/soft/bio/generic:/soft/modulefiles/Linux:/soft/modulefiles/Core:/soft/system/lmod/lmod/modulefiles/Core
+MODULESHOME=/soft/system/lmod/lmod
+[manager@easybuild ~]$
+
+2. Ara tenim ja podem carregar el EasyBuild:
+
+[manager@easybuild ~]$ module av
+
+-------------------------------------------------- /usr/local/EasyBuild/modules/all ---------------------------------------------------
+   EasyBuild/3.0.0
+
+------------------------------------------------------------- /soft/devel -------------------------------------------------------------
+   APR/1.5.2             GDAL/2.1.0             PCRE/8.38              Subversion/1.8.17    gettext/0.19.2         libtool/2.4.6  (D)
+   APR-util/1.5.4        GMP/6.1.0              PROJ/4.9.2             Szip/2.1             gompi/1.7.20           libxml2/2.9.2
+   Autoconf/2.69         HDF5/1.8.17            Perl/5.22.2            Tcl/8.6.4            goolf/1.7.20           ncurses/5.9
+   Automake/1.15         Java/1.7.0_80          Python/2.7.11          Tk/8.6.4             hwloc/1.10.1           netCDF/4.4.1
+   Autotools/20150215    Java/1.8.0_92   (D)    Python/3.5.2    (D)    XZ/5.2.2             kbproto/1.0.6          numactl/2.0.10
+   Bison/3.0.4           LibTIFF/4.0.4          Ruby/2.1.0             bzip2/1.0.6          libffi/3.1             zlib/1.2.8
+   CMake/3.5.2           M4/1.4.17              SCons/2.5.0            cURL/7.43.0          libjpeg-turbo/1.4.0
+   Doxygen/1.8.11        NASM/2.11.06           SQLite/3.9.2           expat/2.1.0          libpng/1.6.17
+   FFTW/3.3.4            OpenBLAS/0.2.13        ScaLAPACK/2.0.2        flex/2.6.0           libreadline/6.3
+   GCC/4.8.4             OpenMPI/1.8.4          Serf/1.3.8             freetype/2.6         libtool/2.4.5
+
+--------------------------------------------------------- /soft/bio/structure ---------------------------------------------------------
+   Modeller/9.13    PatchDock    ftdock    pymol/1.8.4.0    x3dna/2.3
+
+----------------------------------------------------------- /soft/bio/math ------------------------------------------------------------
+   R/2.15.3    R/3.2.0    R/3.3.1 (D)
+
+----------------------------------------------- /soft/system/lmod/lmod/modulefiles/Core -----------------------------------------------
+   lmod/6.6    settarg/6.6
+
+  Where:
+   D:  Default Module
+
+Use "module spider" to find all possible modules.
+Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
+
+[manager@easybuild ~]$ module load EasyBuild/3.0.0
+[manager@easybuild ~]$ module list
+
+Currently Loaded Modules:
+  1) EasyBuild/3.0.0
+
+[manager@easybuild ~]$ 
+
+3.- Suposem que volem instal·lar el intérprete de perl que ha d'anar a /soft/devel
+(/soft/EB_repo/devel/). Com que ja em carregat EasyBuild ja podem veure que ens
+surten com a disponibles els móduls de configuració (EB_devel, EB_generic, EB_graphic, etc).
+Només em de carregar el que toca per fer una instal·lació a devel; 
+
+[manager@easybuild ~]$ module av
+
+------------------------------------------------- /soft/system/easybuild/modulefiles --------------------------------------------------
+   EB_devel    EB_generic    EB_graphic    EB_math    EB_sequence    EB_structure
+
+-------------------------------------------------- /usr/local/EasyBuild/modules/all ---------------------------------------------------
+   EasyBuild/3.0.0 (L)
+
+------------------------------------------------------------- /soft/devel -------------------------------------------------------------
+   APR/1.5.2             GDAL/2.1.0             PCRE/8.38              Subversion/1.8.17    gettext/0.19.2         libtool/2.4.6  (D)
+   APR-util/1.5.4        GMP/6.1.0              PROJ/4.9.2             Szip/2.1             gompi/1.7.20           libxml2/2.9.2
+   Autoconf/2.69         HDF5/1.8.17            Perl/5.22.2            Tcl/8.6.4            goolf/1.7.20           ncurses/5.9
+   Automake/1.15         Java/1.7.0_80          Python/2.7.11          Tk/8.6.4             hwloc/1.10.1           netCDF/4.4.1
+   Autotools/20150215    Java/1.8.0_92   (D)    Python/3.5.2    (D)    XZ/5.2.2             kbproto/1.0.6          numactl/2.0.10
+   Bison/3.0.4           LibTIFF/4.0.4          Ruby/2.1.0             bzip2/1.0.6          libffi/3.1             zlib/1.2.8
+   CMake/3.5.2           M4/1.4.17              SCons/2.5.0            cURL/7.43.0          libjpeg-turbo/1.4.0
+   Doxygen/1.8.11        NASM/2.11.06           SQLite/3.9.2           expat/2.1.0          libpng/1.6.17
+   FFTW/3.3.4            OpenBLAS/0.2.13        ScaLAPACK/2.0.2        flex/2.6.0           libreadline/6.3
+   GCC/4.8.4             OpenMPI/1.8.4          Serf/1.3.8             freetype/2.6         libtool/2.4.5
+
+--------------------------------------------------------- /soft/bio/structure ---------------------------------------------------------
+   Modeller/9.13    PatchDock    ftdock    pymol/1.8.4.0    x3dna/2.3
+
+----------------------------------------------------------- /soft/bio/math ------------------------------------------------------------
+   R/2.15.3    R/3.2.0    R/3.3.1 (D)
+
+----------------------------------------------- /soft/system/lmod/lmod/modulefiles/Core -----------------------------------------------
+   lmod/6.6    settarg/6.6
+
+  Where:
+   L:  Module is loaded
+   D:  Default Module
+
+Use "module spider" to find all possible modules.
+Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
+
+[manager@easybuild ~]$ module load EB_devel
+[manager@easybuild ~]$ module list
+
+Currently Loaded Modules:
+  1) EasyBuild/3.0.0   2) EB_devel
+
+[manager@easybuild ~]$ env | grep "EASYBUILD_"
+EASYBUILD_MODULES_TOOL=Lmod
+EASYBUILD_SUBDIR_MODULES=modulefiles/goolf/1.7.20
+EASYBUILD_SUBDIR_SOFTWARE=programs/goolf/1.7.20
+EASYBUILD_INSTALLPATH=/soft/EB_repo/devel/
+[manager@easybuild ~]$ 
+
+4.- I fem la instal·lació:
+
+eb Perl-5.22.2-goolf-1.7.20.eb
+
+I un cop acabada la compil·lació e instal·lació veurem que ha aparegut Perl/5.22.2
+al apartat de /soft/devel al llista tots els móduls instal·lats.
+
+En el següent document on s'expliquen mes detalls de com fer instal·lacions hi han
+mes detalls.
+
+
+7.- Paràmetres EasyBuild
+========================
+
+Si executem:
+
+eb --help
+
+veurem tota la llista de diferents paràmetres de configuració. Com a regle general, 
+tots aquests paràmetres es poden definir de tres maneres segons ens interesi:
+
+1.- Com a variable d'entorn
+2.- Com a paràmetre al executar la comanda eb
+3.- Definirla al fitxer de configuracio de EasyBuild (/soft/system/easybuild/easybuild.d/config.cfg)
+
+Per exemple, diferents maneres de definir el prefix (installpath):
+
+a.- Com a parámetre al fer una instal·lació:
+
+# eb Perl-5.22.2-goolf-1.7.20.eb  --installpath=/opt/programs
+
+b.- Com a variable d'entorn (s'ha d'afegir al inici EASYBUILD_ i si hi hagués 
+un '-' enmig, es substituieix per '_' ('module-naming-scheme' quedaria com 'EASYBUILD_MODULE_NAMING_SCHEME')
+
+# export EASYBUILD_INSTALLPATH=/opt/programs
+# eb Perl-5.22.2-goolf-1.7.20.eb
+
+c.- Al fitxer de configuració (s'aplicaría a totes les instal·lacions a no ser
+que es canvii en el moment de fer la instal·lació seguin el cas a) o b).)
+
+[manager@easybuild ~]$ vi /soft/system/easybuild/easybuild.d/config.cfg 
+...
+...
+...
+# Install path for software and modules (def /home/manager/.local/easybuild)
+installpath=/opt/programs
+...
+...
+...
+
+

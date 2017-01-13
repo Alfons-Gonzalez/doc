@@ -1,0 +1,376 @@
+
+INFO IMPORTANT: 
+
+https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/System_Administrators_Guide/index.html
+
+https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Networking_Guide/
+
+https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Security_Guide/index.html
+
+https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Storage_Administration_Guide/index.html
+
+https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Virtualization_Deployment_and_Administration_Guide/index.html
+
+https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Desktop_Migration_and_Administration_Guide/
+
+https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/System_Administrators_Guide/sect-Managing_Services_with_systemd-Power.html
+
+-------------------
+[root@localhost ~]# cat /etc/redhat-release 
+CentOS Linux release 7.0.1406 (Core) 
+
+1.- useradd cmd 
+
+[root@localhost ~]# useradd alfons -u 700 -g 100 
+[root@localhost ~]# passwd alfons
+çChanging password for user alfons.
+New password: 
+Retype new password: 
+passwd: all authentication tokens updated successfully.
+[root@localhost ~]# 
+
+
+2.-proves amb firewall-cmd
+
+[root@localhost ~]# firewall-cmd --state
+running
+[root@localhost ~]# 
+
+[root@localhost ~]# firewall-cmd --get-default-zone
+public
+[root@localhost ~]# 
+
+
+[root@localhost ~]# firewall-cmd --list-all
+public (default, active)
+  interfaces: enp63s0 virbr0
+  sources: 
+  services: dhcpv6-client ssh
+  ports: 
+  masquerade: no
+  forward-ports: 
+  icmp-blocks: 
+  rich rules: 
+	
+[root@localhost ~]# 
+[root@localhost ~]# firewall-cmd --list-sources
+[root@localhost ~]#
+[root@localhost ~]# firewall-cmd --list-services
+dhcpv6-client ssh
+[root@localhost ~]# 
+[root@localhost ~]# firewall-cmd --remove-service=dhcpv6-client --permanent
+success
+
+[root@localhost ~]# firewall-cmd --reload
+success
+[root@localhost ~]# firewall-cmd --list-services
+ssh
+[root@localhost ~]# 
+
+[root@localhost ~]# firewall-cmd --add-source=172.20.16.0/24
+success
+[root@localhost ~]# firewall-cmd --list-all
+public (default, active)
+  interfaces: enp63s0 virbr0
+  sources: 172.20.16.0/24
+  services: ssh
+  ports: 
+  masquerade: no
+  forward-ports: 
+  icmp-blocks: 
+  rich rules: 
+	
+[root@localhost ~]# firewall-cmd --reload
+success
+[root@localhost ~]# firewall-cmd --list-all
+public (default, active)
+  interfaces: enp63s0 virbr0
+  sources: 
+  services: ssh
+  ports: 
+  masquerade: no
+  forward-ports: 
+  icmp-blocks: 
+  rich rules: 
+	
+si la volem fer permanent:
+
+[root@localhost ~]# firewall-cmd --add-source=172.20.16.0/24 --permanent
+success
+[root@localhost ~]# firewall-cmd --reload
+success
+[root@localhost ~]# firewall-cmd --list-all
+public (default, active)
+  interfaces: enp63s0 virbr0
+  sources: 172.20.16.0/24
+  services: ssh
+  ports: 
+  masquerade: no
+  forward-ports: 
+  icmp-blocks: 
+  rich rules: 
+	
+[root@localhost ~]# 
+
+[root@localhost ~]# firewall-cmd  --add-rich-rule='rule family="ipv4" source address="172.20.16.0/24" service name="ssh" accept' 
+Warning: ALREADY_ENABLED
+[root@localhost ~]# firewall-cmd --list-all
+public (default, active)
+  interfaces: enp63s0 virbr0
+  sources: 172.20.16.0/24
+  services: ssh
+  ports: 
+  masquerade: no
+  forward-ports: 
+  icmp-blocks: 
+  rich rules: 
+	rule family="ipv4" source address="172.20.16.0/24" service name="ssh" accept
+[root@localhost ~]# 
+-----------
+no arribo a fer que funcioni el que vull (ssh nomes desde 172.20.16.0/24)
+per tant intento desactivar el firewalld i activar l'iptables
+----------
+
+Al final crec que aixi rula:
+
+[root@puppet ~]# firewall-cmd --remove-service=dhcpv6-client --permanent
+success
+[root@puppet ~]# firewall-cmd --remove-service=ssh --permanent
+success
+[root@puppet ~]#
+[root@puppet ~]# firewall-cmd  --add-rich-rule='rule family="ipv4" source
+address="172.20.16.0/24" service name="ssh" accept' --permanent
+success
+[root@puppet ~]# firewall-cmd --reload
+success
+[root@puppet ~]# firewall-cmd --list-all
+public (default, active)
+  interfaces: ens3
+  sources:
+  services:
+  ports:
+  masquerade: no
+  forward-ports:
+  icmp-blocks:
+  rich rules:
+        rule family="ipv4" source address="172.20.16.0/24" service name="ssh"
+accept
+
+---
+
+[alfons@apolo ~]$ ssh puppet.imim.es
+ssh: connect to host puppet.imim.es port 22: No route to host
+[alfons@apolo ~]$
+
+[alfons@moebius ~]$ ssh puppet
+Warning: Permanently added the RSA host key for IP address '172.20.16.8' to
+the list of known hosts.
+alfons@puppet's password:
+
+
+3.- chkconfig ~
+
+ja no hi es ara hi ha systemctl:
+
+[root@localhost ~]# systemctl list-unit-files | grep firewall
+firewalld.service                           enabled 
+[root@localhost ~]# systemctl list-unit-files | grep iptables
+iptables.service                            disabled
+
+
+[root@localhost ~]# systemctl disable firewalld.service
+rm '/etc/systemd/system/basic.target.wants/firewalld.service'
+rm '/etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service'
+[root@localhost ~]# systemctl enable iptables.service 
+ln -s '/usr/lib/systemd/system/iptables.service' '/etc/systemd/system/basic.target.wants/iptables.service'
+[root@localhost ~]# 
+
+---
+[root@localhost ~]# systemctl status iptables
+iptables.service - IPv4 firewall with iptables
+   Loaded: loaded (/usr/lib/systemd/system/iptables.service; enabled)
+   Active: active (exited) since Tue 2014-07-29 08:43:34 CEST; 12min ago
+ Main PID: 20119 (code=exited, status=0/SUCCESS)
+   CGroup: /system.slice/iptables.service
+
+Jul 29 08:43:34 localhost.localdomain systemd[1]: Starting IPv4 firewall with iptables...
+Jul 29 08:43:34 localhost.localdomain iptables.init[20119]: iptables: Applying firewall rules: [  OK  ]
+Jul 29 08:43:34 localhost.localdomain systemd[1]: Started IPv4 firewall with iptables.
+[root@localhost ~]# 
+------------------
+
+[root@oslo ~]# systemctl list-units --type target
+UNIT                LOAD   ACTIVE SUB    DESCRIPTION
+basic.target        loaded active active Basic System
+cryptsetup.target   loaded active active Encrypted Volumes
+getty.target        loaded active active Login Prompts
+graphical.target    loaded active active Graphical Interface
+local-fs-pre.target loaded active active Local File Systems (Pre)
+local-fs.target     loaded active active Local File Systems
+multi-user.target   loaded active active Multi-User System
+network.target      loaded active active Network
+nfs.target          loaded active active Network File System Server
+paths.target        loaded active active Paths
+remote-fs.target    loaded active active Remote File Systems
+slices.target       loaded active active Slices
+sockets.target      loaded active active Sockets
+sound.target        loaded active active Sound Card
+swap.target         loaded active active Swap
+sysinit.target      loaded active active System Initialization
+timers.target       loaded active active Timers
+
+LOAD   = Reflects whether the unit definition was properly loaded.
+ACTIVE = The high-level unit activation state, i.e. generalization of SUB.
+SUB    = The low-level unit activation state, values depend on unit type.
+
+17 loaded units listed. Pass --all to see loaded but inactive units, too.
+To show all installed unit files use 'systemctl list-unit-files'.
+
+[root@oslo ~]# systemctl list-units --type service
+UNIT                                                             LOAD   ACTIVE SUB     DESCRIPTION
+abrt-ccpp.service                                                loaded active exited  Install ABRT coredump hook
+abrt-oops.service                                                loaded active running ABRT kernel log watcher
+abrt-xorg.service                                                loaded active running ABRT Xorg log watcher
+abrtd.service                                                    loaded active running ABRT Automated Bug Reporting Tool
+accounts-daemon.service                                          loaded active running Accounts Service
+alsa-state.service                                               loaded active running Manage Sound Card State (restore and store)
+atd.service                                                      loaded active running Job spooling tools
+auditd.service                                                   loaded active running Security Auditing Service
+bluetooth.service                                                loaded active running Bluetooth service
+chronyd.service                                                  loaded active running NTP client/server
+colord.service                                                   loaded active running Manage, Install and Generate Color Profiles
+crond.service                                                    loaded active running Command Scheduler
+cups.service                                                     loaded active running CUPS Printing Service
+dbus.service                                                     loaded active running D-Bus System Message Bus
+gdm.service                                                      loaded active running GNOME Display Manager
+iprdump.service                                                  loaded active running LSB: Start the ipr dump daemon
+iprinit.service                                                  loaded active running LSB: Start the ipr init daemon
+iprupdate.service                                                loaded active running LSB: Start the iprupdate utility
+iptables.service                                                 loaded active exited  IPv4 firewall with iptables
+kdump.service                                                    loaded active exited  Crash recovery kernel arming
+kmod-static-nodes.service                                        loaded active exited  Create list of required static device nodes for the current kerne
+ksm.service                                                      loaded active exited  Kernel Samepage Merging
+ksmtuned.service                                                 loaded active running Kernel Samepage Merging (KSM) Tuning Daemon
+libstoragemgmt.service                                           loaded active running libstoragemgmt plug-in server daemon
+libvirtd.service                                                 loaded active running Virtualization daemon
+lvm2-lvmetad.service                                             loaded active running LVM2 metadata daemon
+lvm2-monitor.service                                             loaded active exited  Monitoring of LVM2 mirrors, snapshots etc. using dmeventd or prog
+mdmonitor.service                                                loaded active running Software RAID monitoring and management
+ModemManager.service                                             loaded active running Modem Manager
+netcf-transaction.service                                        loaded active exited  Rollback uncommitted netcf network config change transactions
+network.service                                                  loaded failed failed  LSB: Bring up/down networking
+NetworkManager.service                                           loaded active running Network Manager
+nfs-lock.service                                                 loaded active running NFS file locking service.
+polkit.service                                                   loaded active running Authorization Manager
+rhel-dmesg.service                                               loaded active exited  Dump dmesg to /var/log/dmesg
+rhel-import-state.service                                        loaded active exited  Import network configuration from initramfs
+rhel-loadmodules.service                                         loaded active exited  Load legacy module configuration
+rhel-readonly.service                                            loaded active exited  Configure read-only root support
+rngd.service                                                     loaded failed failed  Hardware RNG Entropy Gatherer Daemon
+rpcbind.service                                                  loaded active running RPC bind service
+rsyslog.service                                                  loaded active running System Logging Service
+rtkit-daemon.service                                             loaded active running RealtimeKit Scheduling Policy Service
+smartd.service                                                   loaded active running Self Monitoring and Reporting Technology (SMART) Daemon
+sshd.service                                                     loaded active running OpenSSH server daemon
+sysstat.service                                                  loaded active exited  Resets System Activity Logs
+systemd-fsck-root.service                                        loaded active exited  File System Check on Root Device
+systemd-fsck@dev-disk...\x2d44b1\x2db1db\x2d06356abb9f4c.service loaded active exited  File System Check on /dev/disk/by-uuid/2bc4ba4c-5d7d-44b1-b1db-06
+systemd-journald.service                                         loaded active running Journal Service
+systemd-logind.service                                           loaded active running Login Service
+systemd-random-seed.service                                      loaded active exited  Load/Save Random Seed
+systemd-readahead-collect.service                                loaded active exited  Collect Read-Ahead Data
+systemd-readahead-replay.service                                 loaded active exited  Replay Read-Ahead Data
+systemd-remount-fs.service                                       loaded active exited  Remount Root and Kernel File Systems
+systemd-sysctl.service                                           loaded active exited  Apply Kernel Variables
+systemd-tmpfiles-setup-dev.service                               loaded active exited  Create static device nodes in /dev
+systemd-tmpfiles-setup.service                                   loaded active exited  Create Volatile Files and Directories
+systemd-udev-settle.service                                      loaded active exited  udev Wait for Complete Device Initialization
+systemd-udev-trigger.service                                     loaded active exited  udev Coldplug all Devices
+systemd-udevd.service                                            loaded active running udev Kernel Device Manager
+systemd-update-utmp.service                                      loaded active exited  Update UTMP about System Reboot/Shutdown
+systemd-user-sessions.service                                    loaded active exited  Permit User Sessions
+systemd-vconsole-setup.service                                   loaded active exited  Setup Virtual Console
+tuned.service                                                    loaded active running Dynamic System Tuning Daemon
+udisks2.service                                                  loaded active running Disk Manager
+upower.service                                                   loaded active running Daemon for power management
+ypbind.service                                                   loaded active running NIS/YP (Network Information Service) Clients to NIS Domain Binder
+
+LOAD   = Reflects whether the unit definition was properly loaded.
+ACTIVE = The high-level unit activation state, i.e. generalization of SUB.
+SUB    = The low-level unit activation state, values depend on unit type.
+
+66 loaded units listed. Pass --all to see loaded but inactive units, too.
+To show all installed unit files use 'systemctl list-unit-files'.
+[root@oslo ~]# 
+------------
+
+Changing to Rescue Mode
+Rescue mode provides a convenient single-user environment and allows you to repair your system in situations when it is unable to complete a regular booting process. In rescue mode, the system attempts to mount all local file systems and start some important system services, but it does not activate network interfaces or allow more users to be logged into the system at the same time. In Red Hat Enterprise Linux 7, rescue mode is equivalent to single user mode and requires the root password.
+To change the current target and enter rescue mode in the current session, type the following at a shell prompt as root:
+
+systemctl rescue
+
+6.3.6. Changing to Emergency Mode
+Emergency mode provides the most minimal environment possible and allows you to repair your system even in situations when the system is unable to enter rescue mode. In emergency mode, the system mounts the root file system only for reading, does not attempt to mount any other local file systems, does not activate network interfaces, and only starts few essential services. In Red Hat Enterprise Linux 7, emergency mode requires the root password.
+To change the current target and enter emergency mode, type the following at a shell prompt as root:
+
+systemctl emergency
+
+6.4. Shutting Down, Suspending, and Hibernating the System
+In Red Hat Enterprise Linux 7, the systemctl utility replaces a number of power management commands used in previous versions of the Red Hat Enterprise Linux system. The commands listed in Table 6.8, “Comparison of Power Management Commands with systemctl” are still available in the system for compatibility reasons, but it is advised that you use systemctl when possible.
+⁠
+
+Table 6.8. Comparison of Power Management Commands with systemctl
+Old Command 	New Command 	Description
+halt 	systemctl halt 	Halts the system.
+poweroff 	systemctl poweroff 	Powers off the system.
+reboot 	systemctl reboot 	Restarts the system.
+pm-suspend 	systemctl suspend 	Suspends the system.
+pm-hibernate 	systemctl hibernate 	Hibernates the system.
+pm-suspend-hybrid 	systemctl hybrid-sleep 	Hibernates and suspends the system. 
+
+----
+
+6.5. Controlling systemd on a Remote Machine
+In addition to controlling the systemd system and service manager locally, the systemctl utility also allows you to interact with systemd running on a remote machine over the SSH protocol. Provided that the sshd service on the remote machine is running, you can connect to this machine by running the systemctl command with the --host or -H command line option:
+
+systemctl --host user_name@host_name command
+
+Replace user_name with the name of the remote user, host_name with the machine's host name, and command with any of the systemctl commands described above. Note that the remote machine must be configured to allow the selected user remote access over the SSH protocol.
+----------
+
+
+1.7. Network Configuration Using a Text User Interface (nmtui)
+The NetworkManager text user interface (TUI) tool, nmtui, provides a text interface to configure networking by controlling NetworkManager. The tool is contained in the subpackage NetworkManager-tui. At time of writing, it is not installed along with NetworkManager by default. To install NetworkManager-tui, issue the following command as root:
+
+~]# yum install NetworkManager-tui
+
+If required, for details on how to verify that NetworkManager is running, see Section 1.4.1, “The NetworkManager Daemon”.
+To start nmtui, issue a command as follows:
+
+~]$ nmtui
+
+The text user interface appears. To navigate, use the arrow keys or press Tab to step forwards and press Shift+Tab to step back through the options. Press Enter to select an option. The Space bar toggles the status of a check box. 
+
+----------
+
+les claus ssh sembla que han canviat, ara per defecte miren
+
+.ssh/authorized_keys
+
+al fitxer /etc/ssh/sshd_config
+
+# The default is to check both .ssh/authorized_keys and .ssh/authorized_keys2
+# but this is overridden so installations will only check .ssh/authorized_keys
+AuthorizedKeysFile      .ssh/authorized_keys
+
+Per tant per fer ssh sense passwd o be fem servir .ssh/authorized_keys i no
+.ssh/authorized_keys2, o be modifiquem el fitxer de config del sshd
+
+---
+
+configurar la xarxa via cli
+
+nmcli d
+
+nmtui et permet configurarla com amb abans amb 'setup'

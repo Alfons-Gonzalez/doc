@@ -1,0 +1,5 @@
+replica de les imatges
+
+/opt/drbl/sbin/drbl-ocs -b -g auto -x -v -j2 -o1 -p reboot -h " 192.168.1.2 192.168.1.11 192.168.1.4 192.168.1.5 192.168.1.6 192.168.1.7 192.168.1.8 192.168.1.9 192.168.1.10" -l en_US.UTF-8 startdisk restore dl165g7-2012-08-16-15-img sda
+This command is also saved as this file name for later use if necessary: /tmp/ocs-dl165g7-2012-08-16-15-img-2012-08-16-16-16
+

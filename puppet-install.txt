@@ -1,0 +1,1145 @@
+********************************************************************
+Resum de les passes per instal.lar i configurar el servidor de puppet i
+els clients
+********************************************************************
+
+La idea de puppet es la seguent:
+
+client ---> pregunta al server que ha de fer (cada x temps, per default es 30')
+al server hi ha la informacio de la configuracio a aplicar (els manifests) que
+poden ser per una maquina, per un conjunt de maquines.
+El client comprova si tot el que li demana el server ho compleix: existeix aquest fitxer? amb aquests permisos? amb tal contingut? tinc tal paquet instal.lat?
+Si es aixi no fa res. Si cal, fara els canvis (crear/esborrar fitxers, canviar continguts, instal.lar via yum aplicatiu, parar o aturar un servei, etc)
+
+--------------
+
+
+
+La maquina on instalem el servidor de puppet es una VM amb 
+
+- CentOS 6.x
+- 2 cores
+- 8Gb RAM
+- 40Gb hd
+
+puppet.imim.es
+172.20.16.8
+*****************************************************************
+		Instalacio del master:
+*****************************************************************
+- deshabilitem el selinux
+
+- instalem el repo de puppetlabs
+
+[root@puppet ~]# rpm -ivh http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
+
+- instalem puppet
+
+[root@puppet ~]# yum install puppet
+
+- config:
+
+A /etc/puppet/puppet.conf, a la seccio [main] afegim les linees:
+
+	dns_alt_names = puppet,puppet.imim.es
+	environmentpath = $confdir/environments 
+
+Creem un fitxer:
+
+[root@puppet ~]# cat /etc/puppet/environments/production/environment.conf 
+# Definint el manifest com un directori
+# fem que l'agent llegeixi tots els manifests que hi ha a
+# aquest directori
+manifest = /etc/puppet/environments/production/manifests
+[root@puppet ~]# 
+
+
+- generem el certificat
+
+[root@puppet ~]# puppet master --verbose --no-daemonize
+Info: Creating a new SSL key for ca
+Info: Creating a new SSL certificate request for ca
+Info: Certificate Request fingerprint (SHA256):
+0F:DF:CF:0C:F6:63:C7:E8:CF:55:E2:80:13:7C:7B:17:43:98:F8:37:8C:97:F6:44:AB:B2:00:F6:4B:30:A6:7E
+Notice: Signed certificate request for ca
+Info: Creating a new certificate revocation list
+Info: Creating a new SSL key for puppet.imim.es
+Info: csr_attributes file loading from /etc/puppet/csr_attributes.yaml
+Info: Creating a new SSL certificate request for puppet.imim.es
+Info: Certificate Request fingerprint (SHA256):
+96:5D:D3:5E:95:E4:81:FE:B0:82:43:B4:7A:DF:F1:25:EC:FB:61:47:14:C0:AC:A4:B4:E2:D0:85:2B:3E:C1:B4
+Notice: puppet.imim.es has a waiting certificate request
+Notice: Signed certificate request for puppet.imim.es
+Notice: Removing file Puppet::SSL::CertificateRequest puppet.imim.es at
+'/var/lib/puppet/ssl/ca/requests/puppet.imim.es.pem'
+Notice: Removing file Puppet::SSL::CertificateRequest puppet.imim.es at
+'/var/lib/puppet/ssl/certificate_requests/puppet.imim.es.pem'
+Notice: Starting Puppet master version 3.7.3
+
+quan surt aquest missatge fem CTRL+C per matar-lo
+
+^CNotice: Caught INT; calling stop
+[root@puppet ~]#
+
+Per fer anar el puppet master en produccio recomanen fer-lo anar combinat amb
+apache i passenger. Anem a instal.lar
+
+- apache
+
+[root@puppet ~]# yum install httpd httpd-devel mod_ssl ruby-devel rubygems gcc
+
+- rack/passenger
+
+[root@puppet ~]# yum install libcurl-devel openssl-devel zlib-devel -y
+[root@puppet ~]# gem install rack passenger
+[root@puppet ~]# passenger-install-apache2-module
+
+hi ha un menu d'instal.lacio, deixem els valors per defecte
+Quan acaba surt el missatge:
+
+Almost there!
+
+Please edit your Apache configuration file, and add these lines:
+
+   LoadModule passenger_module
+/usr/lib/ruby/gems/1.8/gems/passenger-4.0.53/buildout/apache2/mod_passenger.so
+   <IfModule mod_passenger.c>
+     PassengerRoot /usr/lib/ruby/gems/1.8/gems/passenger-4.0.53
+     PassengerDefaultRuby /usr/bin/ruby
+   </IfModule>
+
+Les afegim al httpd.conf
+
+[root@puppet ~]# mkdir -p /usr/share/puppet/rack/puppetmasterd
+
+[root@puppet ~]# mkdir /usr/share/puppet/rack/puppetmasterd/public /usr/share/puppet/rack/puppetmasterd/tmp
+
+[root@puppet ~]# cp /usr/share/puppet/ext/rack/config.ru /usr/share/puppet/rack/puppetmasterd/
+
+[root@puppet ~]# chown puppet:puppet /usr/share/puppet/rack/puppetmasterd/config.ru
+
+[root@puppet ~]#
+
+Ara crearem puppetmaster.conf al /etc/httpd/conf.d que llegira l'apache i sera l'apache qui engegui puppet
+
+[root@puppet conf.d]# pwd
+/etc/httpd/conf.d
+[root@puppet conf.d]# cat puppetmaster.conf
+# And the passenger performance tuning settings:
+# Set this to about 1.5 times the number of CPU cores in your master:
+PassengerMaxPoolSize 12
+# Recycle master processes after they service 1000 requests
+PassengerMaxRequests 1000
+# Stop processes if they sit idle for 10 minutes
+PassengerPoolIdleTime 600
+
+Listen 8140
+<VirtualHost *:8140>
+    # Make Apache hand off HTTP requests to Puppet earlier, at the cost of
+    # interfering with mod_proxy, mod_rewrite, etc. See note below.
+    PassengerHighPerformance On
+
+    SSLEngine On
+
+    # Only allow high security cryptography. Alter if needed for
+    # compatibility.
+    SSLProtocol ALL -SSLv2 -SSLv3
+    SSLCipherSuite
+EDH+CAMELLIA:EDH+aRSA:EECDH+aRSA+AESGCM:EECDH+aRSA+SHA384:EECDH+aRSA+SHA256:EECDH:+CAMELLIA256:+AES256:+CAMELLIA128:+AES128:+SSLv3:!aNULL:!eNULL:!LOW:!3DES:!MD5:!EXP:!PSK:!DSS:!RC4:!SEED:!IDEA:!ECDSA:kEDH:CAMELLIA256-SHA:AES256-SHA:CAMELLIA128-SHA:AES128-SHA
+    SSLHonorCipherOrder     on
+
+    SSLCertificateFile      /var/lib/puppet/ssl/certs/puppet.imim.es.pem
+    SSLCertificateKeyFile
+/var/lib/puppet/ssl/private_keys/puppet.imim.es.pem
+    SSLCertificateChainFile /var/lib/puppet/ssl/ca/ca_crt.pem
+    SSLCACertificateFile    /var/lib/puppet/ssl/ca/ca_crt.pem
+    SSLCARevocationFile     /var/lib/puppet/ssl/ca/ca_crl.pem
+    SSLVerifyClient         optional
+    SSLVerifyDepth          1
+    SSLOptions              +StdEnvVars +ExportCertData
+
+    # Apache 2.4 introduces the SSLCARevocationCheck directive and sets it to
+    # none
+        # which effectively disables CRL checking. If you are using Apache
+        # 2.4+ you must
+    # specify 'SSLCARevocationCheck chain' to actually use the CRL.
+
+    # These request headers are used to pass the client certificate
+    # authentication information on to the puppet master process
+    RequestHeader set X-SSL-Subject %{SSL_CLIENT_S_DN}e
+
+DocumentRoot /usr/share/puppet/rack/puppetmasterd/public
+
+    <Directory /usr/share/puppet/rack/puppetmasterd/>
+      Options None
+      AllowOverride None
+      # Apply the right behavior depending on Apache version.
+      <IfVersion < 2.4>
+        Order allow,deny
+        Allow from all
+      </IfVersion>
+      <IfVersion >= 2.4>
+        Require all granted
+      </IfVersion>
+    </Directory>
+
+    ErrorLog /var/log/httpd/puppet.imim.es_ssl_error.log
+    CustomLog /var/log/httpd/puppet.imim.es_ssl_access.log combined
+</VirtualHost>
+[root@puppet conf.d]#
+
+
+
+
+ot@puppet ~]# service httpd start
+Starting httpd: httpd: Could not reliably determine the server's fully
+qualified domain name, using puppet.imim.es for ServerName
+                                                           [  OK  ]
+[root@puppet ~]#
+
+[root@puppet ~]# chkconfig puppetmaster off
+[root@puppet ~]# chkconfig httpd on
+
+[root@puppet ~]# netstat -talpn | grep 8140
+tcp        0      0 :::8140                     :::*
+LISTEN      6671/httpd
+[root@puppet ~]#
+
+******************************
+configuracio del client
+*****************************
+- vm 
+- OS SL 6.x
+- selinux deshabilitat
+
+- instalem puppet
+
+[root@scientific ~]# rpm -ivh http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
+[root@scientific ~]# yum install puppet
+
+- config
+
+a /etc/puppet/puppet.conf a la seccio [agent] afegim
+
+server = puppet.imim.es
+
+- provem la conexio:
+
+[root@scientific ~]#  puppet agent --test
+Info: Caching certificate for ca
+Info: csr_attributes file loading from /etc/puppet/csr_attributes.yaml
+Info: Creating a new SSL certificate request for scientific.imim.es
+Info: Certificate Request fingerprint (SHA256):
+69:77:75:AB:C0:13:FA:08:B1:8C:2F:01:DE:C0:45:E8:24:7C:13:92:A5:5A:F9:6A:0A:A4:B8:9F:0E:88:96:4E
+Info: Caching certificate for ca
+Exiting; no certificate found and waitforcert is disabled
+[root@scientific ~]#
+
+OK ha trobat el server i aquest li ha denegat per un tema de certificats:
+
+Anem al server:
+
+[root@puppet ~]# puppet cert list
+  "scientific.imim.es" (SHA256)
+69:77:75:AB:C0:13:FA:08:B1:8C:2F:01:DE:C0:45:E8:24:7C:13:92:A5:5A:F9:6A:0A:A4:B8:9F:0E:88:96:4E
+[root@puppet ~]#
+
+ara signem el certificat:
+
+[root@puppet ~]# puppet cert sign --all
+Notice: Signed certificate request for scientific.imim.es
+Notice: Removing file Puppet::SSL::CertificateRequest scientific.imim.es at
+'/var/lib/puppet/ssl/ca/requests/scientific.imim.es.pem'
+[root@puppet ~]#
+I desde el client:
+
+[root@scientific ~]#  puppet agent --test
+Info: Caching certificate for scientific.imim.es
+Info: Caching certificate_revocation_list for ca
+Info: Caching certificate for scientific.imim.es
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Caching catalog for scientific.imim.es
+Info: Applying configuration version '1416242947'
+Info: Creating state file /var/lib/puppet/state/state.yaml
+Notice: Finished catalog run in 0.06 seconds
+[root@scientific ~]#
+
+Ja tenim puppet instal.lat i els agents es poden comunicar amb el server.
+
+Ara podem començar a escriure manifests, que son el conjunt d'instruccions que executara el node.
+
+Abans pero, farem que el git controli les versions dels manifests:
+
+cd /etc/puppet;
+config --global user.name "itgrib"
+git config --global user.email "itgrib@imim.es"
+git init
+git add .
+git commit -m "Puppet config inicial"
+
+(Nota: en la instalacio real, ho vaig fer molt mes tard, quan ja havia estat força temps fent i desfent)
+
+
+Els agents executaran tots els manifests que estan al directori :
+
+/etc/puppet/environments/production/manifests
+
+Si volem que un node canvi de environment i executi els manifests que estan a
+un altre lloc:
+
+/etc/puppet/environments/test/manifests/
+
+cal editar el /etc/puppet/puppet.conf del node i a la seccio [agent] afegir la linea
+
+environment = test
+
+Tambe ens interessa agrupar els clients per laboratori, per fer-ho farem
+servir 'custom facts'
+Els facts son caracteristiques de la maquina que pot llegir un programa que es
+diu 'facter' que fa servir el puppet.
+
+Per exemple:
+
+[root@sl2 ~]# facter -p osfamily
+RedHat
+[root@sl2 ~]# facter -p fqdn
+sl2.imim.es
+[root@sl2 ~]# facter -p ipaddress
+172.20.16.227
+[root@sl2 ~]# 
+
+A part dels 'facts' que coneix el facter, es poden afegir d'altres 'custom'
+per fer-ho:
+
+[root@scientific ~]# mkdir -p /etc/facter/facts.d/
+[root@scientific ~]# echo 'lab: ibi' >>
+/etc/facter/facts.d/custom_facts.yaml
+[root@scientific ~]#
+[root@scientific ~]# facter -p lab
+ibi
+[root@scientific ~]#
+
+D'aquesta manera podrem fer que dins d'un manifest el puppet executi una accio
+o una altra en funcio de la variable $lab, fent servir condicionals
+(case,if,unless..)
+
+Escrivim els següents manifests:
+
+[root@puppet manifests]# ls
+all-nodes-ntp.pp  firewall.pp          nfs-mounts.pp    packages.pp
+create-homes.pp   fstab.pp             nis.pp           printer.pp
+cron-exemple.pp   genomics-printer.pp  only-one-lab.pp  ssh-sense-passwd.pp
+dns.pp            hosts.pp             only-one-ws.pp
+[root@puppet manifests]#
+
+Que fan el següent:
+
+- Assegurar-nos que els nodes tenen l'ntp configurat i en marxa:
+
+[root@puppet manifests]# cat all-nodes-ntp.pp 
+node default {
+# NTP
+class { "::ntp":
+	servers    => [ 'cortazar.imim.es','borges.imim.es'],
+	package_ensure => present,
+	}
+# END
+}
+[root@puppet manifests]#
+
+- assegurar-nos que a tots els nodes podem fer ssh com root sense passwd desde
+  el root de moebius:
+
+[root@puppet manifests]# cat ssh-sense-passwd.pp 
+#
+# SSH sense passwd
+# afegim les claus ssh per a que root@moebius pugui entrar sense passwd
+ssh_authorized_key { 'root@moebius.imim.es':
+        user => 'root',
+        type => 'ssh-rsa',
+        key =>
+'AAAAB3NzaC1yc2EAAAABIwAAAQEApjAuF5vTvQzvUHWv2QmHjeIg/Y9fEQKpX1IOGRC4QclD7uD1MwHlGOJE28R8MIU/3cKHuZGYsyn1GnwmV18LHzWsX1A7jLWEJ8Lns/7pT1rYpGLNipszI+Yb3dHislJNmD+DYIeICuI76q+nR5gA19iZ/9CUGt4xc8BGnvaL7qiEk1F70JPoLGSM04u+LTFTXvg45JzAVXAfnduZI67WJ0b+GC3swPYPp1sbVbMvegzrgHUVRoxannuRMhGCk0SmPksVfhtbawm56JQGVW5W7wKic5XuXhXpTa4B+vitq8TT0JOrUaLRu7yZ5vY3JLhEBCj4GBygUMl8wARQjEkZew==',
+        }
+#
+[root@puppet manifests]#
+
+- Definir les impresores color i bn:
+
+[root@puppet manifests]# cat printer.pp 
+printer { "laser-bn":
+    ensure      => present,
+    uri         => "ipp://gutenberg.imim.es/printers/laser-bn",
+    description => "HP LaserJet 600",
+    location    => "4.83",
+    ppd		=> "/root/files/ppd/laser-bn.ppd",
+    shared      => false, 
+    enabled     => true, 
+    options     => { media => 'A4' }, 
+    ppd_options => { 'HPOption_Duplexer' => 'True' }, 
+}
+printer { "laser-color":
+    ensure      => present,
+    uri         => "ipp://gutenberg.imim.es/printers/laser-color",
+    description => "HP Color LaserJet CP3525",
+    location    => "Secretaria",
+    ppd         => "/root/files/ppd/laser-color.ppd",
+    shared      => false,
+    enabled     => true,
+    options     => { media => 'A4' },
+    ppd_options => { 'HPOption_Duplexer' => 'True' },
+}
+service { "cups":
+  ensure => "running",
+}
+# copiem els ppd
+file { "/root/files/ppd/laser-bn.ppd":
+    mode   => 644,
+    owner  => root,
+    group  => root,
+    ensure => present,
+    source => "puppet:///modules/ppd/laser-bn.ppd"
+}
+file { "/root/files/ppd/laser-color.ppd":
+    mode   => 644,
+    owner  => root,
+    group  => root,
+    ensure => present,
+    source => "puppet:///modules/ppd/laser-color.ppd"
+}
+[root@puppet manifests]#
+
+- configurar el dns
+
+[root@puppet manifests]# cat dns.pp 
+class { 'resolv_conf':
+  nameservers => ['193.144.6.107', '193.144.6.252'],
+  domainname => 'imim.es',
+}
+[root@puppet manifests]#
+
+- configurar l'/etc/hosts:
+
+[root@puppet manifests]# cat hosts.pp 
+# manega les entrades de l'/etc/hosts
+
+$afegir_host = {
+	name => 'default.domain',
+	ip => '192.168.10.1',
+	host_aliases => 'default',
+	ensure => present,
+}
+
+$data_host = {
+	'gutenberg' => {
+                name => 'gutenberg.imim.es',
+                ip => '172.20.16.192',
+                host_aliases => 'gutenberg',
+        	},
+	'pandora' => {
+		name => 'pandora.imim.es',
+		ip => '172.20.16.5',
+        	host_aliases => 'pandora',	
+		},
+	'epsilon' => {
+		name => 'espilon.imim.es',
+		ip => '172.20.16.24',	
+		host_aliases => 'epsilon',
+		},
+	'beta'  => {
+                name => 'beta.imim.es',
+                ip => '172.20.16.21',
+                host_aliases => 'beta',
+        	},
+	'alfa'  => {
+                name => 'alfa.imim.es',
+                ip => '172.20.16.20',
+                host_aliases => 'alfa',
+        	}
+}
+create_resources('host', $data_host, $afegir_host)
+[root@puppet manifests]#
+
+- instal.lar alguns paquets que volem que estiguin a tots els nodes:
+
+[root@puppet manifests]# cat packages.pp 
+# llista de paquets que volem instalats a les maquines
+
+$paquets = [ "screen", "cups", "man", "gcc", "xterm", "bind-utils", "at" ]
+
+package { $paquets: ensure => "installed" }
+
+[root@puppet manifests]#
+
+- configurar l'iptables:
+
+[root@puppet manifests]# cat firewall.pp 
+# clear any existing rules 
+# and make sure that only rules defined in Puppet exist on the machine
+ resources { "firewall":
+    purge => true
+  }
+
+# Default firewall rules
+    firewall { '000 accept all icmp':
+      proto   => 'icmp',
+      action  => 'accept',
+    }->
+    firewall { '001 accept all to lo interface':
+      proto   => 'all',
+      iniface => 'lo',
+      action  => 'accept',
+    }->
+    firewall { "002 reject local traffic not on loopback interface":
+      iniface     => '! lo',
+      proto       => 'all',
+      destination => '127.0.0.1/8',
+      action      => 'reject',
+    }->
+    firewall { '003 accept related established rules':
+      proto   => 'all',
+      state => ['RELATED', 'ESTABLISHED'],
+      action  => 'accept',
+    }->
+    firewall { '100 allow ssh from our private network' :
+	port => 22,
+	proto => tcp,
+	source => '172.20.16.0/24',
+	action => accept,
+    }->
+    firewall { '101 allow ssh from our public network ':
+	port => 22,
+        proto => tcp,
+        source => '193.146.190.0/24',
+        action => accept,
+    }->
+    firewall { "999 drop all other requests":
+	action => "drop",
+    }
+# end
+[root@puppet manifests]#
+
+
+- configurar el nis:
+
+[root@puppet manifests]# cat nis.pp 
+case $lab {
+
+	'ibi': { $mynisserver = 'bradbury.imim.es' $mynisdomain = 'ibi' }
+
+	'cgl': { $mynisserver = 'wilde.imim.es' $mynisdomain = 'cgl' }
+
+	'cadd': { $mynisserver = 'carver.imim.es' $mynisdomain = 'phi' }
+
+	'genomics': { $mynisserver = 'cortazar.imim.es' $mynisdomain =
+'genomica' }
+	'sbi': { $mynisserver = 'borges.imim.es' $mynisdomain = 'sbi' }
+	
+	'multiscale': { $mynisserver = 'orwell.imim.es' $mynisdomain =
+'gianni-lab' }
+	'cslab': { $mynisserver = 'asimov.imim.es' $mynisdomain = 'cslab' }
+}
+# puppet no permet reassignar variables. 
+# defineixo una de nova amb el valor de l'anterior
+$_my_nis_server = $mynisserver
+$_my_nis_domain = $mynisdomain
+class { "nisclient":
+	domainname => $_my_nis_domain,
+	server => $_my_nis_server,
+}
+[root@puppet manifests]#
+
+- configurar els mounts de nfs:
+
+[root@puppet manifests]# cat nfs-mounts.pp 
+# NFS
+#
+case $lab {
+
+	'ibi' : {
+		$nfs_mount = { 
+       		device => "epsilon:/soft/64/SL6.4",
+        	fstype => "nfs",
+        	ensure => "mounted",
+        	options => "defaults",
+        	atboot => true,
+        	}
+		$data = {
+		'/ibi/users' => {
+			device => "alfa:/ibi/users",
+			},
+		'/backup' => {
+			device => "pandora:/ibi/users",
+			},
+		'/db' => {
+			device => "epsilon:/db",
+			},
+		'/soft' => {
+			device => "epsilon:/soft/64/SL6.4",
+			}
+		}
+		create_resources('mount', $data, $nfs_mount)
+		# previament hem hagut d'assegurar que els punts de muntatge
+		# existien i si no crear-los
+		file {
+		['/ibi', '/ibi/users', '/backup', '/db', '/soft']:
+        		ensure => directory,
+        	}
+	}
+	'cgl': {
+                $nfs_mount = {
+                device => "epsilon:/soft/64/SL6.4",
+                fstype => "nfs",
+                ensure => "mounted",
+                options => "defaults",
+                atboot => true,
+                }
+                $data = {
+                '/cgl/users' => {
+                        device => "beta:/cgl/users",
+                        },
+                '/backup' => {
+                        device => "pandora:/cgl/users",
+                        },
+                '/db' => {
+                        device => "epsilon:/db",
+                        },
+                '/soft' => {
+                        device => "epsilon:/soft/64/SL6.4",
+                        }
+                }
+                create_resources('mount', $data, $nfs_mount)
+                # previament hem hagut d'assegurar que els punts de muntatge
+                # existien i si no crear-los
+                file {
+                ['/cgl', '/cgl/users', '/backup', '/db', '/soft']:
+                        ensure => directory,
+                }
+        }
+	'sbi': {
+                $nfs_mount = {
+                device => "epsilon:/soft/64/SL6.4",
+                fstype => "nfs",
+                ensure => "mounted",
+                options => "defaults",
+                atboot => true,
+                }
+                $data = {
+                '/sbi/users' => {
+                        device => "beta:/sbi/users",
+                        },
+                '/backup' => {
+                        device => "pandora:/sbi/users",
+                        },
+                '/db' => {
+                        device => "epsilon:/db",
+                        },
+                '/soft' => {
+                        device => "epsilon:/soft/64/SL6.4",
+                        }
+                }
+                create_resources('mount', $data, $nfs_mount)
+                # previament hem hagut d'assegurar que els punts de muntatge
+                # existien i si no crear-los
+                file {
+                ['/sbi', '/sbi/users', '/backup', '/db', '/soft']:
+                        ensure => directory,
+                }
+        }
+	'genomics': {
+                $nfs_mount = {
+                device => "epsilon:/soft/64/SL6.4",
+                fstype => "nfs",
+                ensure => "mounted",
+                options => "defaults",
+                atboot => true,
+                }
+                $data = {
+                '/genomics/users' => {
+                        device => "beta:/genomics/users",
+                        },
+                '/backup' => {
+                        device => "pandora:/genomics/users",
+                        },
+                '/db' => {
+                        device => "epsilon:/db",
+                        },
+                '/soft' => {
+                        device => "epsilon:/soft/64/SL6.4",
+                        },
+		'/projects_rg' => {
+			device => "rabat:/projects_rg",
+			},
+		'/projects_fg' => {
+                        device => "rabat:/projects_fg",
+                        },
+		'/projects_bg' => {
+                        device => "rabat:/data",
+                        },
+		'/projects_eg' => {
+                        device => "wallace:/projects_eg",
+                        }
+                }
+                create_resources('mount', $data, $nfs_mount)
+                # previament hem hagut d'assegurar que els punts de muntatge
+                # existien i si no crear-los
+                file {
+                ['/genomics', '/genomics/users', '/backup', '/db', '/soft',
+'/projects_rg', '/projects_fg', '/projects_bg', '/projects_eg']:
+                        ensure => directory,
+                }
+        }
+	'multiscale': {
+                $nfs_mount = {
+                device => "epsilon:/soft/64/SL6.4",
+                fstype => "nfs",
+                ensure => "mounted",
+                options => "defaults",
+                atboot => true,
+                }
+                $data = {
+                '/store' => {
+                        device => "piccolo:/store",
+                        },
+                '/store3' => {
+                        device => "piccolo:/store3",
+                        },
+                '/shared' => {
+                        device => "gamma:/data2/data/shared",
+                        },
+                '/shared1' => {
+                        device => "gamma:/data3",
+                        },
+		'/shared2' => {
+			device =>  "gamma:/data/shared2",
+			} 
+                }
+                create_resources('mount', $data, $nfs_mount)
+                # previament hem hagut d'assegurar que els punts de muntatge
+                # existien i si no crear-los
+                file {
+                ['/store', '/store3', '/shared', '/shared1', '/shared2']:
+                        ensure => directory,
+                }
+        } 
+	'cadd': {
+                $nfs_mount = {
+                device => "epsilon:/soft/64/SL6.4",
+                fstype => "nfs",
+                ensure => "mounted",
+                options => "defaults",
+                atboot => true,
+                }
+                $data = {
+                '/soft' => {
+                        device => "epsilon:/soft/64/SL6.4",
+                        },
+                '/db' => {
+                        device => "epsilon:/db",
+                        },
+                '/backup' => {
+                        device => "pandora:/cadd/users",
+                        },
+                '/cadd/users' => {
+                        device => "alfa:/cadd/users",
+                        },
+                '/cadd/data' => {
+                        device =>  "alfa:/cadd/data",
+                        },
+		'/cadd/opt' => {
+                        device =>  "alfa:/cadd/opt",
+                        },
+		'/cadd2/users' => {
+			device => "alfa:/cadd2/users",
+			}
+                }
+                create_resources('mount', $data, $nfs_mount)
+                # previament hem hagut d'assegurar que els punts de muntatge
+                # existien i si no crear-los
+                file {
+                ['/cadd', '/cadd2', '/cadd/data', '/cadd/opt', '/cadd/users',
+'/cadd2/users', '/soft', '/db', '/backup']:
+                        ensure => directory,
+		}
+	} 
+	'cslab': {
+                $nfs_mount = {
+                device => "epsilon:/soft/64/SL6.4",
+                fstype => "nfs",
+                ensure => "mounted",
+                options => "defaults",
+                atboot => true,
+                }
+                $data = {
+                '/soft' => {
+                        device => "epsilon:/soft/64/SL6.4",
+                        },
+		'/data' => {
+                        device => "pandora:/cslab/users",
+                        }
+		}
+		create_resources('mount', $data, $nfs_mount)
+                # previament hem hagut d'assegurar que els punts de muntatge
+                # existien i si no crear-los
+                file {
+                ['/soft', '/data']:
+                        ensure => directory,
+                }
+        }
+# END CASE
+}
+[root@puppet manifests]#
+
+-  crear els $home dels usuaris del nis:
+
+[root@puppet manifests]# cat create-homes.pp 
+# crear els homes dels usuaris del nis
+# si no existeixen
+exec { "create_homes":
+    command => "/root/create-homes-nis.sh 2>/root/create-homes.err",
+}
+
+# copiem l'script 
+file { "/root/create-homes-nis.sh":
+    mode   => 755,
+    owner  => root,
+    group  => root,
+    ensure => present,
+    source => "puppet:///modules/create_homes/create-homes-nis.sh",
+}
+
+[root@puppet manifests]#
+
+- poder manipular l'fstab:
+
+[root@puppet manifests]# cat fstab.pp 
+# treure una entrada de fstab per un lab
+case $lab {
+
+	'cslab' : {
+
+		 mount { '/db':
+  			device => "epsilon:/db",
+  			fstype   => "nfs",
+  			ensure => "absent",
+		}
+	}
+}
+[root@puppet manifests]# 
+
+- poder editar el cron:
+
+[root@puppet manifests]# cat cron-exemple.pp 
+case $lab {
+
+	'cslab': {
+		cron::daily {'poweroff':
+			hour => 23,
+			minute => 15,
+			command => 'echo "vaig a dormir" > /tmp/bonanit',
+		}
+	}
+}
+# si volem apagar les maquines d'un lab substituim command per
+# command => '/sbin/poweroff'
+# i l'endema tornem a posar una comanda inofensiva al cron
+
+[root@puppet manifests]#
+
+- afegir una impresora per un labo:
+
+[root@puppet manifests]# cat genomics-printer.pp 
+case $lab {
+
+	'genomics' : {
+		printer { "laser-bn":
+	    	ensure      => present,
+    		uri         => "ipp://gutenberg.imim.es/printers/laser-gen",
+    		description => "HP LaserJet 42",
+    		location    => "4.86",
+    		ppd		=> "/root/files/ppd/laser-gen.ppd",
+    		shared      => false, 
+    		enabled     => true, 
+    		options     => { media => 'A4' }, 
+    		ppd_options => { 'HPOption_Duplexer' => 'True' }, 
+		}
+		service { "cups":
+		  ensure => "running",
+		}
+		file { "/root/files/ppd/laser-bn.ppd":
+			mode   => 644,
+    			owner  => root,
+			group  => root,
+			ensure => present,
+			source => "puppet:///modules/ppd/laser-gen.ppd"
+		}
+
+	}
+}
+	
+[root@puppet manifests]#
+
+- si volem executar un manifest per un sol lab:
+
+[root@puppet manifests]# cat only-one-lab.pp 
+case $lab {
+
+	'cslab' : {
+
+		file {'exemple':
+		path => '/tmp/exemple',
+		mode => 0640,
+		ensure => present,
+		content => "Aquest manifest s'executa nomes a les ws de $lab",
+		}
+	}
+}
+	
+[root@puppet manifests]#
+
+- si volem executar un manifest nomes a una ws (o llista de ws)
+
+[root@puppet manifests]# cat only-one-ws.pp 
+node "sl2.imim.es" {
+   file {"just-one":
+	path => "/tmp/just-sl2.txt",
+	mode => 644,
+	ensure => present,
+	content => "Nomes en aquest node\n",
+   }
+}
+[root@puppet manifests]#
+
+------------------------
+
+Les classes que fan servir els manifests (file, ntp, fstab...) n'hi ha de dos
+tipus:
+
+algunes formen part de la instal.lacio bàsica del puppet: (file, exec, host,
+mount...)
+D'altres pertanyen a moduls que no venen amb puppet, i cal instal.lar-les
+(algunes son de puppetlabs i d'altres de 3rd party)
+
+Per buscar un modul:
+
+[root@puppet manifests]# puppet module search nis
+Notice: Searching https://forgeapi.puppetlabs.com ...
+NAME                 DESCRIPTION                 AUTHOR        KEYWORDS     
+desalvo-nis          Puppet module for NIS m...  @desalvo                   
+ghoneycutt-nsswitch  Manage nsswitch             @ghoneycutt   ldap nis     
+yguenane-authconfig  A Puppet module to mana...  @yguenane     nis ldap     
+ericsson-nisclient   Manage the NIS client       @ericsson     nis vas yp   
+[root@puppet manifests]#
+
+Per instal.lar un modul:
+
+	puppet module install ericsson-nisclient
+
+Nota: per defecte els moduls s'instal.len al environment 'production', si
+volem fer-los servir al de 'test' podem copiar el modul amb cp -rp o
+instal.lar-lo amb el flag --environment=test
+
+[root@puppet manifests]# puppet module install saz-resolv_conf --environment=test
+Notice: Preparing to install into /etc/puppet/environments/test/modules ...
+Notice: Downloading from https://forgeapi.puppetlabs.com ...
+Notice: Installing -- do not interrupt ...
+/etc/puppet/environments/test/modules
+└─┬ saz-resolv_conf (v3.0.3)
+  └── puppetlabs-stdlib (v4.4.0)
+[root@puppet manifests]#
+
+
+Per desinstal.lar un modul:
+
+	puppet module uninstall zooz-iptables
+
+Per llistar els moduls instal.lats:
+
+[root@puppet manifests]# puppet module list
+/etc/puppet/environments/production/modules
+├── create_homes (???)
+├── ericsson-nisclient (v1.0.0)
+├── ghoneycutt-rpcbind (v1.3.1)
+├── mosen-cups (v1.3.0)
+├── ppd (???)
+├── puppetlabs-firewall (v1.3.0)
+├── puppetlabs-ntp (v3.3.0)
+├── puppetlabs-stdlib (v4.4.0)
+├── saz-resolv_conf (v3.0.3)
+└── torrancew-cron (v0.1.0)
+/etc/puppet/modules (no modules installed)
+/usr/share/puppet/modules (no modules installed)
+[root@puppet manifests]#
+
+
+Els moduls que apareixen amb (???) son creats per mi. Per copiar un fitxer
+desde el server de puppet cap a un node podem fer:
+
+file { "/root/files/ppd/laser-color.ppd":
+    mode   => 644,
+    owner  => root,
+    group  => root,
+    ensure => present,
+    source => "puppet:///modules/ppd/laser-color.ppd"
+}
+
+Pero al server el path real ha de ser:
+
+/etc/puppet/environments/production/modules/ppd/files/laser-color.ppd
+
+Per saber com fer servir un modul podem fer:
+
+	puppet describe firewall | more
+
+O podem consultar la info online:
+
+	https://forge.puppetlabs.com/puppetlabs/firewall
+
+- Check la sintaxi d'un manifest:
+
+La podem comprovar desde el server mateix fent:
+
+puppet --parseonly fitxer.pp
+
+Un cop tenim els manifests podem veure com es comporta el client fent:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1421403265'
+Notice: /Stage[main]/Main/Exec[create_homes]/returns: executed successfully
+Notice: Finished catalog run in 8.07 seconds
+[root@sl2 ~]# 
+
+Notes:
+- a la instalacio que vaig fer ho anava executant manifest a manifest (i.e.
+  cada cop que creava un manifest, executava l'agent al node, per detectar
+errors de sintaxi, o problemes amb el modul (dels 3rd party no tots funcionen
+amb totes les versions de puppet o de OS, o no tots fan el que volem)
+
+- sovint no hi ha prou amb una sola execucio de l'agent per a que completi tot
+  el manifest (per exemple, potser ha pogut crear el mount point i modificat
+l'fstab, pero no ha pogut muntar el directori nfs pq ho ha intentat abans de
+tenir el mount point creat. L'ordre en el que s'executen els manifests sembla
+que sigui de baix a dalt, pero encara no ho tinc clar) De totes maneres no es
+massa greu, ja que quan el servei esta en marxa s'executa per defecte cada
+30', per tant, si a la primera execucio no ha pogut fer-ho tot, fara el que
+queda a la següent.
+
+- quan canviem un manifest, no es immediat que el puppet s'enteri del canvi,
+  sovint, despres de corretgir un error de sintaxi, tornem a executar l'agent
+i torna a donar el mateix error. Hi ha prou amb esperar uns minuts. Si tenim
+pressa, podem forçar un restart del servei de puppet al master amb un 'service
+httpd restart' (es l'httpd qui parla amb el passenger que alhora comunica amb puppet) 
+
+
+Als clients, un cop volem que el puppet estigui en marxa:
+
+chkconfig puppet on
+service puppet start
+
+Per defecte, el servei de puppet executara el puppet agent cada 30', si volem
+canviar el lapse de temps a 2h, nomes cal afegir a /etc/puppet/puppet.conf, a
+la seccio [agent]
+
+ runinterval = 2h
+
+----------  FI , ara algunes notes extres ----------------------------
+Hi ha una eina que vaig instal.lar per despres no vaig fer servir, despres de
+fer varies proves: hiera.
+En principi permet establir jerarquies i posar tota la informacio dels
+manifests en una estructura apart, simplificant la sintaxi dels mateixos, per
+exemple:
+
+ntp manifest amb puppet sol:
+
+[root@puppet manifests]# cat all-nodes-ntp.pp 
+node default {
+# NTP
+class { "::ntp":
+	servers    => [ 'cortazar.imim.es','borges.imim.es'],
+	package_ensure => present,
+	}
+# END
+}
+
+
+ntp manifest amb puppet + hiera:
+
+node default {
+include ntp
+}
+
+i la info sobre els servers i les variables l'agafara de hiera:
+
+
+Per instal.lar hiera:
+
+[root@puppet ~]# puppet resource package hiera ensure=installed
+
+config:
+
+Posem a /etc/puppet/hiera.yaml
+
+---
+:backends:
+  - yaml
+:hierarchy:
+  - "node/%{::fqdn}"
+  - global
+:yaml:
+  :datadir: /etc/puppet/hieradata
+
+[root@puppet ~]# ln -s /etc/puppet/hiera.yaml /etc/hiera.yaml
+
+[root@puppet ~]# cat /etc/puppet/hieradata/global.yaml
+---
+ntp::autoupdate: true
+ntp::enable: true
+ntp::servers:
+  - cortazar.imim.es iburst
+  - borges.imim.es  iburst
+
+i reengeguem puppet despres d'instal.lar hiera
+
+Per comprovar que hiera esta llegint be les dades del fitxer .yaml
+
+[root@puppet]hiera ntp::servers:
+cortazar.imim.es iburst
+borges.imim.es  iburst
+[root@puppet]
+
+Ho vaig deixar correr perque hi havia info d'alguns manifests que no sabia com
+passar a .yaml ni m'acabava de servir per separar per labs (la meva idea
+inicial era fer servir hiera per definir els diferents labos) 
+Al final, per no tenir una barreja de manifests amb 'puppet classic' i
+manifests amb 'puppet+hiera' vaig desconfigurar (esborrant
+/etc/puppet/hieradata , /etc/puppet/hiera.yaml i reengegant httpd)
+
+Mes info sobre hiera a :
+
+https://docs.puppetlabs.com/hiera/1/puppet.html
+
+
+
+--------------
+links utils:
+
+https://docs.puppetlabs.com/
+https://docs.puppetlabs.com/references/3.7.latest/type.html
+http://www.puppetcookbook.com/
+---------
+
+Al fitxer puppet-install-centOS6-original.txt hi ha els copy & paste + les
+reflexions de tots els intents i proves que vaig anar fent durant la
+instal.lacio. El conservo al repo pq pot ser util per mirar alguna cosa que
+potser no estigui en aquest doc final.
+-----------------------------------------------------------------------
+
+

@@ -1,0 +1,38 @@
+Si volem canviar el nom d'un device (per exemple, despres d'importar una maquina virtual, no te eth0 pero si eth2 i volem que es vegi com eth0)
+
+vi /etc/udev/rules.d/70-persistent-net.rules
+
+i canviem eth2 per eth0 (per exemple)
+
+despres:
+cp /etc/sysconfig/network-scripts/ifcfg-eth2 /etc/sysconfig/network-scripts/ifcfg-eth0
+vi /etc/sysconfig/network-scripts/ifcfg-eth0
+canviem eth2 per eth0
+mv /etc/sysconfig/network-scripts/ifcfg-eth2 ./ifcfg-eth2.bak
+reboot
+
+i ja esta.
+
+A CentOS 7 per canviar el nom de les ethernet cal:
+
+a) editar /etc/default/grub i afegir a la linea GRUB_CMDLINE_LINUX
+els flags net.ifnames=0 biosdevname=0
+
+queda una cosa aixi: 
+GRUB_CMDLINE_LINUX="crashkernel=auto rhgb quiet rdblacklist=nouveau net.ifnames=0 biosdevname=0"
+
+
+b) grub2-mkconfig -o /boot/grub2/grub.cfg
+
+c) reboot
+
+d) configurar els nous device
+
+ara ja veiem els noms eth* per els device (per defecte tenen una altra
+nomenclatura i apareixen noms de l'estil enp13s0) 
+
+
+
+
+
+

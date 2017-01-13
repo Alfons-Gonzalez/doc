@@ -1,0 +1,50 @@
+Intall nfs servir in a CentOS 7
+===============================
+
+1.- Install the package:
+
+yum install nfs-utils 
+
+2.- Enable and start the services:
+
+systemctl enable rpcbind
+systemctl enable nfs-server
+systemctl enable nfs-lock
+systemctl enable nfs-idmap
+systemctl start rpcbind
+systemctl start nfs-server
+systemctl start nfs-lock
+systemctl start nfs-idmap
+
+3.- Add the mount-points to /etc/exports
+
+vi /etc/exports
+
+4.- Restart the nfs service:
+
+systemctl restart nfs-server 
+
+5.- Configure the firewalld rules. Two options:
+
+a.- Add the nfs service in the default zone (public)
+
+# We need to add the NFS service override in CentOS 7.0 firewall-cmd public zone service as:
+firewall-cmd --permanent --zone=public --add-service=nfs
+firewall-cmd --reload
+
+Creo que esto último abre acceso a todo nfs a cualquier ip que esté definida en la zona publica, NO LO HE PROBADO !!
+
+b.- Para hacerlo a la antigua usanza, que solo se abra a una ip (esto funciona):
+
+firewall-cmd --add-rich-rule='rule family="ipv4" source address="172.20.16.133" service name="nfs" accept' --permanent
+
+c.- Otra opcion que no he probado, es coger una de las zonas que se pueden ver con:
+
+firewall-cmd --list-all-zones
+
+activar nfs para esa zona con los comandos de arriba y entonces añadir ips a esa zona
+
+No lo he probado, así que no se si xuta.
+
+https://www.howtoforge.com/nfs-server-and-client-on-centos-7
+http://unix.stackexchange.com/questions/159873/whitelist-ips-in-centos-7

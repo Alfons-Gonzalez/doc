@@ -1,0 +1,43 @@
+Problemas con xfs_repair en cabina de gencluster
+================================================
+
+Hubo un corte de luz en el CPD y el sistema de ficheros de la cabina de gencluster
+(/data/users) quedó tocada y al intentar montar el volumen gencluster se quedaba
+congelado y al cabo de unos segundos se reiniciaba solo.
+
+Al hacer un xfs_check del volumen se recibió este error:
+
+[root@gencluster ~]# xfs_check /dev/vol1/users
+ERROR: The filesystem has valuable metadata changes in a log which needs to
+be replayed.  Mount the filesystem to replay the log, and unmount it before
+re-running xfs_check.  If you are unable to mount the filesystem, then use
+the xfs_repair -L option to destroy the log and attempt a repair.
+Note that destroying the log may cause corruption -- please attempt a mount
+of the filesystem before doing this.
+[root@gencluster ~]#
+
+Siguiendo este mensage se ejecutó xfs_repair -L para deshechar el log file que
+parecía estar corrupto pero se quedaba congelado en el paso 6:
+
+...
+...
+...
+Phase 6 - check inode connectivity...
+- resetting contents of realtime bitmap and summary inodes
+- traversing filesystem ...
+
+Con el comando top se podía ver que xfs_repair estaba consumiendo memoria pero 
+no usaba cpu. 
+
+Encontramos este info en el foro de linux-xfs que consiste en pasar este flag al
+xfs_repair y funcionó:
+
+xfs_repair -P -o bhash=1024 /dev/vol1/users
+
+En este foto explica uno de los desarrolladores de xfs que se trata de un 
+problema en la herramienta xfs_repair, que el problema no viene de que el volumen
+tenga algún problema. La versión de gencluster de la 3.1.1.
+
+http://linux-xfs.oss.sgi.narkive.com/QtWkLSHJ/xfs-repair-stops-on-traversing-filesystem
+
+

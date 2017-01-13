@@ -1,0 +1,94 @@
+[root@delta ~]# cat /etc/redhat-release 
+CentOS release 6.3 (Final)
+[root@delta ~]# yum install kvm libvirt
+Loaded plugins: dellsysid, fastestmirror, refresh-packagekit, security
+Loading mirror speeds from cached hostfile
+ * base: ftp.udl.es
+ * extras: ftp.udl.es
+ * updates: sunsite.rediris.es
+Setting up Install Process
+Package 2:qemu-kvm-0.12.1.2-2.295.el6_3.1.x86_64 already installed and latest version
+Package libvirt-0.9.10-21.el6_3.3.x86_64 already installed and latest version
+Nothing to do
+[root@delta ~]# chkconfig --list | grep libvirt
+libvirt-guests  0:off   1:off   2:on    3:on    4:on    5:on    6:off
+libvirtd        0:off   1:off   2:off   3:on    4:on    5:on    6:off
+[root@delta ~]# 
+
+ot@delta ~]# lsmod | grep kvm
+kvm_intel              52570  0 
+kvm                   314739  1 kvm_intel
+[root@delta ~]# 
+
+[root@delta ~]# virsh sysinfo
+
+dona un munt d'info del sistema i es equivalent a
+
+ot@delta ~]# virsh -c qemu:///system sysinfo
+
+[root@delta ~]# virsh list
+ Id    Name                           State
+----------------------------------------------------
+
+
+preparem la xarxa per a que treballi en mode bridge (i.e. a la maquina virtual li posarem una ip del rang 172.20.16.0/24 i fara anar de pont la ethernet del host)
+
+creem el fitxer ifcfg-br0
+
+[root@delta ~]# cat /etc/sysconfig/network-scripts/ifcfg-br0 
+DEVICE="br0"
+NM_CONTROLLED="yes"
+ONBOOT=yes
+TYPE=Bridge
+BOOTPROTO=none
+IPADDR=172.20.16.23
+PREFIX=24
+GATEWAY=172.20.16.254
+DNS1=193.144.6.107
+DNS2=193.144.6.252
+DEFROUTE=yes
+IPV4_FAILURE_FATAL=yes
+IPV6INIT=no
+NAME="System br0"
+
+[root@delta ~]# 
+
+
+i afegim la linea BRIDGE=br0 al fitxer de configuracio de xarxa de la interface fisica:
+
+[root@delta ~]# cat  /etc/sysconfig/network-scripts/ifcfg-em1
+DEVICE=em1
+HWADDR=d4:ae:52:9b:89:33
+NM_CONTROLLED=yes
+ONBOOT=yes
+IPADDR=172.20.16.23
+BOOTPROTO=none
+NETMASK=255.255.255.0
+DNS2=193.144.6.252
+TYPE=Ethernet
+GATEWAY=172.20.16.254
+DNS1=193.144.6.107
+IPV6INIT=no
+USERCTL=no
+BRIDGE=br0
+
+instalem el virt-manager, que permet fer uns instalacio en GUI de la maquina virtual
+
+[root@delta ~]# yum install virt-manager
+
+[root@delta ~]# virt-manager &
+
+instalem un centOS i a la configuracio de xarxa escollim bridged i com a device em1
+
+i ja esta. 
+
+a la maquina guest li hem posat 172.20.16.19
+
+[alfons@moebius ~]$ ssh 172.20.16.19
+alfons@172.20.16.19's password: 
+Warning: untrusted X11 forwarding setup failed: xauth key data not generated
+Warning: No xauth data; using fake authentication data for X11 forwarding.
+Last login: Thu Aug 23 15:25:02 2012 from 172.20.16.221
+[alfons@bradbury ~]$ 
+
+

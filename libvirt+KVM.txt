@@ -1,0 +1,451 @@
+Sumario:
+
+1.- Preparación del host (network bridge)
+2.- Creación de una máquina virtual
+3.- Clonación de máquinas virtuales
+4.- Network issues
+5.- Network in NAT mode
+6.- Backup del disco de la VM
+7.- Expandir un disco
+8.- Editar el fichero de configuración de una máquina virtual
+9.- Migrar una VM
+10.- Comandos
+
+
+1.- Preparación del host
+----------------------
+
+1.- Instalo CentOS 6.2 Final (desktop minimal + development tools and libraries)
+2.- Desactivo selinux
+3.- Configuro red
+4.- yum update -y
+5.- Instalo los paquetes que me van ha hacer falta y arranco servicios:
+
+   # rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY* ¿?
+   # yum install kvm libvirt python-virtinst qemu-kvm
+   # # /etc/init.d/libvirtd start
+
+En un prinipio con esto, ya tenemos todo lo necesario para poder tener máquinas
+virtuales en un CentOS 6.2.
+
+Ahora vamos ha hacer el bridge de la red para que la red privada de las máquinas
+virtuales tengan red:
+
+	1.- yum install bridge-utils
+	2.- Creamos el fichero:
+	    /etc/sysconfig/network-scripts/ifcfg-br0 
+	y en los valores IPADDR, PREFIX, GATEWAY, DNS1 y DNS2 le ponemos los
+	que estén especificados en /etc/sysconfig/network-scripts/ifcfg-eth0:
+
+		[root@natal ~]# vi /etc/sysconfig/network-scripts/ifcfg-br0
+		DEVICE="br0"
+		NM_CONTROLLED="yes"
+		ONBOOT=yes
+		TYPE=Bridge
+		BOOTPROTO=none
+		IPADDR=172.20.16.190
+		PREFIX=24
+		GATEWAY=172.20.16.254
+		DNS1=193.144.6.107
+		DNS2=193.144.6.252
+		DEFROUTE=yes
+		IPV4_FAILURE_FATAL=yes
+		IPV6INIT=no
+		NAME="System br0"
+	3.- Ahora modificamos el fichero 
+	/etc/sysconfig/network-scripts/ifcfg-eth0. Hemos de comentar los valores
+	IPADDR, BOOTPROTO, PREFIX, GATEWAY, DNS1 y DNS2 y añadir la linea BRIDGE=br0
+	4.- Restart the network:
+
+		/etc/init.d/network restart
+	5.- Y ifconfig nos debe de mostrar esta información (el dispositivo 
+	virbr0 es el gateway para la red donde estaràn las máquinas virtuales):
+
+	[root@natal ~]# ifconfig
+	br0       Link encap:Ethernet  HWaddr 00:19:BB:46:52:62  
+        	  inet addr:172.20.16.190  Bcast:172.20.16.255  Mask:255.255.255.0
+	          inet6 addr: fe80::219:bbff:fe46:5262/64 Scope:Link
+        	  UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+        	  RX packets:205499 errors:0 dropped:0 overruns:0 frame:0
+        	  TX packets:81 errors:0 dropped:0 overruns:0 carrier:0
+        	  collisions:0 txqueuelen:0 
+        	  RX bytes:9609719 (9.1 MiB)  TX bytes:12464 (12.1 KiB)
+	
+	eth0      Link encap:Ethernet  HWaddr 00:19:BB:46:52:62  
+        	  inet6 addr: fe80::219:bbff:fe46:5262/64 Scope:Link
+        	  UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+        	  RX packets:294711 errors:0 dropped:0 overruns:0 frame:0
+        	  TX packets:59 errors:0 dropped:0 overruns:0 carrier:0
+        	  collisions:0 txqueuelen:1000 
+        	  RX bytes:19056529 (18.1 MiB)  TX bytes:8479 (8.2 KiB)
+        	  Interrupt:17 
+
+	lo        Link encap:Local Loopback  
+        	  inet addr:127.0.0.1  Mask:255.0.0.0
+        	  inet6 addr: ::1/128 Scope:Host
+        	  UP LOOPBACK RUNNING  MTU:16436  Metric:1
+        	  RX packets:8 errors:0 dropped:0 overruns:0 frame:0
+        	  TX packets:8 errors:0 dropped:0 overruns:0 carrier:0
+        	  collisions:0 txqueuelen:0 
+        	  RX bytes:2128 (2.0 KiB)  TX bytes:2128 (2.0 KiB)
+
+	virbr0    Link encap:Ethernet  HWaddr 52:54:00:A7:74:61  
+        	  inet addr:192.168.122.1  Bcast:192.168.122.255  Mask:255.255.255.0
+        	  UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+        	  RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+        	  TX packets:11 errors:0 dropped:0 overruns:0 carrier:0
+        	  collisions:0 txqueuelen:0 
+        	  RX bytes:0 (0.0 b)  TX bytes:3028 (2.9 KiB)
+	6.- Si queremos tener la aplicación gráfica para gestionar las máquinas
+	virtuales:
+
+		# yum install virt-manager virt-viewer libvirt qemu-system-x86 openssh-askpass
+	
+Ahora ya tenemos el entorno virtual instalado. Ya podemos empezar a "jugar" con 
+las máquinas virtuales:
+
+
+2.- Creación de una máquina virtual:
+----------------------------------
+
+virt-install --connect qemu:///system -n vm-01 -r 512 --vcpus=2 --disk path=/var/lib/libvirt/images/vm-01.img,size=5 -c /dev/cdrom --vnc --os-type linux --os-variant fedora12 --accelerate --network=bridge:br0 --hvm
+
+Con esta linea se hará una instalación en modo gráfico (via VNC) y la red estará
+en modo bridge (hemos de tirar de la interficie gráfica virt-manager o virt-viewer).
+
+Como nos interesa que la instalación sea en modo texto y que el guest también 
+sea texto y de momento, red en NAT, hemos de usar el siguiente comando:
+
+virt-install --connect qemu:///system -n vm-01 -r 512 --vcpus=2 --disk path=/var/lib/libvirt/images/vm-01.img,size=5 -c /dev/sr0 --nographics --os-type linux --os-variant fedora12 --accelerate --network network:default --hvm
+
+Si queremos que la red esté en modo bridge, hemos de substituir
+
+--network network:default
+
+por
+
+--network=bridge:br0
+
+OJO: Muy importante !!! Para poder ver luego la consola del guest, tendremos 
+que añadir esta flag al kernel (se le añade usando el TABulador en el momento
+de lanzar el instalador)
+
+	console=ttyS0
+
+MORALEJA: Después de las pruebas hechas con Fedora12 usando el segundo método
+(forzar una instalación en modo texto), por alguna extraña razón el maldito 
+Fedora se encabezonaba en lanzar automáticamente una instalación mínima de unos
+200 paquetes (demasiado mínima), así que tube que hacer servir el primer 
+virt-install. ¿Funcionaría con CentOS?
+
+
+3.- Clonación de máquinas virtuales
+-----------------------------------
+
+(no funciona copiarlas ya que cada una lleva un uuid y no pueden estar 
+repetidos)
+
+virt-clone --connect=qemu:///system -o vm-01 -n vm-02 -f /var/lib/libvirt/images/vm-02.img
+
+OJO: en la máquina virtual nueva hay que borrar el fichero:
+
+rm /etc/udev/rules.d/70-persistent-net.rules
+
+- Hubicacíón de los discos:
+
+/var/lib/libvirt/images/*.img
+
+- Hubicación de los ficheros de configuración (formato xml):
+
+/etc/libvirt/qemu/*.xml
+
+4.- Network issues
+-------------------
+
+Al configurar la red en modo NAT, al arrancar la maquina virtual, no se por qué
+parecía no funcionar bien: veía bien otras máquinas virtuales, al host, pero 
+no tenía salida hacia afuera. Al final se acabó arreglando, no se si bué el 
+reiniciar el host o el guest lo que lo arregló.
+
+OJO al clonar, revisar que este fichero tiene correcta la mac address (la
+correcta la podemos encontrar en el .xml de la maquina virtual). Por lo general, 
+suele estar bien.
+
+	/etc/udev/rules.d/70-persistent-net.rules
+
+Donde si que hemos de hacer cambios en el los scripts de definición del device:
+
+/etc/sysconfig/networking
+/etc/sysconfig/network-script
+
+En ellos hay que poner bien la mac address.
+
+En modo NAT, la red es default por que es el nombre que por defecto libvrt le
+pone a la red virtual (supongo que se pueden crear más):
+
+# virsh net-dumpxml default
+
+es el fichero 
+
+/etc/libvirt/networks/default.xml
+
+Y en modo bridge, es br0 por que es el nombre que le hemos puesto a la
+interficie de bridge.
+
+Para poner la red de una máquina virtual ya creada y funcinoando en NAT o Bridge
+hemos de editar su fichero .xml de configuración (/etc/libvirt/qemu) usando
+el comando 
+
+virsh edit <VM-name> 
+
+y poner:
+
+- Para NAT:
+
+...
+...
+ <interface type='network'>
+      <mac address='00:16:3e:87:c4:e6'/>
+      <source network='default'/>
+      <model type='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x0'/>
+ </interface>
+...
+...
+
+- para bridge:
+
+...
+...
+ <interface type='bridge'>
+      <mac address='00:16:3e:87:c4:e6'/>
+      <source bridge='br0'/>
+      <model type='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x0'/>
+ </interface>
+...
+...
+
+OJO AMB LA MAC ADDRESS !!! (poner la que haya cogido la VM)
+
+5.- Network in NAT mode
+-----------------------
+
+Se monta una red privada (192.168.122.0/24) dentro del host en la cual están 
+todas las máquinas virtuales y el propio host. Todas las máquinas tiene salida 
+a fuera pero desde fuera no se puden llegar a ellas. Esto es lo que sale en el 
+fichos xml de configuración:
+
+[root@natal qemu]# cat /etc/libvirt/qemu/vm-01.xml 
+...
+...
+...
+<interface type='network'>
+      <mac address='52:54:00:d5:14:f4'/>
+      <source network='default'/>
+      <model type='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x0'/>
+</interface>
+...
+...
+...
+
+La definición de la red privada la tenemos en el fichero 
+
+/etc/libvirt/qemu/network/default.xml
+
+OJO !! Nunca hemos de editar este fichero a mano. Para modificar cosas, paramos
+esta red, modificamos, y volvemos a arrancarla. Por las pruebas hechas, se 
+recomienda hacer esto con las máquinas virtuales paradas (o por lo menos las que
+estén haciendo servir esta red):
+
+virsh -c qemu:///system net-destroy default
+virsh -c qemu:///system net-edit default
+virsh -c qemu:///system net-start default
+
+Si necesitamos crear una nueva red, lo haremos también usando el comando virsh,
+nunca creando el .xml a mano:
+
+virsh net-create --file /root/examplenetwork.xml
+
+Para listar las redes creadas:
+
+virsh net-list
+
+y para ver el estado de una de ellas
+
+virsh net-info <net-name>
+
+5.1 DHCP
+--------
+
+By default, cuando estamos en modo NAT, libvirt proporciona un servicio de
+DHCP para las máquinas virtuales. La configuración de este servicio lo 
+configuramos usando el .xml de la definición de la red (/etc/libvirt/qemu/network/default.xml)
+
+Si queremos, por ejemplo, fijar que ip usará casa Virtual Machines y que rango
+de ip's dará el dhcp:
+
+[root@pursang ~]# cat /etc/libvirt/qemu/networks/default.xml 
+<!--
+WARNING: THIS IS AN AUTO-GENERATED FILE. CHANGES TO IT ARE LIKELY TO BE 
+OVERWRITTEN AND LOST. Changes to this xml configuration should be made using:
+  virsh net-edit default
+or other application using the libvirt API.
+-->
+
+<network>
+  <name>default</name>
+  <uuid>813df043-9451-49c2-9870-5ae16462ba52</uuid>
+  <forward mode='nat'/>
+  <bridge name='virbr0' stp='on' delay='0' />
+  <mac address='52:54:00:18:4D:86'/>
+  <ip address='192.168.122.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.122.128' end='192.168.122.254' />
+      <host mac='52:54:00:F0:57:9F' name='master' ip='192.168.122.2' />
+      <host mac='52:54:00:9C:DC:91' name='node01' ip='192.168.122.3' />
+      <host mac='52:54:00:61:52:D6' name='node02' ip='192.168.122.4' />
+      <host mac='52:54:00:0D:12:D1' name='node03' ip='192.168.122.5' />
+      <host mac='52:54:00:18:86:E8' name='node04' ip='192.168.122.6' />
+      <host mac='52:54:00:A3:FB:26' name='node05' ip='192.168.122.7' />
+    </dhcp>
+  </ip>
+</network>
+[root@pursang ~]# 
+
+
+6.- Backup del disco de la VM
+------------------------------
+
+Yo probé de hacer una copia 'asaco' y tiró, pero bueno, usaremos un método más
+serio que tiene documentado CentOS, seguro que es más seguro y nos ahora algún
+disgusto:
+
+http://wiki.centos.org/HowTos/BackupKVMGuest
+
+El prerrequisito más importante es que la partición donde esté la máquina 
+virtual de la cual queremos hacer backup ha de ser un LVM ya que hace servir
+la capacidad de generar snapshots de los LVM.
+
+7.- Expandir un disco
+----------------------
+
+No se puede hacer directamente en el disco, hay que hacer una copia y hacer
+crecer esta. Hay muchas maneras de hacerlo, mirar url:
+
+http://libguestfs.org/virt-resize.1.html
+
+Así es como lo hice con una máquina:
+
+1.- Miramos como está la imagen del disco que se nos ha quedado pequeño:
+
+[root@epsilon maquines]# virt-filesystems --long --parts --blkdevs -h -a Backup-VM.img 
+Name       Type       MBR  Size  Parent
+/dev/sda1  partition  83   6.2G  /dev/sda
+/dev/sda2  partition  82   3.8G  /dev/sda
+/dev/sda   device     -    10G   -
+
+2.- Ahora generasmo un fichero con el tamaño que queremos que tenga el nuevo
+disco virtual:
+
+[root@epsilon maquines]# truncate -s 45G Bacula-VM.img
+
+3.- Ahora clonamos el disco original en el nuevo indicando que queremos que la
+parción de swap (/dev/sda2) crezca 2 GB y que la partición / (/dev/sda1) coja
+el resto del disco:
+
+virt-resize --resize /dev/sda2=+2G --expand /dev/sda1 Backup-VM.img Bacula-VM.img
+
+4.- Cuando acabe, checkeamos que el resultado haya sido el esperado:
+
+[root@epsilon maquines]# virt-filesystems --long --parts --blkdevs -h -a Bacula-VM.img 
+Name       Type       MBR  Size  Parent
+/dev/sda1  partition  83   39G   /dev/sda
+/dev/sda2  partition  82   5.8G  /dev/sda
+/dev/sda   device     -    45G   -
+
+8.- Editar el fichero de configuración de una máquina virtual
+--------------------------------------------------------------
+
+Está en formato XML y by default, está guardado en 
+
+/etc/libvirt/qemu/
+
+No se debe de modificar a mano, de hecho, se lo cambiamos a mano puede que el
+cambio luego no tenga efecto. Para modificarlo:
+
+# virsh edit <VMDomainName>
+
+y se abrirá un vi con el xml. Hacemos los cambiso y salimos guardando normal con
+los comandos de vi.
+
+9.- Migrar una VM
+------------------
+
+Esto lo hice para mover la máquina virtual de impala (Bacula Director Server) de
+epsilon a delta y me funcionó:
+
+1.- Copiamos el .xml con la defición de la máquina virtual de epsilon a delta:
+
+[root@epsilon ~]# scp /etc/libvirt/qemu/impala.xml root@delta:/etc/libvirt/qemu
+
+2.- Copiamos la imagen de la máquina virtual:
+
+[root@epsilon ~]# scp /backup/maquines/impala.img root@delta:/VirtualMachines/images
+
+3.- Ahora para importar esta máquina virtual a delta:
+
+[root@delta images]# virsh define /etc/libvirt/qemu/impala.xml
+
+4.- Y por último, para indicar donde está el fichero que contiene la imagen
+de la máquina virtual de impala (ver punto anterior):
+
+[root@delta images]# virsh edit impala
+
+y cambiamos en el xml el path del fichero .ima
+
+5.- Ahora deberíamos de poder arrancar la máquina virtual:
+
+[root@delta images]# virsh start impala
+Domain impala started
+
+
+[root@delta images]# virsh list
+ Id    Name                           State
+----------------------------------------------------
+ 7     bradbury                       running
+ 8     orwell                         running
+ 14    impala                         running
+
+[root@delta images]# 
+
+
+10.- Comandos
+-------------
+
+* virsh: entramos en una shell para trabajar con todas sus opciones (hay muchas)
+Si escribimos help vemos todas las opciones
+
+* virsh list --all : Lista todas las VM
+* virsh list : solo las que están running
+* virsh start <vm-name>: inicia una máquina virtual
+* virsh shutdown <vm-name>: hace un poweroff
+* virsh destroy <vm-name>: la para 'asaco'
+* virsh console <vm-name>: nos permite conectarnos a la consola de la VM (NO
+SSH). Para que funcione, antes hemos de agregar esto al final de la linea
+del kernel del /etc/grup.conf:
+
+	console=ttyS0
+
+El problemo es que para poder poner esta linea en el grub.conf primero hemos de
+conectarnos a la máquina con virt-manager
+	-> Mirar de o bien que quede fijado en la instalació o bien de al crear
+	la máquina ya tengamos acceso por ssh (¿red por NAT?)
+* virsh define <path-vm-xml-config-file>: para definir (agregar) una nueva
+máquna virtual usando su xml config file
+* virsh undefine <<path-vm-xml-config-file>: idem pero para quitar (no borra
+ficheros)
+
+
+

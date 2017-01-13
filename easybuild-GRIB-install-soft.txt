@@ -1,0 +1,142 @@
+NOTA: Per mes detalls mirar el document easybuild-modules-GRIB.txt.
+
+
+1.- entrem l'ordinador que fem servir per fer les instal·lacios i ens posem
+com usuari manager (by default ja queda carregat l'entorn necesari):
+
+[miguels@cappra devel]$ ssh miguels@easybuild (172.20.16.240)
+miguels@easybuild's password: 
+Last login: Tue Dec 20 18:28:23 2016 from cappra.prib.upf.edu
+[miguels@easybuild ~]$ su -
+Password: 
+Last login: Mon Dec 19 14:12:31 CET 2016 on pts/1
+[root@easybuild ~]# su - manager
+Last login: Tue Dec 20 18:14:34 CET 2016 on pts/2
+[manager@easybuild ~]$ 
+
+2.- I carreguem EasyBuild:
+
+[manager@easybuild ~]$ module load EasyBuild
+
+3.- Instal·lem el soft:
+
+
+Si (Tenim disponible per el ToolChain goolf-1.7.20 el soft a instal·lar (1)) llavors
+
+	(Carreguem el modul de configuració per definir el prefix (2))	
+	(El instal.lem (3))
+
+SiNo
+
+	Si (Tenim disponible el soft pero amb un altre ToolChain (1)) llavors
+		(Baixem el fitxer .eb d'aquest soft (4))
+		(Modifiquem el .eb per que faci servir el Toolchain Goolf-1.7.20 (5))
+		(Carreguen el modul de configuracio per definir el prefix (2))
+		(Instal·lem el soft fent servir el .eb modificat (6))
+	Sino
+		(El instal·lem a mà (7)).
+		(Generem el modulefile (8))
+	Fi
+Fi
+
+
+4.- Pasos:
+
+(1) Ho sabem amb: 
+
+	eb -S <soft-name>
+
+(2) ex: module load EB_devel
+
+(3) Comprobem si totes les dependencies estàn instal·lades amb:
+
+		eb <soft-name>.eb -Dr
+
+    Per instal·lar totes les dependencies recursivament (atenció, poder no tot
+	ha d'anar al mateix prefix !!)
+
+		eb <soft-name> --robot
+
+    Sense robot, només mira d'instal·lar el soft que indiquem. 
+
+(4) https://github.com/hpcugent/easybuild-easyconfigs/tree/master/easybuild/easyconfigs
+
+(5) Si es el soft APR:
+
+    cd /soft/system/easybuild/ebfiles_repo/
+    mkdir APR
+    cd APR
+    wget https://raw.githubusercontent.com/hpcugent/easybuild-easyconfigs/master/easybuild/easyconfigs/a/APR/APR-1.5.2-foss-2015a.eb
+    mv APR-1.5.2-foss-2015a.eb APR-1.5.2-goolf-1.7.20.eb
+    vi APR-1.5.2-goolf-1.7.20.eb
+	i posem que sigui:
+
+	toolchain = {'name': 'goolf', 'version': '1.7.20'}
+
+   	
+   ATENCIO !!!! Si en el fitxer .eb hi han dependencies les em de instal·lar si
+	no les tenim !!! i serà molt probable que haurem de fer elm mateix que amb
+	aquest soft (baixar el .eb i modificar el toolchain) ja que partim de un 
+	soft que no estava disponible per el toolchain goolf-1.7.20.
+
+(6) Si es el soft APR:
+    
+	cd /soft/system/easybuild/ebfiles_repo/APR
+	eb APR-1.5.2-goolf-1.7.20.eb
+
+(7) Fer servir les eines ja instal·lades: GCC, python, perl, etc i que el modulefile
+    que farem a ma les carregui.
+
+(8) Fem servir els ja creats com a plantilla, es recomana mirar el de Modeller
+
+	/soft/EB_repo/bio/structure/modulefiles/goolf/1.7.20/all/Modeller/9.13.lua
+    Prestar atenció a:
+	a.- Dependencies a carregar abans: 
+
+		if not isloaded("Python/2.7.11") then
+		    load("Python/2.7.11")
+		end
+
+	b.- Definició de noves variables:
+
+	local root = "/soft/EB_repo/bio/structure/programs/goolf/1.7.20/Modeller/9.13"	
+
+	setenv("EBROOTMODELLER", root)
+	setenv("EBVERSIONMODELLER", "9.13")
+	setenv("EBDEVELMODELLER", pathJoin(root, "easybuild/Modeller-9.13-easybuild-devel"))
+
+
+	c.- Modificacio de variables ja existents:
+
+	local root = "/soft/EB_repo/bio/structure/programs/goolf/1.7.20/Modeller/9.13"
+
+	prepend_path("LIBRARY_PATH", pathJoin(root, "lib"))
+	prepend_path("PATH", pathJoin(root, "bin"))
+
+   Si sabem que el soft compil·lat a má necesita soft que ja tenim instal·lat 
+      amb EasyBuild, poder recomanable fer servir aquest soft per la compil·lació/
+      instal·lació e indicar-ho com a dependencia en el modulefile (punt a.)	
+	
+
+
+4.- Dependencies
+
+(3) Com que es un soft que esá disponible per el toolchain goolf-1.7.20, si hi
+han dependencies no instal·lades segur que son també del goolf-1.7.20. Podem instal·lar
+recursivament amb --robot
+
+(5) Al anar a modificar el fitxer .eb ens fixem en les dependencies si té, llavors:
+
+	Si (Dependencia ja instal·lades) llavors
+		(No fem res)
+	Si (Dependencia instal·lada pero es una altre versió) llavors
+		(Modifiquem i fiquen la versió que tenim ja instal·lada)
+
+	Si (Dependencia no instal·lada) llavors
+		(La instal·lem (8))
+
+(8) Molt alta probabilitat de que aquesta dependencia no estigui per goolf-1.7.20, 
+    apliquen el descrit en (5)
+    Si aquesta dependencia té altres dependencies, anem fem fins que estigui tot
+    instal·lat (entrem en bucle recursiu)
+

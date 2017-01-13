@@ -1,0 +1,500 @@
+[root@lasker ~]# parted /dev/sdb
+GNU Parted 2.1
+Using /dev/sdb
+Welcome to GNU Parted! Type 'help' to view a list of commands.
+(parted) mklabel gpt
+(parted) mkpart primary 1 -1                                              
+(parted) print                                                            
+Model: ATA QEMU HARDDISK (scsi)
+Disk /dev/sdb: 10.7GB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+
+Number  Start   End     Size    File system  Name     Flags
+ 1      1049kB  10.7GB  10.7GB               primary
+
+(parted) quit                                                             
+[root@lasker ~]# pvcreate /dev/sdb1
+  Writing physical volume data to disk "/dev/sdb1"
+  Physical volume "/dev/sdb1" successfully created
+[root@lasker ~]# pvdisplay
+  "/dev/sdb1" is a new physical volume of "10.00 GiB"
+  --- NEW Physical volume ---
+  PV Name               /dev/sdb1
+  VG Name               
+  PV Size               10.00 GiB
+  Allocatable           NO
+  PE Size               0   
+  Total PE              0
+  Free PE               0
+  Allocated PE          0
+  PV UUID               Gte2ea-KuMQ-d0Kd-Kjq0-9pkp-wDe9-EfPs5k
+   
+[root@lasker ~]# vgcreate data /dev/sdb1
+  Volume group "data" successfully created
+[root@lasker ~]# 
+[root@lasker ~]# vgdisplay
+  --- Volume group ---
+  VG Name               data
+  System ID             
+  Format                lvm2
+  Metadata Areas        1
+  Metadata Sequence No  1
+  VG Access             read/write
+  VG Status             resizable
+  MAX LV                0
+  Cur LV                0
+  Open LV               0
+  Max PV                0
+  Cur PV                1
+  Act PV                1
+  VG Size               10.00 GiB
+  PE Size               4.00 MiB
+  Total PE              2559
+  Alloc PE / Size       0 / 0   
+  Free  PE / Size       2559 / 10.00 GiB
+  VG UUID               Qj25vN-2r8r-z3Ck-cSD5-J9fx-Iz0m-MUF3oK
+[root@lasker ~]# lvcreate -l 100%VG -n lv0 data
+  Logical volume "lv0" created
+[root@lasker ~]# lvdisplay
+  --- Logical volume ---
+  LV Path                /dev/data/lv0
+  LV Name                lv0
+  VG Name                data
+  LV UUID                HnAZXK-efYd-7jKv-wa0i-vfVm-ezkd-s5he7c
+  LV Write Access        read/write
+  LV Creation host, time lasker.imim.es, 2013-09-10 16:34:15 +0200
+  LV Status              available
+  # open                 0
+  LV Size                10.00 GiB
+  Current LE             2559
+  Segments               1
+  Allocation             inherit
+  Read ahead sectors     auto
+  - currently set to     256
+  Block device           253:0
+   
+[root@lasker ~]# 
+
+ot@lasker ~]# mount /dev/data/lv0 /data
+mount: you must specify the filesystem type
+[root@lasker ~]# mkfs.xfs /dev/data/lv0
+meta-data=/dev/data/lv0          isize=256    agcount=4, agsize=655104 blks
+         =                       sectsz=512   attr=2, projid32bit=0
+data     =                       bsize=4096   blocks=2620416, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0
+log      =internal log           bsize=4096   blocks=2560, version=2
+         =                       sectsz=512   sunit=0 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+[root@lasker ~]# mount /dev/data/lv0 /data
+
+[root@lasker ~]# df -h
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/sda1              20G  3.5G   15G  20% /
+tmpfs                 1.9G     0  1.9G   0% /dev/shm
+/dev/sda3              27G  172M   25G   1% /home
+/dev/mapper/data-lv0   10G   33M   10G   1% /data
+[root@lasker ~]# tail /etc/fstab 
+# See man pages fstab(5), findfs(8), mount(8) and/or blkid(8) for more info
+#
+UUID=cc31bc0a-86e6-4a7a-b08e-4cf545939f4f /                       ext4    defaults        1 1
+UUID=09694331-9d83-4140-b0a9-d69443026dc6 /home                   ext4    defaults        1 2
+UUID=538acdfc-fa88-4bc6-a8e5-289326f4cae8 swap                    swap    defaults        0 0
+tmpfs                   /dev/shm                tmpfs   defaults        0 0
+devpts                  /dev/pts                devpts  gid=5,mode=620  0 0
+sysfs                   /sys                    sysfs   defaults        0 0
+proc                    /proc                   proc    defaults        0 0
+/dev/data/lv0		/data			xfs	defaults	0 0
+[root@lasker ~]# 
+
+--------------- proves per fer canvis a volums ja creats -----
+
+Definim dues particions de 100Gb:
+
+/dev/sda2 i /dev/sda3
+
+
+[root@wallace ~]# pvcreate /dev/sda2
+  Physical volume "/dev/sda2" successfully created
+[root@wallace ~]# pvcreate /dev/sda3
+  Physical volume "/dev/sda3" successfully created
+[root@wallace ~]# pvdisplay
+  "/dev/sda2" is a new physical volume of "100.41 GiB"
+  --- NEW Physical volume ---
+  PV Name               /dev/sda2
+  VG Name               
+  PV Size               100.41 GiB
+  Allocatable           NO
+  PE Size               0   
+  Total PE              0
+  Free PE               0
+  Allocated PE          0
+  PV UUID               1FtbqZ-9vrY-Dq3g-9b5D-2BCJ-MLVu-ucyDoV
+   
+  "/dev/sda3" is a new physical volume of "93.13 GiB"
+  --- NEW Physical volume ---
+  PV Name               /dev/sda3
+  VG Name               
+  PV Size               93.13 GiB
+  Allocatable           NO
+  PE Size               0   
+  Total PE              0
+  Free PE               0
+  Allocated PE          0
+  PV UUID               JyBn59-XhbQ-14bC-7jFg-cXdf-EelO-QhcUni
+   
+[root@wallace ~]# 
+
+A cadascuna un VG
+
+
+
+[root@wallace ~]# vgcreate vg1 /dev/sda2
+  Volume group "vg1" successfully created
+[root@wallace ~]# vgcreate vg2 /dev/sda3
+  Volume group "vg2" successfully created
+
+[root@wallace ~]# vgdisplay
+  --- Volume group ---
+  VG Name               vg2
+  System ID             
+  Format                lvm2
+  Metadata Areas        1
+  Metadata Sequence No  1
+  VG Access             read/write
+  VG Status             resizable
+  MAX LV                0
+  Cur LV                0
+  Open LV               0
+  Max PV                0
+  Cur PV                1
+  Act PV                1
+  VG Size               93.13 GiB
+  PE Size               4.00 MiB
+  Total PE              23841
+  Alloc PE / Size       0 / 0   
+  Free  PE / Size       23841 / 93.13 GiB
+  VG UUID               pHve0M-vCbN-BR1a-IojO-fM0j-lUBl-8zdhNO
+   
+  --- Volume group ---
+  VG Name               vg1
+  System ID             
+  Format                lvm2
+  Metadata Areas        1
+  Metadata Sequence No  1
+  VG Access             read/write
+  VG Status             resizable
+  MAX LV                0
+  Cur LV                0
+  Open LV               0
+  Max PV                0
+  Cur PV                1
+  Act PV                1
+  VG Size               100.41 GiB
+  PE Size               4.00 MiB
+  Total PE              25704
+  Alloc PE / Size       0 / 0   
+  Free  PE / Size       25704 / 100.41 GiB
+  VG UUID               22ry50-pmQN-pbU4-vb3F-JTJT-Yh4e-oXF0z8
+   
+[root@wallace ~]# 
+
+Ara a cada vg crearem dos LV, cadascun amb ~ 50Gb
+
+[root@wallace ~]# lvcreate -l 50%VG -n lv1 vg1
+  Logical volume "lv1" created
+[root@wallace ~]# lvcreate -l 50%VG -n lv2 vg1
+  Logical volume "lv2" created
+[root@wallace ~]# lvcreate -l 50%VG -n lv1 vg2
+  Logical volume "lv1" created
+[root@wallace ~]# lvcreate -l 50%VG -n lv2 vg2
+  Logical volume "lv2" created
+[root@wallace ~]# 
+
+[root@wallace ~]# lvdisplay
+  --- Logical volume ---
+  LV Path                /dev/vg2/lv1
+  LV Name                lv1
+  VG Name                vg2
+  LV UUID                O7jCJ8-Lcyc-pgfj-AiX1-QT93-WD9V-ghs1i2
+  LV Write Access        read/write
+  LV Creation host, time wallace.imim.es, 2014-11-20 16:52:08 +0100
+  LV Status              available
+  # open                 0
+  LV Size                46.56 GiB
+  Current LE             11920
+  Segments               1
+  Allocation             inherit
+  Read ahead sectors     auto
+  - currently set to     256
+  Block device           253:2
+   
+  --- Logical volume ---
+  LV Path                /dev/vg2/lv2
+  LV Name                lv2
+  VG Name                vg2
+  LV UUID                RiShv0-ErAI-cTGx-23dY-cmhD-Xn0t-Zgr1L7
+  LV Write Access        read/write
+  LV Creation host, time wallace.imim.es, 2014-11-20 16:52:13 +0100
+  LV Status              available
+  # open                 0
+  LV Size                46.56 GiB
+  Current LE             11920
+  Segments               1
+  Allocation             inherit
+  Read ahead sectors     auto
+  - currently set to     256
+  Block device           253:3
+   
+  --- Logical volume ---
+  LV Path                /dev/vg1/lv1
+  LV Name                lv1
+  VG Name                vg1
+  LV UUID                ogNdDR-aatj-Mf1Y-EUW7-s3Ah-erVX-gUgcvn
+  LV Write Access        read/write
+  LV Creation host, time wallace.imim.es, 2014-11-20 16:51:55 +0100
+  LV Status              available
+  # open                 0
+  LV Size                50.20 GiB
+  Current LE             12852
+  Segments               1
+  Allocation             inherit
+  Read ahead sectors     auto
+  - currently set to     256
+  Block device           253:0
+   
+  --- Logical volume ---
+  LV Path                /dev/vg1/lv2
+  LV Name                lv2
+  VG Name                vg1
+  LV UUID                AaYdds-MgHq-JYxB-pG5y-vm4z-VeWh-vRUKEy
+  LV Write Access        read/write
+  LV Creation host, time wallace.imim.es, 2014-11-20 16:52:00 +0100
+  LV Status              available
+  # open                 0
+  LV Size                50.20 GiB
+  Current LE             12852
+  Segments               1
+  Allocation             inherit
+  Read ahead sectors     auto
+  - currently set to     256
+  Block device           253:1
+   
+[root@wallace ~]#
+
+creem els filesystems als volums:
+
+mkfs.ext4 /dev/vg1/lv1
+mkfs.ext4 /dev/vg1/lv2
+mkfs.ext4 /dev/vg2/lv1
+mkfs.ext4 /dev/vg2/lv2
+
+creem els punts de muntatge:
+
+mkdir /test1 /test2 /test3 /test4
+
+i els muntem
+
+[root@wallace ~]# mount /dev/vg1/lv1 /test1
+[root@wallace ~]# mount /dev/vg1/lv2 /test2
+[root@wallace ~]# mount /dev/vg2/lv1 /test3
+[root@wallace ~]# mount /dev/vg2/lv2 /test4
+
+[root@wallace ~]# df -h
+Filesystem           Size  Used Avail Use% Mounted on
+/dev/sdb2             87G  3.2G   79G   4% /
+tmpfs                 32G     0   32G   0% /dev/shm
+/dev/sdb1            190M   62M  119M  35% /boot
+/dev/sda1             16T   24K   15T   1% /data
+/dev/mapper/vg1-lv1   50G   52M   47G   1% /test1
+/dev/mapper/vg1-lv2   50G   52M   47G   1% /test2
+/dev/mapper/vg2-lv1   46G   52M   44G   1% /test3
+/dev/mapper/vg2-lv2   46G   52M   44G   1% /test4
+
+Ara posem dades dins:
+
+tar zcvf /test1/logs.tgz /var/log/
+tar zcvf /test2/etc.tgz /etc
+tar zcvf /test3/messages.tgz /var/log/messages*
+tar zcvf /test4/anaconda.tgz /var/log/anaconda*
+
+[root@wallace ~]# ls /test?
+/test1:
+logs.tgz
+
+/test2:
+etc.tgz
+
+/test3:
+messages.tgz
+
+/test4:
+anaconda.tgz
+
+Ok. Fins aqui res de nou. Ara suposem que volem crear un nou volum amb test1 i
+test3  
+
+
+[root@wallace ~]# umount /test1 /test3
+
+[root@wallace ~]# lvremove /dev/vg1/lv1
+Do you really want to remove active logical volume lv1? [y/n]: y
+  Logical volume "lv1" successfully removed
+[root@wallace ~]# lvremove /dev/vg2/lv1
+Do you really want to remove active logical volume lv1? [y/n]: y
+  Logical volume "lv1" successfully removed
+
+podem crear un pv amb l'espai alliberat?
+
+Segons el man de pvresize:
+
+Shrink  the PV on /dev/sda1 prior to shrinking the partition with fdisk
+       (ensure that the PV size is appropriate for your intended new partition
+       size):
+
+       pvresize --setphysicalvolumesize 40G /dev/sda1
+
+anem a provar:
+
+[root@wallace ~]# pvresize --setphysicalvolumesize 50G /dev/sda2
+  /dev/sda2: cannot resize to 12799 extents as 12852 are allocated.
+  0 physical volume(s) resized / 1 physical volume(s) not resized
+
+
+no deixa pq el tamany que li haig de passar es exactament el que te...
+
+[root@wallace ~]# pvresize --setphysicalvolumesize 12852e /dev/sda2
+  Physical volume "/dev/sda2" changed
+  1 physical volume(s) resized / 0 physical volume(s) not resized
+[root@wallace ~]#
+
+pero no sembla que s'enteri:
+
+[root@wallace ~]# pvdisplay
+  --- Physical volume ---
+  PV Name               /dev/sda3
+  VG Name               vg2
+  PV Size               93.13 GiB / not usable 4.00 MiB
+  Allocatable           yes 
+  PE Size               4.00 MiB
+  Total PE              23841
+  Free PE               11921
+  Allocated PE          11920
+  PV UUID               JyBn59-XhbQ-14bC-7jFg-cXdf-EelO-QhcUni
+   
+  --- Physical volume ---
+  PV Name               /dev/sda2
+  VG Name               vg1
+  PV Size               100.41 GiB / not usable 0   
+  Allocatable           yes 
+  PE Size               4.00 MiB
+  Total PE              25704
+  Free PE               12852
+  Allocated PE          12852
+  PV UUID               1FtbqZ-9vrY-Dq3g-9b5D-2BCJ-MLVu-ucyDoV
+  
+---------
+
+potser el problema es que primer cal reduir el VG size
+
+
+
+si intento crear un vg amb els dos pv creats...fara servir l'espai que tenen
+lliure?
+
+no es pot...
+
+tampoc es pot crear un LV amb l'espai lliure de 2 vg
+
+So....caldra fer diferent les coses a beta per expandir el volum de genomica.
+
+
+info del que hi ha:
+[root@wallace ~]# lvs
+  LV   VG   Attr       LSize  Pool Origin Data%  Meta%  Move Log Cpy%Sync
+Convert
+  lv2  vg1  -wi-a----- 50.20g                                                    
+  lv2  vg2  -wi-a----- 46.56g                                                    
+[root@wallace ~]# vgs
+  VG   #PV #LV #SN Attr   VSize   VFree 
+  vg1    1   1   0 wz--n- 100.41g 50.20g
+  vg2    1   1   0 wz--n-  93.13g 46.57g
+[root@wallace ~]# pvs
+  PV         VG   Fmt  Attr PSize   PFree 
+  /dev/sda2  vg1  lvm2 a--  100.41g 50.20g
+  /dev/sda3  vg2  lvm2 a--   93.13g 46.57g
+[root@wallace ~]# 
+
+
+El que si que es pot fer es extendre els lv2 als dos vg on ha quedat espai
+lliure:
+
+segons el man de lvextend:
+
+
+       Extends the size of logical volume "vg01/lvol01" by the amount of  free
+       space  on  physical  volume /dev/sdk3. This is equivalent to specifying
+       "-l +100%PVS" on the command line:
+
+ lvextend /dev/vg01/lvol01 /dev/sdk3
+
+[root@wallace ~]# lvextend /dev/vg1/lv2 /dev/sda2
+  Size of logical volume vg1/lv2 changed from 50.20 GiB (12852 extents) to
+100.41 GiB (25704 extents).
+  Logical volume lv2 successfully resized
+[root@wallace ~]# lvextend /dev/vg2/lv2 /dev/sda3
+  Size of logical volume vg2/lv2 changed from 46.56 GiB (11920 extents) to
+93.13 GiB (23841 extents).
+  Logical volume lv2 successfully resized
+[root@wallace ~]# 
+
+hauriem de fer un resize dels filesystems
+
+[root@wallace ~]# resize2fs /dev/vg1/lv2
+resize2fs 1.41.12 (17-May-2010)
+Please run 'e2fsck -f /dev/vg1/lv2' first.
+
+[root@wallace ~]# e2fsck -f /dev/vg1/lv2
+e2fsck 1.41.12 (17-May-2010)
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+/lost+found not found.  Create<y>? yes
+
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+
+/dev/vg1/lv2: ***** FILE SYSTEM WAS MODIFIED *****
+/dev/vg1/lv2: 12/3293184 files (8.3% non-contiguous), 255057/13160448 blocks
+[root@wallace ~]# resize2fs /dev/vg1/lv2
+resize2fs 1.41.12 (17-May-2010)
+Resizing the filesystem on /dev/vg1/lv2 to 26320896 (4k) blocks.
+The filesystem on /dev/vg1/lv2 is now 26320896 blocks long.
+
+[root@wallace ~]# e2fsck -f /dev/vg2/lv2
+e2fsck 1.41.12 (17-May-2010)
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+/lost+found not found.  Create<y>? yes
+
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+
+/dev/vg2/lv2: ***** FILE SYSTEM WAS MODIFIED *****
+/dev/vg2/lv2: 12/3055616 files (0.0% non-contiguous), 237921/12206080 blocks
+[root@wallace ~]# resize2fs /dev/vg12/lv2
+resize2fs 1.41.12 (17-May-2010)
+open: No such file or directory while opening /dev/vg12/lv2
+[root@wallace ~]# 
+[root@wallace ~]# df -h
+Filesystem           Size  Used Avail Use% Mounted on
+/dev/sdb2             87G  3.2G   79G   4% /
+tmpfs                 32G     0   32G   0% /dev/shm
+/dev/sdb1            190M   62M  119M  35% /boot
+/dev/sda1             16T   24K   15T   1% /data
+/dev/mapper/vg1-lv2   99G   69M   94G   1% /test2
+/dev/mapper/vg2-lv2   92G   61M   87G   1% /test4
+[root@wallace ~]# 
+

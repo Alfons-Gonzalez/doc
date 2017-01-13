@@ -1,0 +1,488 @@
+SLURM
+=====
+
+1.- Instalacion
+	1.1.- Instalar y configurar munge
+	1.2.- Instalar y configurar slurm
+	1.3.- Generar el fitxer de configuracio
+2.- Control de los servicios con systemd
+3.- Resource Reservation
+4.- Definición de Consumibles GRES (Geneal resource REServation)
+5.- Only summit host
+6.- Definir los summit hots
+7.- Default Ports
+8.- Comandos varios
+9.- Referencias
+10.- Problemas y sus soluciones
+	10.1.- Cliente slurm no se comunica con el controlador: slurm_receive_msg: Zero Bytes were transmitted or received
+	10.2.- ¿Como saber por qué un Job no entra en run?
+
+
+1.- Instalación
+===============
+
+1.1.- Instalar y configurar munge
+---------------------------------
+
+yum install munge munge-devel -y
+
+- Desde el controller:
+
+scp /etc/munge/munge.key root@workspace1:/etc/munge/munge.key
+
+- y en el nodo de cálculo:
+
+chown munge: /etc/munge/munge.key
+
+[root@workspace1 munge]# systemctl enable munge
+[root@workspace1 munge]# systemctl is-enabled munge
+enabled
+[root@workspace1 munge]# systemctl start munge
+[root@workspace1 munge]# systemctl status munge
+munge.service - MUNGE authentication service
+   Loaded: loaded (/usr/lib/systemd/system/munge.service; enabled)
+   Active: active (running) since Thu 2016-05-12 10:58:16 CEST; 4s ago
+     Docs: man:munged(8)
+  Process: 27179 ExecStart=/usr/sbin/munged (code=exited, status=0/SUCCESS)
+ Main PID: 27181 (munged)
+   CGroup: /system.slice/munge.service
+           └─27181 /usr/sbin/munged
+
+May 12 10:58:16 workspace1.prib.upf.edu systemd[1]: Started MUNGE authentication service.
+[root@workspace1 munge]# 
+
+
+1.2.- Instalar y configurar slurm
+---------------------------------
+
+Vamos a mostar como instalar slurm en un nodo de cálculo y como configurarlo;
+
+a.- Instalación:
+
+tar xvf slurm-15.08.11.tar.bz2
+
+(instalo mariadb y mariadb-devel para que compile slurm el plugin mysql, no se
+si es necesario en los clientes, creo que no ya que la inserccion de datos en 
+la BBDD la hace el controller).
+
+[root@workspace1 slurm-15.08.11]# ./configure --prefix=/usr/local/slurm-15.08.11 --with-munge && make && make install
+
+[root@workspace1 slurm-15.08.11]# ln -s /usr/local/slurm-15.08.11 /usr/local/slurm
+
+b.- Añadimos al nodo en el fichero de configuración (si no va a calcular, solo añadimos 
+su NodeName pero no lo entramos en ninguna partición). Para ver la configuración del 
+nodo usamos el comando /usr/local/slurm/sbin/slurmd -C.
+
+NodeName=workspace1 CPUs=16 Sockets=2 CoresPerSocket=4 ThreadsPerCore=2 RealMemory=64136 TmpDisk=28596
+
+c.- Copiamos el fichero de configuración de slurm y el de inicio del servicio en
+el nodo:
+
+[root@workspace1 slurm]# mkdir etc
+[root@workspace1 slurm]# mkdir init.d
+[root@workspace1 slurm]# 
+
+[root@sherpa etc]# scp slurm.conf root@workspace1:/usr/local/slurm/etc
+root@workspace1's password: 
+slurm.conf                                                                                             100% 3910     3.8KB/s   00:00    
+[root@sherpa etc]# cd ../init.d/
+[root@sherpa init.d]# scp init.d.slurm root@workspace1:/usr/local/slurm/init.d
+root@workspace1's password: 
+init.d.slurm                                                                                           100% 7238     7.1KB/s   00:00    
+[root@sherpa init.d]#
+
+(NOTA: Si el nodo tiene GPU's y va a ser una máquina de cálculo tamb hemos de copiar
+el fichero de configuración gres.conf de sherpa).
+
+d.-  Añadimos el usuario 'slurm' (es importante que los uid y gid sean los mismos
+que tiene este usuario en el controler) y lo ponemos como propietario del directorio
+de instalación del slurm.
+
+[root@workspace1 slurm]# groupadd -g 800 slurm
+[root@workspace1 slurm]# adduser -u 800 -g 800 slurm
+[root@workspace1 slurm]# chown -R slurm: /usr/local/slurm-15.08.11
+[root@workspace1 slurm]#
+
+e.- Creamos los ficheros de log y spool:
+
+[root@workspace1 slurm]# touch /var/log/slurmd.log
+[root@workspace1 slurm]# chown slurm: /var/log/slurmd.log 
+[root@workspace1 slurm]# mkdir /var/spool/slurmd
+[root@workspace1 slurm]# chown slurm: /var/spool/slurmd/
+[root@workspace1 slurm]#
+
+f.- Abrimos el firewall con el controller (si hiciera falta correr cosas con MPI:
+se tendría que abrir también con el resto de nodos del cluster)
+
+[root@workspace1 slurm]# firewall-cmd --add-rich-rule="rule family='ipv4' source address='172.20.16.127' accept" --permanent
+success
+[root@workspace1 slurm]# firewall-cmd --reload
+success
+[root@workspace1 slurm]#
+
+g.- Y abrimos el acceso de este nodo en el controller (sherpa):
+
+[root@sherpa init.d]# firewall-cmd --add-rich-rule="rule family='ipv4' source address='172.20.16.102' accept" --permanent
+success
+[root@sherpa init.d]# firewall-cmd --reload
+success
+[root@sherpa init.d]# 
+
+Con todo esto y una vez iniciado el servicio de slurm en el nuevo nodo y reiniciado
+este mismo servicio en el contralador, este nuevo nodo ya debería de estar operativo
+y visible para todo el cluster.
+
+1.3.- Generar el fitxer de configuracio
+---------------------------------------
+
+En el paso 1.2 no se generan los ficheros de configuración por que ya están creados,
+lo que hacemos es copiar del cotrolador los ficheros de configuración al nuevo
+nodo de cálculo.
+
+Para generar el fichero de configuración inicial tenemos dos opciones:
+
+a.- Usamos la plantillas que vienen con los sources de slurm (están en el 
+subdirectorio etc):
+
+[root@ace3 ~]# ls -l slurm-15.08.11/etc/
+total 92
+-rw-r--r-- 1 7558 7558 4981 Jan 29  2014 bluegene.conf.example
+-rw-r--r-- 1 7558 7558   67 Nov  2  2011 cgroup_allowed_devices_file.conf.example
+-rw-r--r-- 1 7558 7558  258 Jan 29  2014 cgroup.conf.example
+-rw-r--r-- 1 root root 3313 May  4 10:54 cgroup.release_common.example
+-rw-r--r-- 1 7558 7558 3302 May  3 18:41 cgroup.release_common.example.in
+-rw-r--r-- 1 root root 7136 May  4 10:54 init.d.slurm
+-rw-r--r-- 1 root root 3987 May  4 10:54 init.d.slurmdbd
+-rwxr-xr-x 1 7558 7558 3956 Mar 14  2014 init.d.slurmdbd.in
+-rw-r--r-- 1 7558 7558 7108 Aug 31  2015 init.d.slurm.in
+-rw-r--r-- 1 7558 7558  228 Aug 31  2015 layouts.d.power.conf.example
+-rw-r--r-- 1 7558 7558 1564 Aug 31  2015 layouts.d.power_cpufreq.conf.example
+-rw-r--r-- 1 7558 7558 1928 May  3 18:41 slurm.conf.example
+-rw-r--r-- 1 root root  338 May  4 10:54 slurmctld.service
+-rw-r--r-- 1 7558 7558  327 Nov 13  2015 slurmctld.service.in
+-rw-r--r-- 1 7558 7558  739 Nov  2  2011 slurmdbd.conf.example
+-rw-r--r-- 1 root root  341 May  4 10:54 slurmdbd.service
+-rw-r--r-- 1 7558 7558  330 Nov 13  2015 slurmdbd.service.in
+-rw-r--r-- 1 root root  397 May  4 10:54 slurmd.service
+-rw-r--r-- 1 7558 7558  386 Nov 13  2015 slurmd.service.in
+-rw-r--r-- 1 7558 7558  820 Jan 29  2014 slurm.epilog.clean
+[root@ace3 ~]#
+
+b.- Usamos una web que nos genera solo el fichero de configuración slurm.conf. Es
+este:
+
+firefox /usr/local/slurm-15.08.11/share/doc/slurm-15.08.11/html/configurator.html
+
+2.- Control de los servicios con systemd
+========================================
+
+Para que los servicios de slurm se inicien en en el arranque se crean los ficheros
+de configuración de los servicios para systemd (todos estos ficheros están
+en /etc/systemd/system/):
+
+- Ficheros para el controlador
+
+[root@sherpa ~]# cat /etc/systemd/system/slurmdbd.service 
+[Unit]
+Description=Slurm DBD accounting daemon
+After=network.target
+ConditionPathExists=/usr/local/slurm/etc/slurmdbd.conf
+Requires=mariadb.service
+
+[Service]
+Type=forking
+#EnvironmentFile=-/etc/sysconfig/slurmdbd
+ExecStart=/usr/local/slurm/init.d/init.d.slurmdbd start
+ExecStop=/usr/local/slurm/init.d/init.d.slurmdbd stop
+ExecReload=/usr/local/slurm/init.d/init.d.slurmdbd reload
+PIDFile=/var/run/slurmdbd.pid
+
+[Install]
+WantedBy=multi-user.target graphical.target
+[root@sherpa ~]# 
+
+[root@sherpa ~]# cat /etc/systemd/system/slurmctld.service 
+[Unit]
+Description=Slurm controller daemon
+After=network.target
+ConditionPathExists=${prefix}/etc/slurm.conf
+Requires=slurmdbd.service
+
+[Service]
+Type=forking
+#EnvironmentFile=-/etc/sysconfig/slurmctld
+ExecStart=/usr/local/slurm/init.d/init.d.slurm start
+ExecStop=/usr/local/slurm/init.d/init.d.slurm stop
+ExecReload=/usr/local/slurm/init.d/init.d.slurm reload
+PIDFile=/var/run/slurmctld.pid
+
+[Install]
+WantedBy=multi-user.target graphical.target
+[root@sherpa ~]#
+
+- Fichero para los nodos de cálculo:
+
+[root@oliva ~]# cat /etc/systemd/system/slurmd.service 
+[Unit]
+Description=Slurm node daemon
+After=network.target
+ConditionPathExists=/usr/local/slurm/etc/slurm.conf
+
+[Service]
+Type=forking
+#EnvironmentFile=-/etc/sysconfig/slurmd
+ExecStart=/usr/local/slurm/init.d/init.d.slurm start
+ExecStop=/usr/local/slurm/init.d/init.d.slurm stop
+ExecReload=/usr/local/slurm/init.d/init.d.slurm reload
+PIDFile=/var/run/slurmd.pid
+KillMode=process
+LimitNOFILE=51200
+LimitMEMLOCK=infinity
+LimitSTACK=infinity
+
+[Install]
+WantedBy=multi-user.target graphical.target
+[root@oliva ~]# 
+
+
+3.- Resource Reservation
+========================
+
+Cogi le opción que me daba el formulario web por defecto para Resource Selection:
+
+SelectType=select/linear
+#SelectTypeParameters=
+
+El resultado de esta config era que no podría decir cuanta mem/cpu quería usar,
+al entrar un job a ejecución lo cogía todo todito todo. Solución, permitir que 
+se pueda seleccionar los recursos ha hacer servir:
+
+SelectType=select/cons_res
+SelectTypeParameters=CR_CPU
+
+Explicación parámetros:
+
+SelectType -> Cons_res: Allocate individual processors and memory
+
+SelectTypeParameters -> CR_CPU: (default) CPUs as consumable resources. No notion 
+	of sockets, cores, or threads. On a multi-core system, cores will be 
+	considered CPUs. On a multi-core/hyperthread system, threads will be 
+	considered CPUs. On a single-core systems CPUs are CPUs. ;-) 
+
+SelectTypeParameters=CR_CPU_Memory : CPU and memory are consumable resources.
+
+Si no se especifica la memoria que va a consumir el job ($SBATCH -mem <size> 
+o $SBATCH --mem-per-cpu <size>) entonces se usa el valor que se haya indicado 
+by default (by default es INFINITE) en DefMemPerNode y MaxMemPerNode.
+
+
+4.- Definición de Consumibles GRES (Geneal resource REServation)
+================================================================
+
+Definimos las GPU como consumibles:
+
+a.- En slurm.conf añadimor esta lniea
+
+GresTypes=gpu
+
+y en la definición del nodo, indicamos que cantidad de consumibles tiene el nodo
+del tipo gpu:
+
+NodeName=ace1 CPUs=12 Sockets=1 CoresPerSocket=6 ThreadsPerCore=2 RealMemory=15829 TmpDisk=60347 Gres=gpu:4
+
+b.- Generamos el fichero gres.conf. Este fichero lo ha de tener cada uno de los
+nodos que tienen definido un consumible, en nuestro caso, las gpu:
+
+[msanchez@ace3 ~]$ cat /usr/local/slurm/etc/gres.conf 
+# Configure support for our four GPUs
+Name=gpu File=/dev/nvidia0 
+Name=gpu File=/dev/nvidia1
+Name=gpu File=/dev/nvidia2
+Name=gpu File=/dev/nvidia3
+[msanchez@ace3 ~]$ 
+
+NOTA: En el caso de las metrocubos, en el rc.local hay unas lineas que generan 
+los dispositivos nvidiaX (es necesario para que funcione el software acemd):
+
+for T in `seq 0 3`; do
+	mknod -m 666 /dev/nvidia$T c 195 $T;
+done
+mknod -m 666 /dev/nvidiactl c 195 255
+/usr/bin/nvidia-smi -pm 1
+
+Con todo esto hecho, si ejecutamos el comando 'scontrol show node <node-name>' 
+deberíamos de ver el consumible dentro de las características del nodo:
+
+[msanchez@ace3 ~]$ scontrol show node ace3
+NodeName=ace3 Arch=x86_64 CoresPerSocket=4
+   CPUAlloc=0 CPUErr=0 CPUTot=8 CPULoad=0.01 Features=(null)
+   Gres=gpu:4
+   NodeAddr=ace3 NodeHostName=ace3 Version=15.08
+   OS=Linux RealMemory=15825 AllocMem=0 FreeMem=14206 Sockets=1 Boards=1
+   State=IDLE ThreadsPerCore=2 TmpDisk=60347 Weight=1 Owner=N/A
+   BootTime=2016-05-06T06:46:43 SlurmdStartTime=2016-05-25T11:57:01
+   CapWatts=n/a
+   CurrentWatts=0 LowestJoules=0 ConsumedJoules=0
+   ExtSensorsJoules=n/s ExtSensorsWatts=0 ExtSensorsTemp=n/s
+   
+
+[msanchez@ace3 ~]$ 
+
+Y al enviar un job ya podemos indicar cuantas gpu vamos ha usar con el parámetro:
+
+#SBATCH --gres=gpu:2
+
+NOTA: Faltaría por mirar, en caso de que alguien envie un job sin especificar
+cuantas gpu va a usar, como etablecer un valor por defecto para esta petición de
+recursos.
+
+NOTA: Lo mismo a los límite, como establer un límite de uso para este tipo de 
+recursos.
+
+
+5.- Only summit host
+====================
+
+Para configurar un nodo de tal manera que pueda hacer summits pero que no calcule,
+lo que se hizo fué:
+
+a.- Hacemos una instalación estandard en el nodo de slurm
+
+b.- Añadimos dentro del fichero slurm.conf la linea que define al nodo.
+
+NodeName=workspace1 CPUs=16 Sockets=2 CoresPerSocket=4 ThreadsPerCore=2 RealMemory=64136 TmpDisk=28596
+
+c.- NO añadimos al nodo dentro de ninguna partición (con esto evitamos que le entren
+jobs)
+
+
+6.- Definir los summit hots
+===========================
+
+Se define con el parámetro AllocNodes=<node1>,<node2>,<node3>,...,<noden> en la 
+linea de configuracion de la partición dentro del fichero slurm.conf
+
+Por defecto, si no se indica nada, todos los nodos pueden enviar jobs.
+
+ATENCION: Si ponemos AllocNodes=ALL, no estamos diciendo que todos los nodos 
+pueden hacer summit, estamos diciendo que solo el nodo con nombre ALL lo puede 
+hacer (el puñetero no se queja de que no existe un NodeName con ese nombre).
+
+
+7.- Default Ports
+=================
+Aunque se pueden especificar otros en los ficheros de configuración (slurm.conf, 
+slurmdbd.conf), si no se indica lo contrario, son lo siguientes.
+
+Slurmctlport=6817
+Slurmdbdport=6819
+slurmdport=6818
+scheduleport=7321
+
+
+8.- Comandos varios
+===================
+
+- Ver la configuración del nodo:
+
+/usr/local/slurm/sbin/slurmd -C
+ClusterName=(null) NodeName=workspace1 CPUs=16 Boards=1 SocketsPerBoard=2 CoresPerSocket=4 ThreadsPerCore=2 RealMemory=64136 TmpDisk=28596
+UpTime=191-00:35:55
+
+- ver que daemons autodetecta slurm que tienen que ser arrancados en la máquina:
+
+[root@ace3 miguels]# /usr/local/slurm/bin/scontrol show daemons
+slurmd
+[root@ace3 miguels]#
+
+- comando slurmctld -Dvvvv para ver que le pasa si no arrancan los daemons (útil si
+por ejemplo, el comando 'scontrol show daemons' no muestra nada):
+
+http://ward.vandewege.net/blog/2013/07/when-scontrol-show-daemons-returns-nothing/
+
+- ver la configuración actual del controlador:
+
+[root@sherpa etc]# scontrol show config
+
+- ver el estado de todos los nodos
+
+[root@sherpa etc]# scontrol show nodes
+
+- ver el estado de un nodo
+
+[root@sherpa etc]# scontrol show node ace3
+
+- Con scontrol también podemos modificar la configuración de algún elemento del
+cluster 'en caliente', sin tener que parar nada.
+
+
+9.- Referencias
+===============
+
+http://wiki.sc3.uis.edu.co/index.php/Slurm_Installation
+https://wiki.fysik.dtu.dk/niflheim/SLURM#slurm-installation
+http://www.slothparadise.com/how-to-install-slurm-on-centos-7-cluster/
+
+Documentación de slurm online (está muy bien):
+
+http://slurm.schedmd.com/quickstart.html
+http://slurm.schedmd.com/quickstart_admin.html
+
+10 .- Problemas y sus soluciones
+=================================
+
+10.1.- Cliente slurm no se comunica con el controlador: slurm_receive_msg: Zero Bytes were transmitted or received
+------------------------------------------------------------------------------------------------------------------
+
+Al instalar slurm en kasparov para que un web service de Gerard pudieran enviar jobs,
+me encontré con que el slurm no se conectaba con el controlador que es sherpa, daba
+este error:
+
+[root@kasparov system]# /usr/local/slurm/bin/sinfo
+sinfo: error: slurm_receive_msg: Zero Bytes were transmitted or received
+slurm_load_partitions: Zero Bytes were transmitted or received
+[root@kasparov system]#
+
+Había un desfase de algo más de 10 minutos en la hora entre el cliente con slruem 
+y el controlador en sherpa. Lo arreglé configurando en kasparov el servidio ntp y 
+que ambas máquinas tubiesen la misma hora.
+
+
+10.2.- ¿Como saber por qué un Job no entra en run?
+--------------------------------------------------
+
+Para saber por que un job no entra en ejecución:
+
+a.- Miramos en los logs del controlador (slurmctl.log) en que nodo ha entrado en ejecución.
+b.- Nos vamos a los logs del nodo (slurmd.log) y miramos por que no se puede
+ejecutar el job
+c.- Una vez subsanado el problema, volver a pedir al controlador que vuelva a 
+reencolar el job para su ejcución:
+
+	scontrol release <jobid>
+
+###############################
+
+
+- /usr/local/slurm/lib/slurm/ -> Directorio donde estan los plugins
+
+
+
+- Cosas a mirar:
+================
+
+- con PartitionName=default no arrancaba !!
+
+- En los nodos: No acct_gather.conf file (/usr/local/slurm-15.08.11/etc/acct_gather.conf)
+
+- Interficie web.
+
+
+- Como indicar que usuarios pueden ejecutar jobs y en que particiones.
+
+- Hacer fichero de backup.sh para guardar la conf de slurm
+
+- Hacer tmb backup de la base de datos del accounting.
+
+- Al ser todas las máquinas CentOS 7, no usare rc.local y usar el nuevo mecanismo
+

@@ -1,0 +1,3766 @@
+*************************************************************************
+ATENCIO: en aquest doc hi ha tots els intents i proves que he anat fent,
+ tant per instal.lar puppet com per configurar-lo. Aquest document hauria de
+servir de base per reescriure: puppet-install.txt puppet-config.txt 
+pero actualment esta ple de 'soroll'
+**********************************************************************
+
+
+Instalacio de puppet.
+
+
+1.- instal.lo 1 VM amb centOS 6
+
+Li assigno:
+
+- 2 cores
+- 8Gb RAM
+- 40Gb hd
+
+
+puppet.imim.es
+172.20.16.8
+
+2.- instal.lem tres vm per fer de client:
+
+- ws SL 6: 172.20.16.226
+- ws SL 6: 172.20.16.227
+- server centOS: 172.20.16.228
+
+La idea es fer proves de 
+
+* puppetmaster --> client ws
+* puppetmaster --> 2 clients ws (aplicant manifestos diferents )
+* puppet master --> client servidor (per fer el setup d'un web server, per exemple)
+
+Preparacio del master:
+
+
+[root@puppet ~]# sudo rpm -ivh
+http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
+Retrieving http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
+warning: /var/tmp/rpm-tmp.RrwKj8: Header V4 RSA/SHA1 Signature, key ID
+4bd6ec30: NOKEY
+Preparing...                ########################################### [100%]
+   1:puppetlabs-release     ########################################### [100%]
+[root@puppet ~]# 
+
+Preparacio dels clients:
+
+[root@scientific ~]# rpm -ivh
+http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
+Retrieving http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
+warning: /var/tmp/rpm-tmp.kEkXpR: Header V4 RSA/SHA1 Signature, key ID
+4bd6ec30: NOKEY
+Preparing...                ########################################### [100%]
+   1:puppetlabs-release     ########################################### [100%]
+[root@scientific ~]# yum install puppet
+
+Abans d'instal.lar els altres 2 clients anem a configurar
+primer el master i el primer client i veure que funciona.
+
+Configuracio del master.
+-----------------------
+
+Al fitxer /etc/puppet/puppet.conf
+
+Afegim la linea
+
+dns_alt_names = puppet,puppet.imim.es
+
+a la seccio [main]
+
+I generem el certificat:
+
+[root@puppet ~]# puppet master --verbose --no-daemonize
+Info: Creating a new SSL key for ca
+Info: Creating a new SSL certificate request for ca
+Info: Certificate Request fingerprint (SHA256):
+0F:DF:CF:0C:F6:63:C7:E8:CF:55:E2:80:13:7C:7B:17:43:98:F8:37:8C:97:F6:44:AB:B2:00:F6:4B:30:A6:7E
+Notice: Signed certificate request for ca
+Info: Creating a new certificate revocation list
+Info: Creating a new SSL key for puppet.imim.es
+Info: csr_attributes file loading from /etc/puppet/csr_attributes.yaml
+Info: Creating a new SSL certificate request for puppet.imim.es
+Info: Certificate Request fingerprint (SHA256):
+96:5D:D3:5E:95:E4:81:FE:B0:82:43:B4:7A:DF:F1:25:EC:FB:61:47:14:C0:AC:A4:B4:E2:D0:85:2B:3E:C1:B4
+Notice: puppet.imim.es has a waiting certificate request
+Notice: Signed certificate request for puppet.imim.es
+Notice: Removing file Puppet::SSL::CertificateRequest puppet.imim.es at
+'/var/lib/puppet/ssl/ca/requests/puppet.imim.es.pem'
+Notice: Removing file Puppet::SSL::CertificateRequest puppet.imim.es at
+'/var/lib/puppet/ssl/certificate_requests/puppet.imim.es.pem'
+Notice: Starting Puppet master version 3.7.3
+
+fem CTRL+C per matar-lo
+
+^CNotice: Caught INT; calling stop
+[root@puppet ~]# 
+
+Amb aixo ja hem generat els certificats.
+
+Afegim tambe al /etc/puppet/puppet.conf la linea
+
+environmentpath = $confdir/environments
+
+per fer servir environments.
+
+Configuring a Puppet Master Server with Passenger and Apache
+--------------------------------------------------------------
+
+Per fer anar el puppet master en produccio recomanen fer-lo anar combinat amb
+apache i passenger. Anem a instal.lar-lo
+
+- apache
+
+[root@puppet ~]# yum install httpd httpd-devel mod_ssl ruby-devel rubygems gcc
+
+- rack/passenger
+
+[root@puppet ~]# gem install rack passenger
+[root@puppet ~]# passenger-install-apache2-module
+
+entrem al menu d'instal.lacio:
+
+[root@puppet ~]# passenger-install-apache2-module
+Welcome to the Phusion Passenger Apache 2 module installer, v4.0.53.
+
+This installer will guide you through the entire installation process. It
+shouldn't take more than 3 minutes in total.
+
+Here's what you can expect from the installation process:
+
+ 1. The Apache 2 module will be installed for you.
+ 2. You'll learn how to configure Apache.
+ 3. You'll learn how to deploy a Ruby on Rails application.
+
+Don't worry if anything goes wrong. This installer will advise you on how to
+solve any problems.
+
+Press Enter to continue, or Ctrl-C to abort.
+
+
+--------------------------------------------
+
+Which languages are you interested in?
+
+Use <space> to select.
+If the menu doesn't display correctly, press '!'
+
+ ‣ ⬢  Ruby
+   ⬢  Python
+   ⬡  Node.js
+   ⬡  Meteor
+
+--------------------------------------------
+
+Checking for required software...
+
+ * Checking for C compiler...
+      Found: yes
+      Location: /usr/bin/cc
+ * Checking for C++ compiler...
+      Found: yes
+      Location: /usr/bin/c++
+ * Checking for Curl development headers with SSL support...
+      Found: no
+      Error: Cannot find the `curl-config` command.
+ * Checking for OpenSSL development headers...
+      Found: no
+ * Checking for Zlib development headers...
+      Found: no
+ * Checking for Apache 2...
+      Found: yes
+      Apache version: 2.2.15
+      Location of httpd: /usr/sbin/httpd
+ * Checking for Apache 2 development headers...
+      Found: yes
+      Location of apxs2: /usr/sbin/apxs
+ * Checking for Rake (associated with /usr/bin/ruby)...
+      Found: yes
+      Location: /usr/bin/ruby /usr/bin/rake
+ * Checking for OpenSSL support for Ruby...
+      Found: yes
+ * Checking for RubyGems...
+      Found: yes
+ * Checking for Ruby development headers...
+      Found: yes
+      Location: /usr/lib64/ruby/1.8/x86_64-linux/ruby.h
+ * Checking for rack...
+      Found: yes
+ * Checking for Apache Portable Runtime (APR) development headers...
+      Found: yes
+      Location: /usr/bin/apr-1-config
+      Version: 1.3.9
+ * Checking for Apache Portable Runtime Utility (APU) development headers...
+      Found: yes
+      Location: /usr/bin/apu-1-config
+      Version: 1.3.9
+
+Some required software is not installed.
+But don't worry, this installer will tell you how to install them.
+Press Enter to continue, or Ctrl-C to abort.
+
+--------------------------------------------
+
+Installation instructions for required software
+
+ * To install Curl development headers with SSL support:
+   Please install it with yum install libcurl-devel
+
+ * To install OpenSSL development headers:
+   Please install it with yum install openssl-devel
+
+ * To install Zlib development headers:
+   Please install it with yum install zlib-devel
+
+If the aforementioned instructions didn't solve your problem, then please take
+a look at the Users Guide:
+
+  /usr/lib/ruby/gems/1.8/gems/passenger-4.0.53/doc/Users guide Apache.html
+  https://www.phusionpassenger.com/documentation/Users%20guide%20Apache.html
+[root@puppet ~]# 
+
+Per tant anem a instalar les dependencies:
+
+[root@puppet ~]# yum install libcurl-devel openssl-devel zlib-devel -y
+
+I tornem a provar:
+
+
+[root@puppet ~]# passenger-install-apache2-module
+
+sembla que tira:
+
+Almost there!
+
+Please edit your Apache configuration file, and add these lines:
+
+   LoadModule passenger_module
+/usr/lib/ruby/gems/1.8/gems/passenger-4.0.53/buildout/apache2/mod_passenger.so
+   <IfModule mod_passenger.c>
+     PassengerRoot /usr/lib/ruby/gems/1.8/gems/passenger-4.0.53
+     PassengerDefaultRuby /usr/bin/ruby
+   </IfModule>
+
+Ho afegeixo i engego l'httpd:
+
+[root@puppet ~]# service httpd start
+Starting httpd: httpd: Could not reliably determine the server's fully
+qualified domain name, using puppet.imim.es for ServerName
+                                                           [  OK  ]
+[root@puppet ~]# 
+
+
+Segueixo amb el passenger i segueix endavant:
+Deploying a web application: an example
+
+Suppose you have a web application in /somewhere. Add a virtual host to your
+Apache configuration file and set its DocumentRoot to /somewhere/public:
+
+   <VirtualHost *:80>
+      ServerName www.yourhost.com
+      # !!! Be sure to point DocumentRoot to 'public'!
+      DocumentRoot /somewhere/public    
+      <Directory /somewhere/public>
+         # This relaxes Apache security settings.
+         AllowOverride all
+         # MultiViews must be turned off.
+         Options -MultiViews
+         # Uncomment this if you're on Apache >= 2.4:
+         #Require all granted
+      </Directory>
+   </VirtualHost>
+
+And that's it! You may also want to check the Users Guide for security and
+optimization tips, troubleshooting and other useful information:
+
+  /usr/lib/ruby/gems/1.8/gems/passenger-4.0.53/doc/Users guide Apache.html
+  https://www.phusionpassenger.com/documentation/Users%20guide%20Apache.html
+
+Enjoy Phusion Passenger, a product of Phusion (www.phusion.nl) :-)
+https://www.phusionpassenger.com
+
+Phusion Passenger is a trademark of Hongli Lai & Ninh Bui.
+[root@puppet ~]# 
+
+aturo l'apache:
+
+[root@puppet ~]# service httpd stop
+Stopping httpd:                                            [  OK  ]
+[root@puppet ~]# 
+
+Ara cal: Install the Puppet Master Rack Application
+
+[root@puppet ~]# mkdir -p /usr/share/puppet/rack/puppetmasterd
+[root@puppet ~]# mkdir /usr/share/puppet/rack/puppetmasterd/public
+/usr/share/puppet/rack/puppetmasterd/tmp
+[root@puppet ~]# cp /usr/share/puppet/ext/rack/config.ru
+/usr/share/puppet/rack/puppetmasterd/
+[root@puppet ~]# chown puppet:puppet
+/usr/share/puppet/rack/puppetmasterd/config.ru
+[root@puppet ~]# 
+
+Create and Enable the Puppet Master Vhost
+
+Exemple de fitxer:
+
+# You'll need to adjust the paths in the Passenger config depending on which
+# OS
+# you're using, as well as the installed version of Passenger.
+
+# Debian/Ubuntu:
+#LoadModule passenger_module
+/var/lib/gems/1.8/gems/passenger-4.0.x/ext/apache2/mod_passenger.so
+#PassengerRoot /var/lib/gems/1.8/gems/passenger-4.0.x
+#PassengerRuby /usr/bin/ruby1.8
+
+# RHEL/CentOS:
+#LoadModule passenger_module
+/usr/lib/ruby/gems/1.8/gems/passenger-4.0.x/ext/apache2/mod_passenger.so
+#PassengerRoot /usr/lib/ruby/gems/1.8/gems/passenger-4.0.x
+#PassengerRuby /usr/bin/ruby
+
+# And the passenger performance tuning settings:
+# Set this to about 1.5 times the number of CPU cores in your master:
+PassengerMaxPoolSize 12
+# Recycle master processes after they service 1000 requests
+PassengerMaxRequests 1000
+# Stop processes if they sit idle for 10 minutes
+PassengerPoolIdleTime 600
+
+Listen 8140
+<VirtualHost *:8140>
+    # Make Apache hand off HTTP requests to Puppet earlier, at the cost of
+    # interfering with mod_proxy, mod_rewrite, etc. See note below.
+    PassengerHighPerformance On
+
+    SSLEngine On
+
+    # Only allow high security cryptography. Alter if needed for
+    # compatibility.
+    SSLProtocol ALL -SSLv2 -SSLv3
+    SSLCipherSuite
+EDH+CAMELLIA:EDH+aRSA:EECDH+aRSA+AESGCM:EECDH+aRSA+SHA384:EECDH+aRSA+SHA256:EECDH:+CAMELLIA256:+AES256:+CAMELLIA128:+AES128:+SSLv3:!aNULL:!eNULL:!LOW:!3DES:!MD5:!EXP:!PSK:!DSS:!RC4:!SEED:!IDEA:!ECDSA:kEDH:CAMELLIA256-SHA:AES256-SHA:CAMELLIA128-SHA:AES128-SHA
+    SSLHonorCipherOrder     on
+
+    SSLCertificateFile
+/var/lib/puppet/ssl/certs/puppet-server.example.com.pem
+    SSLCertificateKeyFile
+/var/lib/puppet/ssl/private_keys/puppet-server.example.pem
+    SSLCertificateChainFile /var/lib/puppet/ssl/ca/ca_crt.pem
+    SSLCACertificateFile    /var/lib/puppet/ssl/ca/ca_crt.pem
+    SSLCARevocationFile     /var/lib/puppet/ssl/ca/ca_crl.pem
+    SSLCARevocationCheck 	chain
+    SSLVerifyClient         optional
+    SSLVerifyDepth          1
+    SSLOptions              +StdEnvVars +ExportCertData
+
+    # Apache 2.4 introduces the SSLCARevocationCheck directive and sets it to
+    # none
+	# which effectively disables CRL checking. If you are using Apache
+	# 2.4+ you must
+    # specify 'SSLCARevocationCheck chain' to actually use the CRL.
+
+    # These request headers are used to pass the client certificate
+    # authentication information on to the puppet master process
+    RequestHeader set X-SSL-Subject %{SSL_CLIENT_S_DN}e
+    RequestHeader set X-Client-DN %{SSL_CLIENT_S_DN}e
+    RequestHeader set X-Client-Verify %{SSL_CLIENT_VERIFY}e
+
+    DocumentRoot /usr/share/puppet/rack/puppetmasterd/public
+
+    <Directory /usr/share/puppet/rack/puppetmasterd/>
+      Options None
+      AllowOverride None
+      # Apply the right behavior depending on Apache version.
+      <IfVersion < 2.4>
+        Order allow,deny
+        Allow from all
+      </IfVersion>
+      <IfVersion >= 2.4>
+        Require all granted
+      </IfVersion>
+    </Directory>
+
+    ErrorLog /var/log/httpd/puppet-server.example.com_ssl_error.log
+    CustomLog /var/log/httpd/puppet-server.example.com_ssl_access.log combined
+</VirtualHost>
+
+
+Faig servir:
+
+[root@puppet conf.d]# pwd
+/etc/httpd/conf.d
+[root@puppet conf.d]# cat puppetmaster.conf 
+# And the passenger performance tuning settings:
+# Set this to about 1.5 times the number of CPU cores in your master:
+PassengerMaxPoolSize 12
+# Recycle master processes after they service 1000 requests
+PassengerMaxRequests 1000
+# Stop processes if they sit idle for 10 minutes
+PassengerPoolIdleTime 600
+
+Listen 8140
+<VirtualHost *:8140>
+    # Make Apache hand off HTTP requests to Puppet earlier, at the cost of
+    # interfering with mod_proxy, mod_rewrite, etc. See note below.
+    PassengerHighPerformance On
+
+    SSLEngine On
+
+    # Only allow high security cryptography. Alter if needed for
+    # compatibility.
+    SSLProtocol ALL -SSLv2 -SSLv3
+    SSLCipherSuite
+EDH+CAMELLIA:EDH+aRSA:EECDH+aRSA+AESGCM:EECDH+aRSA+SHA384:EECDH+aRSA+SHA256:EECDH:+CAMELLIA256:+AES256:+CAMELLIA128:+AES128:+SSLv3:!aNULL:!eNULL:!LOW:!3DES:!MD5:!EXP:!PSK:!DSS:!RC4:!SEED:!IDEA:!ECDSA:kEDH:CAMELLIA256-SHA:AES256-SHA:CAMELLIA128-SHA:AES128-SHA
+    SSLHonorCipherOrder     on
+
+    SSLCertificateFile      /var/lib/puppet/ssl/certs/puppet.imim.es.pem
+    SSLCertificateKeyFile
+/var/lib/puppet/ssl/private_keys/puppet.imim.es.pem
+    SSLCertificateChainFile /var/lib/puppet/ssl/ca/ca_crt.pem
+    SSLCACertificateFile    /var/lib/puppet/ssl/ca/ca_crt.pem
+    SSLCARevocationFile     /var/lib/puppet/ssl/ca/ca_crl.pem
+    SSLCARevocationCheck 	chain
+    SSLVerifyClient         optional
+    SSLVerifyDepth          1
+    SSLOptions              +StdEnvVars +ExportCertData
+
+    # Apache 2.4 introduces the SSLCARevocationCheck directive and sets it to
+    # none
+	# which effectively disables CRL checking. If you are using Apache
+	# 2.4+ you must
+    # specify 'SSLCARevocationCheck chain' to actually use the CRL.
+
+    # These request headers are used to pass the client certificate
+    # authentication information on to the puppet master process
+    RequestHeader set X-SSL-Subject %{SSL_CLIENT_S_DN}e
+    RequestHeader set X-Client-DN %{SSL_CLIENT_S_DN}e
+    RequestHeader set X-Client-Verify %{SSL_CLIENT_VERIFY}e
+
+    DocumentRoot /usr/share/puppet/rack/puppetmasterd/public
+
+    <Directory /usr/share/puppet/rack/puppetmasterd/>
+      Options None
+      AllowOverride None
+      # Apply the right behavior depending on Apache version.
+      <IfVersion < 2.4>
+        Order allow,deny
+        Allow from all
+      </IfVersion>
+      <IfVersion >= 2.4>
+        Require all granted
+      </IfVersion>
+    </Directory>
+
+    ErrorLog /var/log/httpd/puppet.imim.es_ssl_error.log
+    CustomLog /var/log/httpd/puppet.imim.es_ssl_access.log combined
+</VirtualHost>
+[root@puppet conf.d]# 
+
+
+Mirem d'engegar-lo...
+
+[root@puppet ~]# service httpd start
+Starting httpd: Syntax error on line 27 of
+/etc/httpd/conf.d/puppetmaster.conf:
+Invalid command 'SSLCARevocationCheck', perhaps misspelled or defined by a
+module not included in the server configuration
+                                                           [FAILED]
+[root@puppet ~]# 
+
+Comento la linea de moment
+
+[root@puppet ~]# service httpd start
+Starting httpd: httpd: Could not reliably determine the server's fully
+qualified domain name, using puppet.imim.es for ServerName
+                                                           [  OK  ]
+[root@puppet ~]#
+
+[root@puppet ~]# chkconfig puppetmaster off
+[root@puppet ~]# chkconfig httpd on
+[root@puppet ~]# 
+
+Ara efectivament hi ha quelcom escoltant al 8140:
+
+[root@puppet ~]# netstat -talpn | grep 8140
+tcp        0      0 :::8140                     :::*
+LISTEN      6671/httpd          
+[root@puppet ~]# 
+
+Vaig a mirar..
+
+Obro el port a l'iptables 
+Si vaig amb un navegador amb http --> es queixa que es https
+Si vaig amb https --> es queixa que el 'client no te el certificat' (suposo
+que es ok)
+
+Anem a intentar parlar amb el master desde un client:
+
+Al puppet.conf a la seccio [agent]
+
+server = puppet.imim.es
+
+i executo l'agent:
+
+[root@scientific ~]#  puppet agent --test
+Error: Could not request certificate: Find
+/production/certificate/ca?fail_on_404=true resulted in 404 with the message:
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html><head>
+<title>404 Not Found</title>
+</head><body>
+<h1>Not Found</h1>
+<p>The requested URL /production/certificate/ca was not found on this
+server.</p>
+<hr>
+<address>Apache/2.2.15 (CentOS) Server at puppet.imim.es Port 8140</address>
+</body></html>
+
+Exiting; failed to retrieve certificate and waitforcert is disabled
+[root@scientific ~]# 
+
+
+Al server faig:
+
+[root@puppet ~]# puppet cert list
+Notice: /File[/etc/puppet/environments/production]/ensure: created
+[root@puppet ~]# 
+
+Torno desde el client
+
+[root@scientific ~]#  puppet agent --test
+Error: Could not request certificate: Find
+/production/certificate/ca?fail_on_404=true resulted in 404 with the message:
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html><head>
+<title>404 Not Found</title>
+</head><body>
+<h1>Not Found</h1>
+<p>The requested URL /production/certificate/ca was not found on this
+server.</p>
+<hr>
+<address>Apache/2.2.15 (CentOS) Server at puppet.imim.es Port 8140</address>
+</body></html>
+
+Exiting; failed to retrieve certificate and waitforcert is disabled
+[root@scientific ~]# 
+
+Deshabilito selinux a tots dos (client i server)
+
+Torno a provar:
+
+[root@scientific ~]#  puppet agent --test 
+Info: Caching certificate for ca
+Info: csr_attributes file loading from /etc/puppet/csr_attributes.yaml
+Info: Creating a new SSL certificate request for scientific.imim.es
+Info: Certificate Request fingerprint (SHA256):
+69:77:75:AB:C0:13:FA:08:B1:8C:2F:01:DE:C0:45:E8:24:7C:13:92:A5:5A:F9:6A:0A:A4:B8:9F:0E:88:96:4E
+Info: Caching certificate for ca
+Exiting; no certificate found and waitforcert is disabled
+[root@scientific ~]# 
+
+OK.
+
+[root@puppet ~]# puppet cert list
+  "scientific.imim.es" (SHA256)
+69:77:75:AB:C0:13:FA:08:B1:8C:2F:01:DE:C0:45:E8:24:7C:13:92:A5:5A:F9:6A:0A:A4:B8:9F:0E:88:96:4E
+[root@puppet ~]# 
+
+Ara el signo:
+
+[root@puppet ~]# puppet cert list
+  "scientific.imim.es" (SHA256)
+69:77:75:AB:C0:13:FA:08:B1:8C:2F:01:DE:C0:45:E8:24:7C:13:92:A5:5A:F9:6A:0A:A4:B8:9F:0E:88:96:4E
+[root@puppet ~]# puppet cert sign --all
+Notice: Signed certificate request for scientific.imim.es
+Notice: Removing file Puppet::SSL::CertificateRequest scientific.imim.es at
+'/var/lib/puppet/ssl/ca/requests/scientific.imim.es.pem'
+[root@puppet ~]# 
+
+I desde el client:
+
+[root@scientific ~]#  puppet agent --test 
+Info: Caching certificate for scientific.imim.es
+Info: Caching certificate_revocation_list for ca
+Info: Caching certificate for scientific.imim.es
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Caching catalog for scientific.imim.es
+Info: Applying configuration version '1416242947'
+Info: Creating state file /var/lib/puppet/state/state.yaml
+Notice: Finished catalog run in 0.06 seconds
+[root@scientific ~]# 
+
+Ja funciona (no ha fet res pq no hi ha manifests)
+
+Abans de posar-nos a escriure moduls, anem a veure que hi ha:
+
+[root@puppet ~]# puppet module list
+/etc/puppet/modules (no modules installed)
+/usr/share/puppet/modules (no modules installed)
+[root@puppet ~]# 
+
+
+i que podem trobar:
+
+[root@puppet ~]# puppet module search nis
+Notice: Searching https://forgeapi.puppetlabs.com ...
+NAME                 DESCRIPTION                         AUTHOR
+KEYWORDS        
+desalvo-nis          Puppet module for NIS management    @desalvo                      
+ghoneycutt-nsswitch  Manage nsswitch                     @ghoneycutt   ldap
+nis        
+ericsson-nisclient   Manage the NIS client               @ericsson     nis vas
+qas yp  
+yguenane-authconfig  A Puppet module to manage authc...  @yguenane     nis
+ldap redhat 
+[root@puppet ~]# 
+
+son moduls per NIS
+
+Abans de fer res, ens interessa aprendre a agrupar els nodes en grups (ja que
+la idea es aplicar diferents manifests segons el lab)
+
+
+Links interessants:
+
+Classificacio de nodes fent anar la consola (nomes a Puppet Enterprise)
+https://docs.puppetlabs.com/pe/latest/console_classes_groups.html
+
+altres opcions per fer sevir un GUI :
+https://docs.puppetlabs.com/dashboard/manual/1.2/index.html
+https://github.com/puppet-community/puppetboard
+http://www.olindata.com/blog/2014/01/puppet-management-gui-comparison
+
+
+Hiera (un sistema per definir jerarquies)
+https://docs.puppetlabs.com/hiera/1/index.html
+
+...haure de parlar amb l'Arnau: ell ho fa a pel.
+
+Pot ser interessant mirar:
+
+http://www.mit.edu/people/marthag/talks/puppet/img0.html 
+
+---
+https://docs.puppetlabs.com/pe/latest/puppet_assign_configurations.html
+
+
+https://docs.puppetlabs.com/hiera/1/complete_example.html
+
+---- anem a intentar fer alguna cosa ----
+
+* configurar el client ntp al client scientificlinux via puppet i hiera
+
+[root@puppet ~]# puppet module install puppetlabs-ntp
+Notice: Preparing to install into /etc/puppet/environments/production/modules
+...
+Notice: Downloading from https://forgeapi.puppetlabs.com ...
+Notice: Installing -- do not interrupt ...
+/etc/puppet/environments/production/modules
+└─┬ puppetlabs-ntp (v3.3.0)
+  └── puppetlabs-stdlib (v4.4.0)
+[root@puppet ~]# puppet resource package hiera ensure=installed
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+package { 'hiera':
+  ensure => '1.3.4-1.el6',
+}
+[root@puppet ~]# ls /etc/hiera.yaml 
+/etc/hiera.yaml
+[root@puppet ~]#
+
+Posem a /etc/hiera.yaml
+
+---
+:backends:
+  - yaml
+:hierarchy:
+  - "node/%{::fqdn}"
+  - global
+:yaml:
+  :datadir: /etc/puppet/hieradata
+
+Aixo que vol dir:
+
+1-  :backends: , es el llenguatge amb el que escriurem les coses: yaml
+2.- :hierarchy:, defineix on buscara les dades hiera, en aquest cas, de moment
+ho fem senzill,
+
+ A /etc/puppet/hieradata/node/ posem fitxer amb fqdn.yaml (on
+fqdn=fully qualified domain name) per les coses que volguem especifiques per 1 node
+
+A /etc/puppet/hieradata/global.yaml posem el que volem per tots els nodes.
+
+Com la configuracio de l'ntp es quelcom que voldrem per tots els nodes:
+
+[root@puppet ~]# cat /etc/puppet/hieradata/global.yaml
+---
+ntp::autoupdate: true
+ntp::enable: true
+ntp::servers:
+  - cortazar.imim.es iburst
+  - borges.imim.es  iburst
+
+Veiem si hiera esta llegint be l'info:
+
+[root@puppet ~]# hiera ntp::servers
+["cortazar.imim.es iburst", "borges.imim.es  iburst"]
+[root@puppet ~]# 
+
+Ara escrivim el manifest de puppet
+
+[root@puppet ~]# cat /etc/puppet/manifests/site.pp
+node "scientific" {
+include ntp
+}
+[root@puppet ~]# 
+
+
+El client no s'entera:
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Info: Applying configuration version '1416926024'
+Notice: Finished catalog run in 0.11 seconds
+[root@scientific ~]# 
+
+potser el manifests/site.pp no esta on toca...
+
+[root@puppet ~]# mkdir /etc/puppet/environments/production/manifests
+[root@puppet ~]# mv /etc/puppet/manifests/site.pp
+/etc/puppet/environments/production/manifests
+[root@puppet ~]# 
+
+Ara si que si desde el client (scientific) correm l'agent ha fet alguna cosa:
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1416926409'
+Notice: /Stage[main]/Ntp::Install/Package[ntp]/ensure: created
+Notice: /Stage[main]/Ntp::Config/File[/etc/ntp.conf]/content: 
+--- /etc/ntp.conf	2013-07-15 11:18:47.000000000 +0200
+
+....
+.....
+Info: Computing checksum on file /etc/ntp.conf
+Info: /Stage[main]/Ntp::Config/File[/etc/ntp.conf]: Filebucketed /etc/ntp.conf
+to puppet with sum 6777a310a85c182e90f16ef92f6315e4
+Notice: /Stage[main]/Ntp::Config/File[/etc/ntp.conf]/content: content changed
+'{md5}6777a310a85c182e90f16ef92f6315e4' to
+'{md5}c9d83653966c1e9b8dfbca77b97ff356'
+Info: Class[Ntp::Config]: Scheduling refresh of Class[Ntp::Service]
+Info: Class[Ntp::Service]: Scheduling refresh of Service[ntp]
+Notice: /Stage[main]/Ntp::Service/Service[ntp]/ensure: ensure changed
+'stopped' to 'running'
+Info: /Stage[main]/Ntp::Service/Service[ntp]: Unscheduling refresh on
+Service[ntp]
+Notice: Finished catalog run in 28.25 seconds
+[root@scientific ~]#
+
+Pero no el que voliem:
+[root@scientific ~]# grep borges /etc/ntp.conf
+[root@scientific ~]# grep cortazar /etc/ntp.conf
+
+El problema pot ser la integarcio de puppet amb hiera:
+
+[root@puppet ~]# mv /etc/hiera.yaml /etc/puppet/
+[root@puppet ~]# ln -s /etc/puppet/hiera.yaml /etc/hiera.yaml
+[root@puppet ~]# 
+
+ot@puppet ~]# service httpd status
+httpd (pid  1422) is running...
+[root@puppet ~]# service httpd restart
+Stopping httpd:                                            [  OK  ]
+Starting httpd: httpd: Could not reliably determine the server's fully
+qualified domain name, using puppet.imim.es for ServerName
+                                                           [  OK  ]
+[root@puppet ~]#
+
+Ara si:
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1416928101'
+Notice: /Stage[main]/Ntp::Config/File[/etc/ntp.conf]/content: 
+--- /etc/ntp.conf	2014-11-25 15:40:38.903000362 +0100
++++ /tmp/puppet-file20141125-5609-mewfkt-0	2014-11-25 16:15:15.873762577
++0100
+@@ -13,9 +13,8 @@
+ restrict -6 ::1
+ 
+ 
+-server 0.centos.pool.ntp.org
+-server 1.centos.pool.ntp.org
+-server 2.centos.pool.ntp.org
++server cortazar.imim.es iburst
++server borges.imim.es  iburst
+ 
+ 
+ # Driftfile.
+
+Info: Computing checksum on file /etc/ntp.conf
+Info: /Stage[main]/Ntp::Config/File[/etc/ntp.conf]: Filebucketed /etc/ntp.conf
+to puppet with sum c9d83653966c1e9b8dfbca77b97ff356
+Notice: /Stage[main]/Ntp::Config/File[/etc/ntp.conf]/content: content changed
+'{md5}c9d83653966c1e9b8dfbca77b97ff356' to
+'{md5}39c3d01b5f0af3b9d1585aa292871108'
+Info: Class[Ntp::Config]: Scheduling refresh of Class[Ntp::Service]
+Info: Class[Ntp::Service]: Scheduling refresh of Service[ntp]
+Notice: /Stage[main]/Ntp::Service/Service[ntp]: Triggered 'refresh' from 1
+events
+Notice: Finished catalog run in 1.14 seconds
+[root@scientific ~]#
+
+[root@scientific ~]# grep cortazar /etc/ntp.conf 
+server cortazar.imim.es iburst
+[root@scientific ~]# 
+
+ 
+Ara anem a intentar introduir una altra jerarquia, per poder separar les ws
+per lab.
+
+
+vull una cosa de l'estil
+
+[root@puppet ~]# cat /etc/hiera.yaml 
+---
+:backends:
+  - yaml
+:hierarchy:
+  - "node/%{::fqdn}"
+  - %{lab}
+  - global
+:yaml:
+  :datadir: /etc/puppet/hieradata
+[root@puppet ~]# 
+
+
+on en funcio del lab=ibi,cgl,etc...
+
+Faci una cosa o una altra.
+
+Al server:
+puppet module install ericsson-nisclient
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml 
+---
+lab:: ibi
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+ 
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp 
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+	class { "lab": 
+		lab => ibi,
+ 	}
+}
+
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Error: Could not retrieve catalog from remote server: Error 400 on SERVER:
+Puppet::Parser::AST::Resource failed with error ArgumentError: Could not find
+declared class lab at /etc/puppet/environments/production/manifests/site.pp:6
+on node scientific.imim.es
+Warning: Not using cache on failed catalog
+Error: Could not retrieve catalog; skipping run
+[root@scientific ~]# 
+
+Pero desde el server sembla que ruli:
+
+root@puppet ~]# cat /etc/hiera.yaml 
+---
+:backends:
+  - yaml
+:hierarchy:
+  - "node/%{::fqdn}"
+  - %{lab}
+  - global
+:yaml:
+  :datadir: /etc/puppet/hieradata
+[root@puppet ~]# hiera nisclient::server lab=ibi
+bradbury.imim.es
+[root@puppet ~]# 
+[root@puppet ~]# hiera nisclient::server lab=cgl
+wilde.imim.es
+
+per tant el problema es la sintaxi al site.pp...
+
+torno a reprendre el tema 08-01-15
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+class { "lab":
+	lab => ['ibi'],
+	}
+}
+
+[root@scientific ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Error: Could not retrieve catalog from remote server: Error 400 on SERVER:
+Puppet::Parser::AST::Resource failed with error ArgumentError: Could not find
+declared class lab at /etc/puppet/environments/production/manifests/site.pp:6
+on node scientific.imim.es
+Warning: Not using cache on failed catalog
+Error: Could not retrieve catalog; skipping run
+[root@scientific ~]#
+
+
+Canvio:
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+class { 'laboratori': 
+	lab => ibi,
+	}
+}
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Info: Applying configuration version '1420473335'
+Notice: Finished catalog run in 0.06 seconds
+[root@scientific ~]# 
+
+No ha donat error pero no ha fet res...
+
+A l'arxiu ibi.yaml:
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml 
+---
+lab:: ibi
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+Pero potser falta posar que s'asseguri que hi hagi el nisclient...
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml
+---
+lab:: ibi
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+
+
+[root@puppet ~]#
+
+torna a fallar:
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Error: Could not retrieve catalog from remote server: Error 400 on SERVER:
+Puppet::Parser::AST::Resource failed with error ArgumentError: Could not find
+declared class laboratori at
+/etc/puppet/environments/production/manifests/site.pp:6 on node
+scientific.imim.es
+Warning: Not using cache on failed catalog
+Error: Could not retrieve catalog; skipping run
+
+
+torno a provar una altra manera:
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+$lab = "ibi"
+}
+[root@puppet ~]# 
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420474260'
+Notice: /Stage[main]/Nisclient/Exec[set_nisdomain]/returns: executed
+successfully
+Notice: /Stage[main]/Nisclient/Package[ypbind]/ensure: created
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: 
+--- /etc/yp.conf	2013-02-21 18:27:33.000000000 +0100
++++ /tmp/puppet-file20150108-2383-1r0i3zo-0	2015-01-08 11:50:43.261166138
++0100
+@@ -1,21 +1 @@
+-# /etc/yp.conf - ypbind configuration file
+-# Valid entries are
+-#
+-# domain NISDOMAIN server HOSTNAME
+-#	Use server HOSTNAME for the domain NISDOMAIN.
+-#
+-# domain NISDOMAIN broadcast
+-#	Use  broadcast  on  the local net for domain NISDOMAIN
+-#
+-# domain NISDOMAIN slp
+-#	Query local SLP server for ypserver supporting NISDOMAIN
+-#
+-# ypserver HOSTNAME
+-#	Use server HOSTNAME for the  local  domain.  The
+-#	IP-address of server must be listed in /etc/hosts.
+-#
+-# broadcast
+-#	If no server for the default domain is specified or
+-#	none of them is rechable, try a broadcast call to
+-#	find a server.
+-#
++domain imim.es server 127.0.0.1
+
+Info: Computing checksum on file /etc/yp.conf
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Filebucketed /etc/yp.conf to
+puppet with sum d0709c38348ee6120ca9248543abf135
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: content changed
+'{md5}d0709c38348ee6120ca9248543abf135' to
+'{md5}2818b2eeba239f470a9c6b924261a140'
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Scheduling refresh of
+Exec[ypdomainname]
+Notice: /Stage[main]/Nisclient/Exec[ypdomainname]: Triggered 'refresh' from 1
+events
+Info: /Stage[main]/Nisclient/Exec[ypdomainname]: Scheduling refresh of
+Service[nis_service]
+Notice: /Stage[main]/Nisclient/Service[nis_service]/ensure: ensure changed
+'stopped' to 'running'
+Info: /Stage[main]/Nisclient/Service[nis_service]: Unscheduling refresh on
+Service[nis_service]
+Notice: Finished catalog run in 32.13 seconds
+[root@scientific ~]# cat /etc/yp.conf 
+domain imim.es server 127.0.0.1
+[root@scientific ~]# 
+
+No ha donat error pero no ha configurat el nis correctament...
+
+Deixo el site.pp de nou pelat:
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+}
+
+[root@scientific ~]# yum remove ypbind
+
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420474826'
+Notice: Finished catalog run in 0.52 seconds
+[root@scientific ~]# 
+
+Al server canvio els fitxers:
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml 
+---
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+
+[root@puppet ~]# cat /etc/puppet/hieradata/node/scientific.imim.es.yaml
+lab:: ibi
+
+Tenint en compte el fitxer de hiera:
+
+[root@puppet ~]# cat /etc/puppet/hiera.yaml 
+---
+:backends:
+  - yaml
+:hierarchy:
+  - "node/%{::fqdn}"
+  - %{lab}
+  - global
+:yaml:
+  :datadir: /etc/puppet/hieradata
+[root@puppet ~]# 
+
+Si ho he entes be, aixo hauria d'anar aixi:
+
+Quan executi el puppet aquest hauria de llegir per ordre:
+
+node/scientific.imim.es.yaml --> donara el valor ibi al lab
+ibi.yaml --> instala el client de nis i el configura
+global.yaml --> configura els ntp
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+}
+
+
+provem....
+
+
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420475381'
+Notice: /Stage[main]/Nisclient/Package[ypbind]/ensure: created
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: 
+--- /etc/yp.conf	2013-02-21 18:27:33.000000000 +0100
++++ /tmp/puppet-file20150108-2834-y98yvk-0	2015-01-08 12:09:10.793913502
++0100
+@@ -1,21 +1 @@
+-# /etc/yp.conf - ypbind configuration file
+-# Valid entries are
+-#
+-# domain NISDOMAIN server HOSTNAME
+-#	Use server HOSTNAME for the domain NISDOMAIN.
+-#
+-# domain NISDOMAIN broadcast
+-#	Use  broadcast  on  the local net for domain NISDOMAIN
+-#
+-# domain NISDOMAIN slp
+-#	Query local SLP server for ypserver supporting NISDOMAIN
+-#
+-# ypserver HOSTNAME
+-#	Use server HOSTNAME for the  local  domain.  The
+-#	IP-address of server must be listed in /etc/hosts.
+-#
+-# broadcast
+-#	If no server for the default domain is specified or
+-#	none of them is rechable, try a broadcast call to
+-#	find a server.
+-#
++domain imim.es server 127.0.0.1
+
+Info: Computing checksum on file /etc/yp.conf
+Info: FileBucket got a duplicate file {md5}d0709c38348ee6120ca9248543abf135
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Filebucketed /etc/yp.conf to
+puppet with sum d0709c38348ee6120ca9248543abf135
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: content changed
+'{md5}d0709c38348ee6120ca9248543abf135' to
+'{md5}2818b2eeba239f470a9c6b924261a140'
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Scheduling refresh of
+Exec[ypdomainname]
+Notice: /Stage[main]/Nisclient/Exec[ypdomainname]: Triggered 'refresh' from 1
+events
+Info: /Stage[main]/Nisclient/Exec[ypdomainname]: Scheduling refresh of
+Service[nis_service]
+Notice: /Stage[main]/Nisclient/Service[nis_service]/ensure: ensure changed
+'stopped' to 'running'
+Info: /Stage[main]/Nisclient/Service[nis_service]: Unscheduling refresh on
+Service[nis_service]
+Notice: Finished catalog run in 19.06 seconds
+[root@scientific ~]# cat /etc/yp.conf
+domain imim.es server 127.0.0.1
+[root@scientific ~]#
+
+NO xuta....
+
+Canviem altre cop:
+
+[root@puppet ~]# cat /etc/puppet/hiera.yaml 
+---
+:backends:
+  - yaml
+:hierarchy:
+  - "node/%{::fqdn}"
+  - %{lab_name}
+  - global
+:yaml:
+  :datadir: /etc/puppet/hieradata
+[root@puppet ~]#
+
+[root@puppet ~]# cat /etc/puppet/hieradata/node/scientific.imim.es.yaml
+lab::lab_name: "ibi"
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml 
+---
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+[root@puppet ~]# cat /etc/puppet/hieradata/global.yaml 
+---
+ntp::autoupdate: true
+ntp::enable: true
+ntp::servers:
+  - cortazar.imim.es iburst
+  - borges.imim.es  iburst
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+hiera_include('lab')
+}
+
+Tambe peta...
+
+Tornem a començar :
+
+Provem fent servir custom facts:
+
+Al client:
+[root@scientific ~]# mkdir -p /etc/facter/facts.d/
+[root@scientific ~]# echo 'lab: ibi' >>
+/etc/facter/facts.d/custom_facts.yaml
+[root@scientific ~]#
+[root@scientific ~]# facter -p lab
+ibi
+[root@scientific ~]# 
+
+Al master:
+
+[root@puppet ~]# cat /etc/puppet/hiera.yaml 
+---
+:backends:
+  - yaml
+:hierarchy:
+  - "node/%{::fqdn}"
+  - %{lab}
+  - global
+:yaml:
+  :datadir: /etc/puppet/hieradata
+
+
+[root@puppet ~]# cat /etc/puppet/hieradata/global.yaml 
+---
+ntp::autoupdate: true
+ntp::enable: true
+ntp::servers:
+  - cortazar.imim.es iburst
+  - borges.imim.es  iburst
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml 
+---
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+} 
+
+Provem...i FUNCIONA:
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420486263'
+Notice: /Stage[main]/Nisclient/Exec[change_nisdomain]/returns: executed
+successfully
+Notice: /Stage[main]/Nisclient/Package[ypbind]/ensure: created
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: 
+--- /etc/yp.conf	2013-02-21 18:27:33.000000000 +0100
++++ /tmp/puppet-file20150108-4278-2g5rvo-0	2015-01-08 15:10:33.749834656
++0100
+@@ -1,21 +1 @@
+-# /etc/yp.conf - ypbind configuration file
+-# Valid entries are
+-#
+-# domain NISDOMAIN server HOSTNAME
+-#	Use server HOSTNAME for the domain NISDOMAIN.
+-#
+-# domain NISDOMAIN broadcast
+-#	Use  broadcast  on  the local net for domain NISDOMAIN
+-#
+-# domain NISDOMAIN slp
+-#	Query local SLP server for ypserver supporting NISDOMAIN
+-#
+-# ypserver HOSTNAME
+-#	Use server HOSTNAME for the  local  domain.  The
+-#	IP-address of server must be listed in /etc/hosts.
+-#
+-# broadcast
+-#	If no server for the default domain is specified or
+-#	none of them is rechable, try a broadcast call to
+-#	find a server.
+-#
++domain ibi server bradbury.imim.es
+
+Info: Computing checksum on file /etc/yp.conf
+Info: FileBucket got a duplicate file {md5}d0709c38348ee6120ca9248543abf135
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Filebucketed /etc/yp.conf to
+puppet with sum d0709c38348ee6120ca9248543abf135
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: content changed
+'{md5}d0709c38348ee6120ca9248543abf135' to
+'{md5}2409f45c87da8bcc42368d5fc41b1020'
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Scheduling refresh of
+Exec[ypdomainname]
+Notice: /Stage[main]/Nisclient/Exec[ypdomainname]: Triggered 'refresh' from 1
+events
+Info: /Stage[main]/Nisclient/Exec[ypdomainname]: Scheduling refresh of
+Service[nis_service]
+Notice: /Stage[main]/Nisclient/Service[nis_service]/ensure: ensure changed
+'stopped' to 'running'
+Info: /Stage[main]/Nisclient/Service[nis_service]: Unscheduling refresh on
+Service[nis_service]
+Notice: Finished catalog run in 17.69 seconds
+[root@scientific ~]# cat /etc/yp.conf
+domain ibi server bradbury.imim.es
+ 
+[root@scientific ~]# ypwhich
+172.20.16.19
+[root@scientific ~]# 
+
+Ara anem a  mirar altres coses que ens interessaria fer amb puppet, en funcio del labo:
+
+- fstab 
+
+[root@puppet ~]# puppet module search fstab
+Notice: Searching https://forgeapi.puppetlabs.com ...
+NAME                      DESCRIPTION                 AUTHOR        KEYWORDS    
+AlexCline-fstab           The fstab module helps ...  @AlexCline    fstab
+linux 
+domcleal-augeasproviders  Alternative Augeas-base...  @domcleal     ssh fstab   
+AlexCline-mounts          The mounts module will ...  @AlexCline    nfs fstab   
+[root@puppet ~]#
+
+Mirant la documentacio ens interessaria AlexCline-mounts (que instalara tambe
+el AlexcLine fstab i dirtree)
+
+[root@puppet ~]# puppet module install AlexCline-mounts
+Notice: Preparing to install into /etc/puppet/environments/production/modules
+...
+Notice: Downloading from https://forgeapi.puppetlabs.com ...
+Notice: Installing -- do not interrupt ...
+/etc/puppet/environments/production/modules
+└─┬ AlexCline-mounts (v0.3.1)
+  ├── AlexCline-dirtree (v0.2.1)
+  └─┬ AlexCline-fstab (v0.5.4)
+    └── puppetlabs-stdlib (v4.4.0)
+[root@puppet ~]# 
+
+La sintaxi amb puppet seria
+
+mounts { 'Mount point for NFS data':
+  ensure => present,
+  source => 'alfa.imim.es:/ibi/users',
+  dest   => '/ibi/users',
+  type   => 'nfs',
+  opts   => 'defaults',
+}
+
+I si la passem a yaml
+
+mounts::enable: true
+mounts::source: 'alfa.imim.es:/ibi/users'
+mounts::dest: /ibi/users
+mounts::type: nfs
+mounts::opts: defaults
+
+Per tant ara queda:
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml 
+--- 
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+mounts::enable: true
+mounts::source: 'alfa.imim.es:/ibi/users'
+mounts::dest: /ibi/users
+mounts::type: nfs
+mounts::opts: defaults
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+include mounts
+}
+[root@puppet ~]# 
+
+
+I si executem el client de puppet a la maquina client...no xuta
+
+Provem d'un altra manera...amb el modul fstab
+
+fstab { 'Another test fstab entry':
+  source => 'ahost:/data',
+  dest   => '/data',
+  type   => 'nfs',
+  opts   => 'defaults,noatime,nofail,ro',
+  dump   => 0,
+  passno => 0,
+}
+
+
+modifico ibi.yaml
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml 
+--- 
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+#mounts::source: 'alfa.imim.es:/ibi/users'
+#mounts::dest: /ibi/users
+#mounts::type: nfs
+#mounts::opts: defaults
+
+fstab::source: 'alfa.imim.es:/ibi/users'
+fstab::dest: /ibi/users
+fstab::type: nfs
+fstab::opts: defaults
+fstab::dump: 0
+fstab::passno: 0
+
+
+TAMPOC....so busquem un altra manera:
+
+Potser no cal cap modul especial:
+
+Afegeixo al ibi.yaml
+
+mount:: "/ibi/users"
+mount::device: 'alfa.imim.es:/ibi/users'
+mount::fstype: nfs
+mount::ensure: mounted
+mount::options: default
+mount::atboot: true
+mount::require: /ibi/users
+
+No xuta...provo directament amb puppet sintax desde el site.pp (ja mirare com
+fer-ho amb yaml)
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+mount {"/ibi/users":
+	device => "alfa:/ibi/users",
+	fstype => "nfs",
+	ensure => "mounted",
+	options => "defaults",
+	atboot => true,
+       }
+file {"/ibi/users":
+	ensure => directory,
+	}
+file {"/ibi":
+	ensure => directory,
+	}
+}
+
+Aixi executant l'agent funciona:
+
+[root@scientific ~]# df -h
+Filesystem       Size  Used Avail Use% Mounted on
+/dev/vda1        9.5G  942M  8.1G  11% /
+tmpfs            499M     0  499M   0% /dev/shm
+alfa:/ibi/users  5.9T  1.6T  4.4T  27% /ibi/users
+[root@scientific ~]# 
+
+[root@scientific ~]# cat /etc/fstab 
+# HEADER: This file was autogenerated at Thu Jan 08 17:04:23 +0100 2015
+# HEADER: by puppet.  While it can still be managed manually, it
+# HEADER: is definitely not recommended.
+
+#
+# /etc/fstab
+# Created by anaconda on Mon Nov 17 15:07:42 2014
+#
+# Accessible filesystems, by reference, are maintained under '/dev/disk'
+# See man pages fstab(5), findfs(8), mount(8) and/or blkid(8) for more info
+#
+UUID=a9f8c290-4ebd-4e89-934d-69db86fca15c	/	ext4	defaults
+11
+UUID=7c588289-7417-4bcc-9030-3d958c1d8a7d	swap	swap	defaults
+00
+tmpfs	/dev/shm	tmpfs	defaults	0	0
+devpts	/dev/pts	devpts	gid=5,mode=620	0	0
+sysfs	/sys	sysfs	defaults	0	0
+proc	/proc	proc	defaults	0	0
+alfa:/ibi/users	/ibi/users	nfs	defaults	0	0
+[root@scientific ~]# 
+
+Ara anem a desfer-ho i intentar-ho fer desde hiera...pq sino no te gracia.
+
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml 
+--- 
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+
+file:
+ /ibi:
+     ensure: directory
+file:
+  /ibi/users:
+        ensure: directory
+
+mount: 
+	/ibi/users:
+	device: 'alfa.imim.es:/ibi/users'
+	fstype: nfs
+	ensure: mounted
+	options: default
+	atboot: true
+[root@puppet ~]#
+
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+}
+[root@puppet ~]# 
+
+NO xuta..
+
+Anem a fer-ho diferent:
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml
+--- 
+classes: 
+ - nisclient
+ - shares
+
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+shares::dir1: "/ibi"
+shares::dir2: "/ibi/users"
+shares::server: "alfa:/ibi/users"
+[root@puppet ~]# 
+
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/init.pp 
+hiera_include('classes')
+[root@puppet ~]# 
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp 
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+include shares
+mount {$dir2:
+        device => $server,
+        fstype => "nfs",
+        ensure => "mounted",
+        options => "defaults",
+        atboot => true,
+       }
+file {$dir2:
+        ensure => directory,
+        }
+file {$dir1:
+        ensure => directory,
+        }
+}
+
+Ara desde el command line de hiera al master:
+
+[root@puppet ~]#  hiera shares::server lab=ibi
+alfa:/ibi/users
+[root@puppet ~]# 
+[root@puppet ~]#  hiera shares::dir2 lab=ibi
+/ibi/users
+[root@puppet ~]#
+[root@puppet ~]#  hiera nisclient::server lab=ibi
+bradbury.imim.es
+[root@puppet ~]# 
+
+Anem a executar desde el client
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Error: Could not retrieve catalog from remote server: Error 400 on SERVER:
+Could not find class shares for scientific.imim.es on node scientific.imim.es
+Warning: Not using cache on failed catalog
+Error: Could not retrieve catalog; skipping run
+[root@scientific ~]#
+
+....bfffffff....tornem-hi:
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml
+--- 
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+shares::dir1: "/ibi"
+shares::dir2: "/ibi/users"
+shares::server: "alfa:/ibi/users"
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+$dir2 = hiera("shares::dir2")
+$dir1 = hiera("shares::dir1")
+$server = hiera("shares::server")
+mount {$dir2:
+        device => $server,
+        fstype => "nfs",
+        ensure => "mounted",
+        options => "defaults",
+        atboot => true,
+       }
+file {$dir2:
+        ensure => directory,
+        }
+file {$dir1:
+        ensure => directory,
+        }
+}
+[root@puppet ~]#
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Info: Applying configuration version '1420557169'
+Notice: Finished catalog run in 0.07 seconds
+[root@scientific ~]#
+
+No peta pero no ha fet res...poso n fitxer de test per comprovar si esta
+pillant les variables:
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+$dir2 = hiera("shares::dir2")
+$dir1 = hiera("shares::dir1")
+$server = hiera("shares::server")
+mount {$dir2:
+        device => $server,
+        fstype => "nfs",
+        ensure => "mounted",
+        options => "defaults",
+        atboot => true,
+       }
+file {$dir2:
+        ensure => directory,
+        }
+file {$dir1:
+        ensure => directory,
+        }
+file {'testfile':
+      path    => '/tmp/testfile',
+      ensure  => present,
+      mode    => 0640,
+      content => "itest $dir1 $dir2 $server",
+    }
+}
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420557360'
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/File[testfile]/ensure:
+created
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/ibi/users]/ensure:
+defined 'ensure' as 'mounted'
+Info: Computing checksum on file /etc/fstab
+Error: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/ibi/users]: Could not
+evaluate: Execution of '/bin/mount /ibi/users' returned 1: mount.nfs: mount
+point /ibi/users does not exist
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/File[/ibi]/ensure: created
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/File[/ibi/users]/ensure:
+created
+Notice: Finished catalog run in 3.34 seconds
+[root@scientific ~]# df -h
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1       9.5G  942M  8.1G  11% /
+tmpfs           499M     0  499M   0% /dev/shm
+[root@scientific ~]# cat /tmp/testfile 
+itest /ibi /ibi/users alfa:/ibi/users[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420557360'
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/ibi/users]/ensure:
+ensure changed 'unmounted' to 'mounted'
+Info: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/ibi/users]: Scheduling
+refresh of Mount[/ibi/users]
+Info: Mount[/ibi/users](provider=parsed): Remounting
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/ibi/users]:
+Triggered 'refresh' from 1 events
+Info: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/ibi/users]: Scheduling
+refresh of Mount[/ibi/users]
+Notice: Finished catalog run in 2.83 seconds
+[root@scientific ~]# df -h
+Filesystem       Size  Used Avail Use% Mounted on
+/dev/vda1        9.5G  942M  8.1G  11% /
+tmpfs            499M     0  499M   0% /dev/shm
+alfa:/ibi/users  5.9T  1.6T  4.4T  27% /ibi/users
+[root@scientific ~]# 
+
+Finalment si ha funcionat....sembla com que el master triga una estona en
+tenir tota la info o l'agent a pillar-la...
+
+Compltem:
+
+node 'scientific.imim.es' {
+include ntp
+include nisclient
+$dir3 = hiera("shares::dir3")
+$dir2 = hiera("shares::dir2")
+$dir1 = hiera("shares::dir1")
+$server1 = hiera("shares::server1")
+$server2 = hiera("shares::server2")
+mount {$dir2:
+        device => $server1,
+        fstype => "nfs",
+        ensure => "mounted",
+        options => "defaults",
+        atboot => true,
+       }
+mount {$dir3:
+        device => $server2,
+        fstype => "nfs",
+        ensure => "mounted",
+        options => "defaults",
+        atboot => true,
+       }
+file {$dir2:
+        ensure => directory,
+        }
+file {$dir1:
+        ensure => directory,
+        }
+file {$dir3:
+	ensure => directory,
+	}
+file {'testfile':
+      path    => '/tmp/testfile',
+      ensure  => present,
+      mode    => 0640,
+      content => "test:  $dir2, $server1, $dir3, $server2",
+    }
+}
+[root@puppet ~]#
+
+on 
+
+[root@puppet ~]# cat /etc/puppet/hieradata/ibi.yaml 
+--- 
+nisclient::enable: true
+nisclient::domainname: ibi
+nisclient::server: bradbury.imim.es
+
+shares::dir1: "/ibi"
+shares::dir2: "/ibi/users"
+shares::dir3: "/soft"
+shares::server1: "alfa:/ibi/users"
+shares::server2: "epsilon:/soft/64/SL6.4"
+[root@puppet ~]# 
+
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420559076'
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/File[/soft]/ensure: created
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/File[testfile]/content: 
+--- /tmp/testfile	2015-01-09 11:00:10.761864035 +0100
++++ /tmp/puppet-file20150109-1151-188u453-0	2015-01-09 11:24:02.573115470
++0100
+@@ -1 +1 @@
+-test: /ibi, /ibi/users, alfa:/ibi/users
+\ No newline at end of file
++test:  /ibi/users, alfa:/ibi/users, /soft, epsilon:/soft/64/SL6.4
+\ No newline at end of file
+
+Info: Computing checksum on file /tmp/testfile
+Info: /Stage[main]/Main/Node[scientific.imim.es]/File[testfile]: Filebucketed
+/tmp/testfile to puppet with sum d9da7d945fbf835df86412784bac7ef0
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/File[testfile]/content:
+content changed '{md5}d9da7d945fbf835df86412784bac7ef0' to
+'{md5}80ee740d81f944bba8e66495ebc2e6ae'
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/soft]/ensure:
+defined 'ensure' as 'mounted'
+Info: Computing checksum on file /etc/fstab
+Info: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/soft]: Scheduling
+refresh of Mount[/soft]
+Info: Mount[/soft](provider=parsed): Remounting
+Notice: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/soft]: Triggered
+'refresh' from 1 events
+Info: /Stage[main]/Main/Node[scientific.imim.es]/Mount[/soft]: Scheduling
+refresh of Mount[/soft]
+Notice: Finished catalog run in 4.21 seconds
+[root@scientific ~]# df -h
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/vda1             9.5G  942M  8.1G  11% /
+tmpfs                 499M     0  499M   0% /dev/shm
+alfa:/ibi/users       5.9T  1.6T  4.4T  27% /ibi/users
+epsilon:/soft/64/SL6.4
+                      1.0T  224G  800G  22% /soft
+[root@scientific ~]#
+
+OK!
+
+Ara anem a complicar la cosa...tenim un altre ws virtual (sl2, amb ip
+172.20.16.227) i la volem configurar com si fos una ws de CGL
+
+
+[root@sl2 ~]# cat /etc/facter/facts.d/custom_facts.yaml 
+---
+lab: cgl
+[root@sl2 ~]# 
+
+
+[root@puppet ~]# cat /etc/puppet/hieradata/cgl.yaml 
+--- 
+nisclient::enable: true
+nisclient::domainname: cgl
+nisclient::server: wilde.imim.es
+
+shares::dir1: "/cgl"
+shares::dir2: "/cgl/users"
+shares::dir3: "/soft
+shares::server1: "beta:/cgl/users"
+shares::server2: "epsilon:/soft/64/F12"
+
+
+[root@puppet ~]# cat /etc/puppet/environments/production/manifests/site.pp
+node 'scientific.imim.es','sl2.imim.es' {
+include ntp
+include nisclient
+$dir3 = hiera("shares::dir3")
+$dir2 = hiera("shares::dir2")
+$dir1 = hiera("shares::dir1")
+$server1 = hiera("shares::server1")
+$server2 = hiera("shares::server2")
+mount {$dir2:
+        device => $server1,
+        fstype => "nfs",
+        ensure => "mounted",
+        options => "defaults",
+        atboot => true,
+       }
+mount {$dir3:
+        device => $server2,
+        fstype => "nfs",
+        ensure => "mounted",
+        options => "defaults",
+        atboot => true,
+       }
+file {$dir2:
+        ensure => directory,
+        }
+file {$dir1:
+        ensure => directory,
+        }
+file {$dir3:
+	ensure => directory,
+	}
+file {'testfile':
+      path    => '/tmp/testfile',
+      ensure  => present,
+      mode    => 0640,
+      content => "test:  $dir2, $server1, $dir3, $server2",
+    }
+}
+
+Ara desde el client:
+
+[root@sl2 ~]# puppet agent --test
+Info: Creating a new SSL key for sl2.imim.es
+Info: csr_attributes file loading from /etc/puppet/csr_attributes.yaml
+Info: Creating a new SSL certificate request for sl2.imim.es
+Info: Certificate Request fingerprint (SHA256):
+38:C9:D9:F9:42:64:29:4A:20:C7:01:8E:80:52:AA:7F:52:62:7D:B0:C0:75:D7:6F:B6:E8:12:72:04:5E:C7:98
+Exiting; no certificate found and waitforcert is disabled
+[root@sl2 ~]# 
+
+OK, hem d'acceptar el certificat desde el master
+
+[root@puppet ~]# puppet cert list
+  "sl2.imim.es" (SHA256)
+38:C9:D9:F9:42:64:29:4A:20:C7:01:8E:80:52:AA:7F:52:62:7D:B0:C0:75:D7:6F:B6:E8:12:72:04:5E:C7:98
+[root@puppet ~]# puppet cert sign --all
+Notice: Signed certificate request for sl2.imim.es
+Notice: Removing file Puppet::SSL::CertificateRequest sl2.imim.es at
+'/var/lib/puppet/ssl/ca/requests/sl2.imim.es.pem'
+[root@puppet ~]#
+
+[root@sl2 ~]# puppet agent --test
+Info: Caching certificate for sl2.imim.es
+Info: Caching certificate for sl2.imim.es
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Error: Could not retrieve catalog from remote server: Error 400 on SERVER:
+Error from DataBinding 'hiera' while looking up 'ntp::service_manage': syntax
+error on line 9, col -1: `shares::server2: "epsilon:/soft/64/F12"
+' on node sl2.imim.es
+Warning: Not using cache on failed catalog
+Error: Could not retrieve catalog; skipping run
+[root@sl2 ~]#
+
+hi havia un error de sintaxi al cgl.yaml, el corretgeixo, executo el client i
+voila:
+
+
+[root@sl2 ~]# cat /etc/fstab 
+# HEADER: This file was autogenerated at Fri Jan 09 11:37:02 +0100 2015
+# HEADER: by puppet.  While it can still be managed manually, it
+# HEADER: is definitely not recommended.
+
+#
+# /etc/fstab
+# Created by anaconda on Mon Nov 17 15:07:42 2014
+#
+# Accessible filesystems, by reference, are maintained under '/dev/disk'
+# See man pages fstab(5), findfs(8), mount(8) and/or blkid(8) for more info
+#
+UUID=a9f8c290-4ebd-4e89-934d-69db86fca15c	/	ext4	defaults
+11
+UUID=7c588289-7417-4bcc-9030-3d958c1d8a7d	swap	swap	defaults
+00
+tmpfs	/dev/shm	tmpfs	defaults	0	0
+devpts	/dev/pts	devpts	gid=5,mode=620	0	0
+sysfs	/sys	sysfs	defaults	0	0
+proc	/proc	proc	defaults	0	0
+beta:/cgl/users	/cgl/users	nfs	defaults	0	0
+epsilon:/soft/64/F12	/soft	nfs	defaults	0	0
+[root@sl2 ~]# df -h
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/vda1             9.5G  942M  8.1G  11% /
+tmpfs                 499M     0  499M   0% /dev/shm
+epsilon:/soft/64/F12  1.0T  224G  800G  22% /soft
+beta:/cgl/users       5.9T  2.8T  3.2T  47% /cgl/users
+[root@sl2 ~]# ypwhich
+172.20.16.94
+[root@sl2 ~]# 
+
+[root@sl2 ~]# cat /tmp/testfile 
+test:  /cgl/users, beta:/cgl/users, /soft, epsilon:/soft/64/F12
+
+root@scientific ~]# cat /tmp/testfile 
+test:  /ibi/users, alfa:/ibi/users, /soft, epsilon:/soft/64/SL6.4
+
+Uf....haure de reescriure aquest doc per posar-ho tot + en ordre i guardar a
+part tots els intents que han fallat
+
+Seguim amb temes que hauriem de treballar a les workstations en funcions del
+labo, ja hem fet NIS i NFS, faltaria:
+
+- entrar amb ssh sense passwd desde moebius
+
+Afegim a site.pp
+
+# afegim les claus ssh per a que root@moebius pugui entrar sense passwd
+ssh_authorized_key { 'root@moebius.imim.es':
+	user => 'root',
+	type => 'ssh-rsa',
+	key =>
+'AAAAB3NzaC1yc2EAAAABIwAAAQEApjAuF5vTvQzvUHWv2QmHjeIg/Y9fEQKpX1IOGRC4QclD7uD1MwHlGOJE28R8MIU/3cKHuZGYsyn1GnwmV18LHzWsX1A7jLWEJ8Lns/7pT1rYpGLNipszI+Yb3dHislJNmD+DYIeICuI76q+nR5gA19iZ/9CUGt4xc8BGnvaL7qiEk1F70JPoLGSM04u+LTFTXvg45JzAVXAfnduZI67WJ0b+GC3swPYPp1sbVbMvegzrgHUVRoxannuRMhGCk0SmPksVfhtbawm56JQGVW5W7wKic5XuXhXpTa4B+vitq8TT0JOrUaLRu7yZ5vY3JLhEBCj4GBygUMl8wARQjEkZew==',
+	}
+
+i als clients:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420561738'
+Notice:
+/Stage[main]/Main/Node[sl2.imim.es]/Ssh_authorized_key[root@moebius.imim.es]/ensure:
+created
+Notice: Finished catalog run in 1.43 seconds
+[root@sl2 ~]#
+
+[root@moebius ~]# ssh 172.20.16.227
+Warning: untrusted X11 forwarding setup failed: xauth key data not generated
+Warning: No xauth data; using fake authentication data for X11 forwarding.
+Last login: Fri Jan  9 11:25:42 2015 from 172.20.16.221
+[root@sl2 ~]#
+
+yata...:-)
+
+Provo a canviar un node de environment
+[root@sl2 ~]# tail -2 /etc/puppet/puppet.conf 
+    # prova per canviar-lo d'environment
+    environment = test
+[root@sl2 ~]# 
+
+root@puppet ~]# cat /etc/puppet/environments/test/manifests/site.pp
+node 'sl2.imim.es' {
+file {'testfile':
+	path => '/tmp/zz',
+	ensure => present,
+	mode    => 0640,
+	content => "zzz...",
+      }
+}
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Info: Applying configuration version '1420564938'
+Notice: Finished catalog run in 0.08 seconds
+
+no s'entera...pero al cap d'una estona:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Info: Applying configuration version '1420568334'
+Notice: /Stage[main]/Main/Node[sl2.imim.es]/File[testfile]/ensure: created
+Notice: Finished catalog run in 0.12 seconds
+[root@sl2 ~]# cat /tmp/zz 
+zzz...[root@sl2 ~]#
+
+Ara fare servir l'entorn de test per veure com podem fer les coses mes
+modulars (amb diferents .pp) en comptes de tot al mateix file (tot i que ja
+vaurem si al final ho fem servir o no)
+
+[root@puppet test]# pwd
+/etc/puppet/environments/test
+[root@puppet test]# cat environment.conf 
+# test
+manifest = /etc/puppet/environments/test/manifests
+[root@puppet test]#
+
+amb aquesta linea, segons la documentacio, el entorn de test es comportara
+llegint tots els .pp que hi hagi al directori
+/etc/puppet/environments/test/manifests
+i no nomes el site.pp
+
+[root@puppet manifests]# cat site.pp 
+node 'sl2.imim.es' {
+file {'testfile':
+	path => '/tmp/zz',
+	ensure => present,
+	mode    => 0640,
+	content => "zzz...",
+      }
+}
+i afegim:
+[root@puppet manifests]# cat test.pp 
+file {'testfile2':
+	path => '/tmp/test-again',
+	ensure => present,
+	mode    => 0640,
+	content => "prova modular",
+      }
+
+Al client:
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Info: Applying configuration version '1420571412'
+Notice: /Stage[main]/Main/File[testfile2]/ensure: created
+Notice: Finished catalog run in 0.30 seconds
+
+[root@sl2 ~]# cat /tmp/test-again 
+prova modular
+
+
+OK. Aixo ens pot interessar per fer menys pesat el site.pp
+
+Una altra cosa que ens pot interessar es afegir una impresora.
+
+[root@puppet manifests]# puppet module search cups
+Notice: Searching https://forgeapi.puppetlabs.com ...
+NAME          DESCRIPTION                         AUTHOR        KEYWORDS        
+mosen-cups    Manage printers using the cups ...  @mosen        osx cups        
+[root@puppet manifests]# puppet module install mosen-cups
+Notice: Preparing to install into /etc/puppet/environments/production/modules
+...
+Notice: Downloading from https://forgeapi.puppetlabs.com ...
+Notice: Installing -- do not interrupt ...
+/etc/puppet/environments/production/modules
+└── mosen-cups (v1.3.0)
+[root@puppet manifests]# 
+
+[root@puppet manifests]# cat printer.pp 
+printer { "laser-bn":
+    ensure      => present,
+    uri         => "ipp://gutenberg.imim.es/printers/laser-bn",
+    description => "HP LaserJet 600",
+    location    => "4.83",
+    model       => "HP LaserJet 600 M601 M602 M603 Postscript", # A valid
+model, you can list these with lpinfo -m
+    shared      => false, # Printer will be shared and published by CUPS
+    enabled     => true, # Enabled by default
+    options     => { media => 'A4' }, # Hash of options ( name => value ),
+these are non vendor specific options.
+    ppd_options => { 'HPOption_Duplexer' => 'True' }, # Hash of vendor PPD
+options
+}
+package { "cups": ensure => "installed" }
+service { "cups":
+  ensure => "running",
+}
+
+Al client:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Error: Could not retrieve catalog from remote server: Error 400 on SERVER:
+Puppet::Parser::AST::Resource failed with error ArgumentError: Invalid
+resource type printer at /etc/puppet/environments/test/manifests/printer.pp:11
+on node sl2.imim.es
+Warning: Not using cache on failed catalog
+Error: Could not retrieve catalog; skipping run
+[root@sl2 ~]# 
+
+no acaba de rular...
+
+Ok...falta el modul a l'entorn de test (per defecte els instala al de
+produccio)
+
+[root@puppet manifests]# ls ../modules/
+nisclient  ntp  rpcbind  stdlib
+[root@puppet manifests]# ls ../../
+example_env  production  test
+[root@puppet manifests]# ls ../../production/modules/
+cups  nisclient  ntp  rpcbind  stdlib
+[root@puppet manifests]# cp -rp ../../production/modules/cups ../modules/
+[root@puppet manifests]#
+
+
+Ara peta:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420578797'
+Notice: /Stage[main]/Main/Printer[laser-bn]/ensure: created
+Error: /Stage[main]/Main/Printer[laser-bn]: Could not evaluate: Execution of
+'/usr/sbin/lpadmin -p laser-bn -E -vipp://gutenberg.imim.es/printers/laser-bn
+-mHP LaserJet 600 M601 M602 M603 Postscript -L4.83 -DHP LaserJet 600 -o
+printer-is-shared=false' returned 1: lpadmin: Unable to copy PPD file!
+Notice: Finished catalog run in 0.76 seconds
+[root@sl2 ~]# 
+
+pero ha intentat fer alguna cosa..pero falta el ppd que li hauriem de
+proporcionar...
+
+Podem copiar fitxers del master a un agent. Per fer-ho primer poso els ppd de
+les impresores al master:
+
+[root@puppet ppd]# pwd
+/etc/puppet/environments/test/files/ppd
+[root@puppet ppd]# ls
+laser-bn.ppd  laser-color.ppd
+[root@puppet ppd]#
+
+Ara al manifest printer.pp afegeixo:
+
+# copiem el ppd
+file { "/etc/cups/ppd/laser-bn.ppd":
+    mode   => 440,
+    owner  => root,
+    group  => root,
+    source => "puppet:///files/ppd/laser-bn.ppd"
+}
+
+i a la definicio de printer li afegeixo 
+ppd         => "/etc/cups/ppd/laser-bn.ppd",
+
+
+[root@puppet ~]# cat /etc/puppet/environments/test/manifests/printer.pp
+printer { "laser-bn":
+    ensure      => present,
+    uri         => "ipp://gutenberg.imim.es/printers/laser-bn",
+    description => "HP LaserJet 600",
+    location    => "4.83",
+    ppd		=> "/etc/cups/ppd/laser-bn.ppd",
+    model       => "HP LaserJet 600 M601 M602 M603 Postscript", 
+    shared      => false, 
+    enabled     => true, 
+    options     => { media => 'A4' }, 
+    ppd_options => { 'HPOption_Duplexer' => 'True' }, 
+}
+service { "cups":
+  ensure => "running",
+}
+package { "cups": 
+	ensure => "installed", 
+}
+# copiem el ppd
+file { "/etc/cups/ppd/laser-bn.ppd":
+    mode   => 440,
+    owner  => root,
+    group  => root,
+    source => "puppet:///files/ppd/laser-bn.ppd"
+}
+
+Ara executem l'agent de puppet a sl2
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420812600'
+Error: /Stage[main]/Main/File[/etc/cups/ppd/laser-bn.ppd]: Could not evaluate:
+Could not retrieve file metadata for puppet:///files/ppd/laser-bn.ppd: Error
+400 on SERVER: Not authorized to call find on
+/file_metadata/files/ppd/laser-bn.ppd with {:links=>"manage",
+:source_permissions=>"use"}
+Wrapped exception:
+Error 400 on SERVER: Not authorized to call find on
+/file_metadata/files/ppd/laser-bn.ppd with {:links=>"manage",
+:source_permissions=>"use"}
+Notice: /Stage[main]/Main/Printer[laser-bn]: Dependency
+File[/etc/cups/ppd/laser-bn.ppd] has failures: true
+Warning: /Stage[main]/Main/Printer[laser-bn]: Skipping because of failed
+dependencies
+Notice: Finished catalog run in 1.11 seconds
+[root@sl2 ~]# 
+
+
+buscant a google l'error, sembla que el fitxer ha d'estar a dins de modules:
+
+/etc/puppet/environments/test/modules/ppd/files/laser-bn.ppd
+
+i s'ha de referenciar com:
+
+puppet:///modules/ppd/laser-bn.ppd
+
+[root@puppet ~]# cat /etc/puppet/environments/test/manifests/printer.pp 
+#printer { "laser-bn":
+#    ensure      => present,
+#    uri         => "ipp://gutenberg.imim.es/printers/laser-bn",
+#    description => "HP LaserJet 600",
+#    location    => "4.83",
+#    ppd		=> "/etc/cups/ppd/laser-bn.ppd",
+#    model       => "HP LaserJet 600 M601 M602 M603 Postscript", 
+#    shared      => false, 
+#    enabled     => true, 
+#    options     => { media => 'A4' }, 
+#    ppd_options => { 'HPOption_Duplexer' => 'True' }, 
+#}
+service { "cups":
+  ensure => "running",
+}
+package { "cups": 
+	ensure => "installed", 
+}
+# copiem el ppd
+file { "/etc/cups/ppd/laser-bn.ppd":
+    mode   => 644,
+    owner  => root,
+    group  => root,
+    ensure => present,
+    source => "puppet:///modules/ppd/laser-bn.ppd"
+}
+
+Ara sembla que si copia el ppd (he hagut de comentar les linees de printer...
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420817111'
+Notice: /Stage[main]/Main/File[/etc/cups/ppd/laser-bn.ppd]/ensure: defined
+content as '{md5}a66889c2cc7646d49feaab3538d5fccf'
+Notice: Finished catalog run in 1.47 seconds
+[root@sl2 ~]# ls /etc/cups/ppd/
+laser-bn.ppd
+[root@sl2 ~]# 
+
+Pero al descomentar les linees se'l carrega:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420817297'
+Notice: /Stage[main]/Main/Printer[laser-bn]/ensure: created
+Error: /Stage[main]/Main/Printer[laser-bn]: Could not evaluate: Execution of
+'/usr/sbin/lpadmin -p laser-bn -E -vipp://gutenberg.imim.es/printers/laser-bn
+-P/etc/cups/ppd/laser-bn.ppd -mHP LaserJet 600 M601 M602 M603 Postscript
+-L4.83 -DHP LaserJet 600 -o printer-is-shared=false' returned 1: lpadmin:
+Unable to copy PPD file!
+Notice: Finished catalog run in 1.36 seconds
+[root@sl2 ~]# lpstat -a
+lpstat: No destinations added.
+[root@sl2 ~]# ls /etc/cups/ppd/
+[root@sl2 ~]# 
+
+
+Potser el ppd a la linea printer li diu quin es l'origen on ha d'agafar el
+ppd...per posar-lo a /etc/cups/ppd....provem de fer-ho diferent:
+
+[root@sl2 ~]# mkdir -p /root/files/ppd
+[root@puppet ~]# cat  /etc/puppet/environments/test/manifests/printer.pp
+printer { "laser-bn":
+    ensure      => present,
+    uri         => "ipp://gutenberg.imim.es/printers/laser-bn",
+    description => "HP LaserJet 600",
+    location    => "4.83",
+    ppd		=> "/root/files/ppd/laser-bn.ppd",
+    model       => "HP LaserJet 600 M601 M602 M603 Postscript", 
+    shared      => false, 
+    enabled     => true, 
+    options     => { media => 'A4' }, 
+    ppd_options => { 'HPOption_Duplexer' => 'True' }, 
+}
+service { "cups":
+  ensure => "running",
+}
+package { "cups": 
+	ensure => "installed", 
+}
+# copiem el ppd
+file { "/root/files/ppd/laser-bn.ppd":
+    mode   => 644,
+    owner  => root,
+    group  => root,
+    ensure => present,
+    source => "puppet:///modules/ppd/laser-bn.ppd"
+}
+
+Resultat:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420817553'
+Notice: /Stage[main]/Main/File[/root/files/ppd/laser-bn.ppd]/ensure: defined
+content as '{md5}a66889c2cc7646d49feaab3538d5fccf'
+Notice: /Stage[main]/Main/Printer[laser-bn]/ensure: created
+Error: /Stage[main]/Main/Printer[laser-bn]: Could not evaluate: Execution of
+'/usr/sbin/lpadmin -p laser-bn -E -vipp://gutenberg.imim.es/printers/laser-bn
+-P/root/files/ppd/laser-bn.ppd -mHP LaserJet 600 M601 M602 M603 Postscript
+-L4.83 -DHP LaserJet 600 -o printer-is-shared=false' returned 1: lpadmin:
+Unable to copy PPD file!
+Notice: Finished catalog run in 3.35 seconds
+[root@sl2 ~]# ls /root/files/ppd/
+laser-bn.ppd
+[root@sl2 ~]# ls /etc/cups/ppd/
+[root@sl2 ~]#
+
+Fent google....trobo que el quee sta malament es la linea 'model' del manifest
+de printer, la trec i voila:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420818093'
+Notice: /Stage[main]/Main/Printer[laser-bn]/ensure: created
+Notice: Finished catalog run in 1.44 seconds
+[root@sl2 ~]# lpstat -a
+laser-bn accepting requests since Mon 12 Jan 2015 11:21:03 AM CET
+[root@sl2 ~]# ls /etc/cups/ppd/
+laser-bn.ppd
+[root@sl2 ~]# 
+
+
+Ara provem a l'entorn de produccio fer dues coses:
+
+a) modularitzar el site.pp
+
+[root@puppet production]# cat
+/etc/puppet/environments/production/environment.conf
+# Definint el manifest com un directori
+# fem que l'agent llegeixi tots els manifests que hi ha a
+# aquest directori
+manifest = /etc/puppet/environments/production/manifests
+
+----------
+[root@puppet manifests]# pwd
+/etc/puppet/environments/production/manifests
+[root@puppet manifests]# ls
+basic.pp  nfs-mounts.pp  printer.pp  ssh-sense-passwd.pp  tests.pp
+[root@puppet manifests]#
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420819261'
+Notice: /Stage[main]/Main/Service[cups]/ensure: ensure changed 'stopped' to
+'running'
+Info: /Stage[main]/Main/Service[cups]: Unscheduling refresh on Service[cups]
+Notice: /Stage[main]/Main/File[/root/files/ppd/laser-bn.ppd]/ensure: defined
+content as '{md5}a66889c2cc7646d49feaab3538d5fccf'
+Notice: /Stage[main]/Main/Printer[laser-bn]/ensure: created
+Notice: /Stage[main]/Main/File[testfile2]/content: 
+--- /tmp/testfile2	2015-01-09 12:43:27.619317150 +0100
++++ /tmp/puppet-file20150112-3915-8w1bgj-0	2015-01-12 11:42:59.175908045
++0100
+@@ -1 +1,2 @@
+-test: prova  
+\ No newline at end of file
++test: prova
++  
+\ No newline at end of file
+
+Info: Computing checksum on file /tmp/testfile2
+Info: /Stage[main]/Main/File[testfile2]: Filebucketed /tmp/testfile2 to puppet
+with sum 2d860b533ff37e9ffd046dd86cfcc392
+Notice: /Stage[main]/Main/File[testfile2]/content: content changed
+'{md5}2d860b533ff37e9ffd046dd86cfcc392' to
+'{md5}2d8a7550f1a170eea861c8a0da04698a'
+Notice: Finished catalog run in 7.47 seconds
+[root@scientific ~]#
+
+OK.
+
+
+b) afegir la de color:
+
+[root@puppet manifests]# cat printer.pp 
+printer { "laser-bn":
+    ensure      => present,
+    uri         => "ipp://gutenberg.imim.es/printers/laser-bn",
+    description => "HP LaserJet 600",
+    location    => "4.83",
+    ppd		=> "/root/files/ppd/laser-bn.ppd",
+    shared      => false, 
+    enabled     => true, 
+    options     => { media => 'A4' }, 
+    ppd_options => { 'HPOption_Duplexer' => 'True' }, 
+}
+printer { "laser-color":
+    ensure      => present,
+    uri         => "ipp://gutenberg.imim.es/printers/laser-color",
+    description => "HP Color LaserJet CP3525",
+    location    => "Secretaria",
+    ppd         => "/root/files/ppd/laser-color.ppd",
+    shared      => false,
+    enabled     => true,
+    options     => { media => 'A4' },
+    ppd_options => { 'HPOption_Duplexer' => 'True' },
+}
+service { "cups":
+  ensure => "running",
+}
+package { "cups": 
+	ensure => "installed", 
+}
+# copiem els ppd
+file { "/root/files/ppd/laser-bn.ppd":
+    mode   => 644,
+    owner  => root,
+    group  => root,
+    ensure => present,
+    source => "puppet:///modules/ppd/laser-bn.ppd"
+}
+file { "/root/files/ppd/laser-color.ppd":
+    mode   => 644,
+    owner  => root,
+    group  => root,
+    ensure => present,
+    source => "puppet:///modules/ppd/laser-color.ppd"
+}
+
+[root@scientific ~]#  puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420819790'
+Notice: /Stage[main]/Main/File[/root/files/ppd/laser-color.ppd]/ensure:
+defined content as '{md5}afeca80aab4bed8560f3603fa9292e46'
+Notice: /Stage[main]/Main/Printer[laser-color]/ensure: created
+Notice: Finished catalog run in 4.50 seconds
+[root@scientific ~]# lpstat -a
+laser-bn accepting requests since Mon 12 Jan 2015 11:42:55 AM CET
+laser-color accepting requests since Mon 12 Jan 2015 11:49:22 AM CET
+[root@scientific ~]#
+
+- Ara mateix hi ha una barreja de info als manifests i info a hiera...hauriem de
+passar el maxim d'info via hiera.
+
+- hauriem de controlar les versions dels manifests (.pp) i dels yaml de
+  hieradata...
+
+=> hem de practicar amb git...
+
+De moment poso en marxa el l'agent de puppet a una de les maquines:
+
+chkconfig puppet on
+service puppet start
+
+segons la doc de puppet:
+The Puppet agent service defaults to doing a configuration run every 30
+minutes. You can configure this with the runinterval setting in puppet.conf:
+
+# /etc/puppet/puppet.conf
+[agent]
+  runinterval = 2h
+
+de moment deixo el valor by default de 30'
+
+-------------------------
+despres de pensar-m'ho crec que passarem de hiera i nomes fare servir els
+custom_facts per separar els nodes:
+
+[root@puppet manifests]# cat test-case.pp 
+case $lab {
+
+	'ibi': { $mynisserver = 'bradbury.imim.es' $mynisdomain = 'ibi' }
+
+	'cgl': { $mynisserver = 'wilde.imim.es' $mynisdomain = 'cgl' }
+}
+file {'test-case':
+	path => '/tmp/test-case',
+	mode => 0640,
+	ensure => present,
+	content => " server nis: $mynisserver\n  domain: $mynisdomain\n",
+}
+	
+
+i als nodes:
+
+[root@scientific ~]# cat /tmp/test-case 
+ server nis: bradbury.imim.es
+  domain: ibi
+[root@scientific ~]# 
+[root@sl2 ~]# cat /tmp/test-case 
+ server nis: wilde.imim.es
+  domain: cgl
+[root@sl2 ~]# 
+
+Aixi nomes ens hem de barallar amb puppet....i no barregem puppet+hiera...
+
+Aixo implica reescriure els manifests...
+
+Comento la linea de 'include nisclient' a basic.pp
+Escric un manifest nis.pp:
+
+[root@puppet manifests]# cat nis.pp 
+case $lab {
+
+	'ibi': { $mynisserver = 'bradbury.imim.es' $mynisdomain = 'ibi' }
+
+	'cgl': { $mynisserver = 'wilde.imim.es' $mynisdomain = 'cgl' }
+}
+class { "nisclient":
+	domainname => $mynisdomain,
+	server => $mynisserver,
+}
+[root@puppet manifests]#
+
+Ara a un dels clients li trec el nis:
+
+[root@sl2 ~]# yum remove ypbind
+
+i executo el l'agent de puppet:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Error: Could not retrieve catalog from remote server: Error 400 on SERVER:
+Cannot reassign variable mynisserver at
+/etc/puppet/environments/production/manifests/test-case.pp:5 on node
+sl2.imim.es
+Warning: Not using cache on failed catalog
+Error: Could not retrieve catalog; skipping run
+[root@sl2 ~]#
+
+mirant doc, veig que puppet no permet re-assignar variables...intento fer
+aixo:
+
+[root@puppet manifests]# cat nis.pp 
+case $lab {
+
+	'ibi': { $mynisserver = 'bradbury.imim.es' $mynisdomain = 'ibi' }
+
+	'cgl': { $mynisserver = 'wilde.imim.es' $mynisdomain = 'cgl' }
+}
+class { "nisclient":
+# puppet no permet reassignar variables. 
+# defineixo una de nova amb el valor de l'anterior
+	$_my_nis_server = $mynisserver,
+	$_my_nis_domain = $mynisdomain,
+	domainname => $_my_nis_domain,
+	server => $_my_nis_server,
+}
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Error: Could not retrieve catalog from remote server: Error 400 on SERVER:
+Cannot reassign variable mynisserver at
+/etc/puppet/environments/production/manifests/test-case.pp:5 on node
+sl2.imim.es
+Warning: Not using cache on failed catalog
+Error: Could not retrieve catalog; skipping run
+[root@sl2 ~]# 
+
+Al server:
+[root@puppet manifests]# mv test-case.pp /root/
+[root@puppet manifests]# service httpd restart
+Stopping httpd:                                            [  OK  ]
+Starting httpd: httpd: Could not reliably determine the server's fully
+qualified domain name, using puppet.imim.es for ServerName
+                                                           [  OK  ]
+[root@puppet manifests]#
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420989523'
+Notice: /Stage[main]/Nisclient/Package[ypbind]/ensure: created
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: 
+--- /etc/yp.conf	2013-02-21 18:27:33.000000000 +0100
++++ /tmp/puppet-file20150114-25757-1m6n1uv-0	2015-01-14 10:58:30.925398457
++0100
+@@ -1,21 +1 @@
+-# /etc/yp.conf - ypbind configuration file
+-# Valid entries are
+-#
+-# domain NISDOMAIN server HOSTNAME
+-#	Use server HOSTNAME for the domain NISDOMAIN.
+-#
+-# domain NISDOMAIN broadcast
+-#	Use  broadcast  on  the local net for domain NISDOMAIN
+-#
+-# domain NISDOMAIN slp
+-#	Query local SLP server for ypserver supporting NISDOMAIN
+-#
+-# ypserver HOSTNAME
+-#	Use server HOSTNAME for the  local  domain.  The
+-#	IP-address of server must be listed in /etc/hosts.
+-#
+-# broadcast
+-#	If no server for the default domain is specified or
+-#	none of them is rechable, try a broadcast call to
+-#	find a server.
+-#
++domain cgl server wilde.imim.es
+
+Info: Computing checksum on file /etc/yp.conf
+Info: FileBucket got a duplicate file {md5}d0709c38348ee6120ca9248543abf135
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Filebucketed /etc/yp.conf to
+puppet with sum d0709c38348ee6120ca9248543abf135
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: content changed
+'{md5}d0709c38348ee6120ca9248543abf135' to
+'{md5}5a0c7aee9219ee7183762760e34cb27f'
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Scheduling refresh of
+Exec[ypdomainname]
+Notice: /Stage[main]/Nisclient/Exec[ypdomainname]: Triggered 'refresh' from 1
+events
+Info: /Stage[main]/Nisclient/Exec[ypdomainname]: Scheduling refresh of
+Service[nis_service]
+Notice: /Stage[main]/Nisclient/Service[nis_service]/ensure: ensure changed
+'stopped' to 'running'
+Info: /Stage[main]/Nisclient/Service[nis_service]: Unscheduling refresh on
+Service[nis_service]
+Notice: Finished catalog run in 15.94 seconds
+[root@sl2 ~]#
+
+[root@sl2 ~]# cat /etc/yp.conf
+domain cgl server wilde.imim.es
+[root@sl2 ~]# ypwhich
+172.20.16.94
+[root@sl2 ~]# 
+
+Ok...sembla que funciona.
+
+Anem a desfer el que depen de hiera:
+
+he mogut els .pp que tenien dependencies de hiera i algun altre de test a
+/root/old-puppet-manifests/
+
+queda:
+
+[root@puppet manifests]# ls
+all-nodes-ntp.pp  only-one.pp  printer.pp
+nis.pp            packages.pp  ssh-sense-passwd.pp
+[root@puppet manifests]# 
+
+[root@puppet manifests]# cat all-nodes-ntp.pp 
+node default {
+# NTP
+class { "::ntp":
+	servers    => [ 'cortazar.imim.es','borges.imim.es'],
+	package_ensure => present,
+	}
+# END
+}
+
+Ara desfaig la configuracio de hiera amb puppet:
+
+[root@puppet manifests]# mkdir /root/puppet-hiera
+[root@puppet manifests]# mv /etc/puppet/hiera.yaml /root/puppet-hiera
+[root@puppet manifests]# mv /etc/puppet/hieradata /root/puppet-hiera
+[root@puppet manifests]# service httpd restart
+Stopping httpd:                                            [  OK  ]
+Starting httpd: httpd: Could not reliably determine the server's fully
+qualified domain name, using puppet.imim.es for ServerName
+                                                           [  OK  ]
+[root@puppet manifests]#
+
+
+[root@puppet manifests]# cat nfs-mounts.pp 
+# NFS
+#
+case $lab {
+
+	'ibi' : { 
+		mount {'/ibi/users':
+       		device => "alfa:/ibi/users",
+        	fstype => "nfs",
+        	ensure => "mounted",
+        	options => "defaults",
+        	atboot => true,
+        	}
+		# previament hem hagut d'assegurar que els punts de muntatge
+		# existien i si no crear-los
+		file {'/ibi/users':
+        		ensure => directory,
+        	}
+		file {'/ibi':
+        		ensure => directory,
+        	}
+	}
+# END CASE
+}
+
+A l'agent:
+
+[root@scientific ~]# umount /ibi/users
+[root@scientific ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420991493'
+Notice: /Stage[main]/Main/Mount[/ibi/users]/ensure: ensure changed 'unmounted'
+to 'mounted'
+Info: /Stage[main]/Main/Mount[/ibi/users]: Scheduling refresh of
+Mount[/ibi/users]
+Info: Mount[/ibi/users](provider=parsed): Remounting
+Notice: /Stage[main]/Main/Mount[/ibi/users]: Triggered 'refresh' from 1 events
+Info: /Stage[main]/Main/Mount[/ibi/users]: Scheduling refresh of
+Mount[/ibi/users]
+Notice: Finished catalog run in 4.14 seconds
+[root@scientific ~]# 
+[root@scientific ~]# df -h
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/vda1             9.5G  1.1G  8.0G  13% /
+tmpfs                 499M     0  499M   0% /dev/shm
+epsilon:/soft/64/SL6.4
+                      1.0T  226G  798G  23% /soft
+pandora:/ibi/users    868G  435G  433G  51% /backup
+epsilon:/db           5.0T  3.8T  1.3T  76% /db
+alfa:/ibi/users       5.9T  1.6T  4.3T  27% /ibi/users
+[root@scientific ~]# 
+
+Modifico l'nfs-mounts.pp:
+
+
+
+[root@puppet manifests]# cat nfs-mounts.pp 
+# NFS
+#
+case $lab {
+
+	'ibi' : { 
+		mount {'/ibi/users':
+       		device => "alfa:/ibi/users",
+        	fstype => "nfs",
+        	ensure => "mounted",
+        	options => "defaults",
+        	atboot => true,
+        	}
+		mount {'/backup':
+                device => "pandora:/ibi/users",
+                fstype => "nfs",
+                ensure => "mounted",
+                options => "defaults",
+                atboot => true,
+                }
+		# previament hem hagut d'assegurar que els punts de muntatge
+		# existien i si no crear-los
+		file {
+		['/ibi', '/ibi/users', '/backup', '/db', '/soft']:
+        		ensure => directory,
+        	}
+	}
+# END CASE
+}
+
+Ara intentare fer una mena de loop per no haver d'escriure la seccio mount per
+cada punt de muntatge.
+
+case $lab {
+
+	'ibi' : {
+		$nfs_mount = { 
+       		device => "epsilon:/soft/64/SL6.4",
+        	fstype => "nfs",
+        	ensure => "mounted",
+        	options => "defaults",
+        	atboot => true,
+        	}
+		$data = {
+		'/ibi/users' => {
+			device => "alfa:/ibi/users",
+			},
+		'/backup' => {
+			device => "pandora:/ibi/users",
+			},
+		'/db' => {
+			device => "epsilon:/db",
+			},
+		'/soft' => {
+			device => "epsilon:/soft/64/SL6.4",
+			}
+		}
+		create_resources('mount', $data, $nfs_mount)
+		# previament hem hagut d'assegurar que els punts de muntatge
+		# existien i si no crear-los
+		file {
+		['/ibi', '/ibi/users', '/backup', '/db', '/soft']:
+        		ensure => directory,
+        	}
+	}
+# END CASE
+}
+
+Provo al client
+
+[root@scientific ~]# umount /backup /db
+
+
+[root@scientific ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for scientific.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420993438'
+Notice: /Stage[main]/Main/Mount[/db]/ensure: ensure changed 'unmounted' to
+'mounted'
+Info: /Stage[main]/Main/Mount[/db]: Scheduling refresh of Mount[/db]
+Info: Mount[/db](provider=parsed): Remounting
+Notice: /Stage[main]/Main/Mount[/db]: Triggered 'refresh' from 1 events
+Info: /Stage[main]/Main/Mount[/db]: Scheduling refresh of Mount[/db]
+Notice: /Stage[main]/Main/Mount[/backup]/ensure: ensure changed 'unmounted' to
+'mounted'
+Info: /Stage[main]/Main/Mount[/backup]: Scheduling refresh of Mount[/backup]
+Info: Mount[/backup](provider=parsed): Remounting
+Notice: /Stage[main]/Main/Mount[/backup]: Triggered 'refresh' from 1 events
+Info: /Stage[main]/Main/Mount[/backup]: Scheduling refresh of Mount[/backup]
+Notice: Finished catalog run in 4.67 seconds
+[root@scientific ~]# df -h
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/vda1             9.5G  1.1G  8.0G  13% /
+tmpfs                 499M     0  499M   0% /dev/shm
+epsilon:/soft/64/SL6.4
+                      1.0T  226G  798G  23% /soft
+alfa:/ibi/users       5.9T  1.6T  4.3T  27% /ibi/users
+epsilon:/db           5.0T  3.8T  1.3T  76% /db
+pandora:/ibi/users    868G  435G  433G  51% /backup
+[root@scientific ~]#
+
+OK!
+
+Ara afegeixo:
+
+'cgl': {
+                $nfs_mount = {
+                device => "epsilon:/soft/64/SL6.4",
+                fstype => "nfs",
+                ensure => "mounted",
+                options => "defaults",
+                atboot => true,
+                }
+                $data = {
+                '/cgl/users' => {
+                        device => "beta:/cgl/users",
+                        },
+                '/backup' => {
+                        device => "pandora:/cgl/users",
+                        },
+                '/db' => {
+                        device => "epsilon:/db",
+                        },
+                '/soft' => {
+                        device => "epsilon:/soft/64/SL6.4",
+                        }
+                }
+                create_resources('mount', $data, $nfs_mount)
+                # previament hem hagut d'assegurar que els punts de muntatge
+                # existien i si no crear-los
+                file {
+                ['/cgl', '/cgl/users', '/backup', '/db', '/soft']:
+                        ensure => directory,
+                }
+        }
+
+i al client sl2 :
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420993750'
+Notice: /Stage[main]/Main/Mount[/backup]/ensure: ensure changed 'unmounted' to
+'mounted'
+Info: /Stage[main]/Main/Mount[/backup]: Scheduling refresh of Mount[/backup]
+Info: Mount[/backup](provider=parsed): Remounting
+Notice: /Stage[main]/Main/Mount[/backup]: Triggered 'refresh' from 1 events
+Info: /Stage[main]/Main/Mount[/backup]: Scheduling refresh of Mount[/backup]
+Info: Computing checksum on file /etc/fstab
+Notice: /Stage[main]/Main/Mount[/soft]/ensure: ensure changed 'unmounted' to
+'mounted'
+Info: /Stage[main]/Main/Mount[/soft]: Scheduling refresh of Mount[/soft]
+Info: Mount[/soft](provider=parsed): Remounting
+Notice: /Stage[main]/Main/Mount[/soft]: Triggered 'refresh' from 1 events
+Info: /Stage[main]/Main/Mount[/soft]: Scheduling refresh of Mount[/soft]
+Notice: Finished catalog run in 4.59 seconds
+[root@sl2 ~]# df -h
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/vda1             9.5G  1.1G  8.0G  12% /
+tmpfs                 499M     0  499M   0% /dev/shm
+beta:/cgl/users       5.9T  2.8T  3.2T  47% /cgl/users
+epsilon:/db           5.0T  3.8T  1.3T  76% /db
+pandora:/cgl/users    994G  458G  536G  47% /backup
+epsilon:/soft/64/SL6.4
+                      1.0T  226G  798G  23% /soft
+[root@sl2 ~]#
+
+Ok...cal anar afegint la resta de labs:
+
+Per exemple:
+
+[root@puppet manifests]# cat nis.pp 
+case $lab {
+
+	'ibi': { $mynisserver = 'bradbury.imim.es' $mynisdomain = 'ibi' }
+
+	'cgl': { $mynisserver = 'wilde.imim.es' $mynisdomain = 'cgl' }
+
+	'cadd': { $mynisserver = 'carver.imim.es' $mynisdomain = 'phi' }
+
+	'genomics': { $mynisserver = 'cortazar.imim.es' $mynisdomain =
+'genomica' }
+	'sbi': { $mynisserver = 'borges.imim.es' $mynisdomain = 'sbi' }
+	
+	'multiscale': { $mynisserver = 'orwell.imim.es' $mynisdomain =
+'gianni-lab' }
+	'cslab': { $mynisserver = 'asimov.imim.es' $mynisdomain = 'cslab' }
+}
+# puppet no permet reassignar variables. 
+# defineixo una de nova amb el valor de l'anterior
+$_my_nis_server = $mynisserver
+$_my_nis_domain = $mynisdomain
+class { "nisclient":
+	domainname => $_my_nis_domain,
+	server => $_my_nis_server,
+}
+
+---------
+
+Faig una prova:
+
+[root@sl2 ~]# umount /backup
+[root@sl2 ~]# umount /soft
+[root@sl2 ~]# vi /etc/facter/facts.d/custom_facts.yaml 
+[root@sl2 ~]# cat /etc/facter/facts.d/custom_facts.yaml
+---
+lab: cslab
+[root@sl2 ~]#
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1420995833'
+Notice: /Stage[main]/Main/File[/data]/ensure: created
+Notice: /Stage[main]/Main/Mount[/data]/ensure: defined 'ensure' as 'mounted'
+Info: Computing checksum on file /etc/fstab
+Info: /Stage[main]/Main/Mount[/data]: Scheduling refresh of Mount[/data]
+Info: Mount[/data](provider=parsed): Remounting
+Notice: /Stage[main]/Main/Mount[/data]: Triggered 'refresh' from 1 events
+Info: /Stage[main]/Main/Mount[/data]: Scheduling refresh of Mount[/data]
+Notice: /Stage[main]/Nisclient/Exec[change_nisdomain]/returns: executed
+successfully
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: 
+--- /etc/yp.conf	2015-01-14 10:58:31.313407481 +0100
++++ /tmp/puppet-file20150114-27854-9cbzmg-0	2015-01-14 12:43:29.175100169
++0100
+@@ -1 +1 @@
+-domain cgl server wilde.imim.es
++domain cslab server asimov.imim.es
+
+Info: Computing checksum on file /etc/yp.conf
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Filebucketed /etc/yp.conf to
+puppet with sum 5a0c7aee9219ee7183762760e34cb27f
+Notice: /Stage[main]/Nisclient/File[/etc/yp.conf]/content: content changed
+'{md5}5a0c7aee9219ee7183762760e34cb27f' to
+'{md5}2148cced09d6c7887c674fada012034a'
+Info: /Stage[main]/Nisclient/File[/etc/yp.conf]: Scheduling refresh of
+Exec[ypdomainname]
+Notice: /Stage[main]/Nisclient/Exec[ypdomainname]: Triggered 'refresh' from 1
+events
+Info: /Stage[main]/Nisclient/Exec[ypdomainname]: Scheduling refresh of
+Service[nis_service]
+
+[root@sl2 ~]# df -h
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/vda1             9.5G  1.1G  8.0G  12% /
+tmpfs                 499M     0  499M   0% /dev/shm
+beta:/cgl/users       5.9T  2.8T  3.2T  47% /cgl/users
+epsilon:/db           5.0T  3.8T  1.3T  76% /db
+pandora:/cslab/users  434G  129G  306G  30% /data
+epsilon:/soft/64/SL6.4
+                      1.0T  226G  798G  23% /soft
+[root@sl2 ~]# cat /etc/yp.conf
+domain cslab server asimov.imim.es
+[root@sl2 ~]#
+
+Pero ha deixat l'antiga info a l'fstab:
+
+beta:/cgl/users	/cgl/users	nfs	defaults	0	0
+epsilon:/soft/64/SL6.4	/soft	nfs	defaults	0	0
+pandora:/cgl/users	/backup	nfs	defaults	0	0
+
+i.e. el mount afegeix l'entrada i fa el mount.
+
+-----------
+
+Ara poso git a puppet, per poder tenir control de versions dels manifests:
+
+cd /etc/puppet/
+git config --global user.name "itgrib"
+git config --global user.email "itgrib@imim.es"
+git init
+git add .
+git commit -m "Puppet config inicial"
+
+[root@puppet manifests]# vi genomics-printer.pp
+[root@puppet manifests]# cat genomics-printer.pp 
+case $lab {
+
+	'genomics' : {
+		printer { "laser-bn":
+	    	ensure      => present,
+    		uri         => "ipp://gutenberg.imim.es/printers/laser-gen",
+    		description => "HP LaserJet 42",
+    		location    => "4.86",
+    		ppd		=> "/root/files/ppd/laser-gen.ppd",
+    		shared      => false, 
+    		enabled     => true, 
+    		options     => { media => 'A4' }, 
+    		ppd_options => { 'HPOption_Duplexer' => 'True' }, 
+		}
+		service { "cups":
+		  ensure => "running",
+		}
+		file { "/root/files/ppd/laser-bn.ppd":
+			mode   => 644,
+    			owner  => root,
+			group  => root,
+			ensure => present,
+			source => "puppet:///modules/ppd/laser-gen.ppd"
+		}
+
+	}
+}
+
+[root@puppet manifests]# git status
+# On branch master
+# Untracked files:
+#   (use "git add <file>..." to include in what will be committed)
+#
+#	genomics-printer.pp
+#	../modules/ppd/files/laser-gen.ppd
+nothing added to commit but untracked files present (use "git add" to track)
+[root@puppet manifests]# 
+
+
+[root@puppet manifests]# git add genomics-printer.pp
+../modules/ppd/files/laser-gen.ppd
+[root@puppet manifests]# git status
+# On branch master
+# Changes to be committed:
+#   (use "git reset HEAD <file>..." to unstage)
+#
+#	new file:   genomics-printer.pp
+#	new file:   ../modules/ppd/files/laser-gen.ppd
+#
+[root@puppet manifests]#
+
+[root@puppet manifests]# git commit -a -m "genomics-printer.pp" [master
+ec6b58e] genomics-printer.pp
+ 2 files changed, 5120 insertions(+), 0 deletions(-)
+ create mode 100644 environments/production/manifests/genomics-printer.pp
+ create mode 100644 environments/production/modules/ppd/files/laser-gen.ppd
+[root@puppet manifests]#
+
+---
+Ja el tenim gairebe a punt per posar a produccio.
+
+Ara be, abans provare a tenir moduls fets per tasques habituals a les
+workstations:
+
+- programar un shutdown
+- canvis iptables
+- canvis fstab (no afegir, sino modficar)
+- canvi dns
+- canvi al /etc/hosts
+- crear los home de los usuarios del nis en la maquinas de su labo y con los
+  ficheros de config
+-....
+
+************************
+- programar un shutdown
+*********
+programem un shutdown:
+
+no hi ha puppet modules per executar un 'at'...
+pero podem fer trampa i posar un pp que faci un cron:
+
+[root@puppet manifests]# puppet module install torrancew-cron
+Notice: Preparing to install into /etc/puppet/environments/production/modules
+...
+Notice: Downloading from https://forgeapi.puppetlabs.com ...
+Notice: Installing -- do not interrupt ...
+/etc/puppet/environments/production/modules
+└── torrancew-cron (v0.1.0)
+[root@puppet manifests]#
+
+[root@puppet manifests]# cat poweroff-lab.pp 
+case $lab {
+
+	'cslab': {
+		cron::daily {'poweroff':
+			hour => 16,
+			minute => 15,
+			command => '/sbin/poweroff',
+		}
+	}
+}
+# subtituir
+# command => 'echo "no estic actiu" > /tmp/apagar'
+# per tornar a deixar-ho desactivat al dia seguent...
+
+
+
+Perill: ens haurem de recordar de canviar el manifest per treure el cron quan tornem a engegar la maquina...(
+
+Aixi que canviem i fem servir 'exec' que permet executar comandes:
+
+[root@puppet manifests]# cat poweroff.pp 
+# poweroff all nodes
+# descomentar les linees d'abaix per apagar els nodes
+# si nomes cal apagar els d'un labo, fer servir el 'case $lab'
+#
+
+#exec { "poweroff":
+#    command => "/root/apagar.sh",
+#}
+#file {'apagar.sh':
+#	path => "/root/apagar.sh",
+#	mode => 0755,
+#	content => "#!/bin/sh\n /bin/echo '/sbin/poweroff' | /usr/bin/at
+#	23:00\n",
+#}
+
+si ho executem al client:
+[root@sl2 ~]# at -l
+4	2015-01-15 23:00 a root
+[root@sl2 ~]#
+
+pero si ho tornem a executar tornara a llençar un at...
+
+Aixi que ho deixem com estava (lleugerament modificat)
+[root@puppet manifests]# cat cron-exemple.pp 
+case $lab {
+
+	'cslab': {
+		cron::daily {'poweroff':
+			hour => 23,
+			minute => 15,
+			command => 'echo "vaig a dormir" > /tmp/bonanit',
+		}
+	}
+}
+# si volem apagar les maquines d'un lab substituim command per
+# command => '/sbin/poweroff'
+# i l'endema tornem a posar una comanda inofensiva al cron
+
+
+
+
+
+*********+
+
+- canvis iptables:
+[root@puppet manifests]# puppet module install puppetlabs-firewall
+Notice: Preparing to install into /etc/puppet/environments/production/modules
+...
+Notice: Downloading from https://forgeapi.puppetlabs.com ...
+Notice: Installing -- do not interrupt ...
+/etc/puppet/environments/production/modules
+└── puppetlabs-firewall (v1.3.0)
+[root@puppet manifests]#
+
+[root@puppet manifests]# cat firewall.pp 
+firewall { "1 acceptar www desde dins":
+	proto => tcp,
+	source => "172.20.16.0/24",
+	dport => 80,
+	action => accept,
+	}
+
+sembla que si:
+
+[root@scientific ~]# service iptables status
+Table: filter
+Chain INPUT (policy ACCEPT)
+num  target     prot opt source               destination         
+1    ACCEPT     tcp  --  172.20.16.0/24       0.0.0.0/0           multiport
+dports 80 /* 1 acceptar www desde dins */ 
+2    ACCEPT     all  --  0.0.0.0/0            0.0.0.0/0           state
+RELATED,ESTABLISHED 
+3    ACCEPT     icmp --  0.0.0.0/0            0.0.0.0/0           
+4    ACCEPT     all  --  0.0.0.0/0            0.0.0.0/0           
+5    ACCEPT     tcp  --  172.20.16.0/24       0.0.0.0/0           tcp dpt:22 
+6    REJECT     all  --  0.0.0.0/0            0.0.0.0/0           reject-with
+icmp-host-prohibited 
+
+Chain FORWARD (policy ACCEPT)
+num  target     prot opt source               destination         
+1    REJECT     all  --  0.0.0.0/0            0.0.0.0/0           reject-with
+icmp-host-prohibited 
+
+Chain OUTPUT (policy ACCEPT)
+num  target     prot opt source               destination         
+
+[root@scientific ~]#
+
+pero l'ordre no mola...i la sintaxi de dport no es ben be la mateixa...
+
+segueixo mirant...al final faig anar la de puppelabs:
+
+[root@puppet manifests]# cat firewall.pp 
+# clear any existing rules 
+# and make sure that only rules defined in Puppet exist on the machine
+ resources { "firewall":
+    purge => true
+  }
+
+# Default firewall rules
+    firewall { '000 accept all icmp':
+      proto   => 'icmp',
+      action  => 'accept',
+    }->
+    firewall { '001 accept all to lo interface':
+      proto   => 'all',
+      iniface => 'lo',
+      action  => 'accept',
+    }->
+    firewall { "002 reject local traffic not on loopback interface":
+      iniface     => '! lo',
+      proto       => 'all',
+      destination => '127.0.0.1/8',
+      action      => 'reject',
+    }->
+    firewall { '003 accept related established rules':
+      proto   => 'all',
+      state => ['RELATED', 'ESTABLISHED'],
+      action  => 'accept',
+    }->
+    firewall { '100 allow ssh from our private network' :
+	port => 22,
+	proto => tcp,
+	source => '172.20.16.0/24',
+	action => accept,
+    }->
+    firewall { '101 allow ssh from our public network':
+	port => 22,
+        proto => tcp,
+        source => '193.146.190.0/24',
+        action => accept,
+    }
+# end
+[root@puppet manifests]#
+
+Despres d'executar el client:
+
+[root@sl2 ~]# cat /etc/sysconfig/iptables
+# Generated by iptables-save v1.4.7 on Thu Jan 15 11:05:41 2015
+*filter
+:INPUT ACCEPT [1:68]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [1:196]
+-A INPUT -p icmp -m comment --comment "000 accept all icmp" -j ACCEPT 
+-A INPUT -i lo -m comment --comment "001 accept all to lo interface" -j ACCEPT 
+-A INPUT -d 127.0.0.0/8 ! -i lo -m comment --comment "002 reject local traffic
+not on loopback interface" -j REJECT --reject-with icmp-port-unreachable 
+-A INPUT -m comment --comment "003 accept related established rules" -m state
+--state RELATED,ESTABLISHED -j ACCEPT 
+-A INPUT -s 172.20.16.0/24 -p tcp -m multiport --ports 22 -m comment --comment
+"100 allow ssh from our private network" -j ACCEPT 
+-A INPUT -s 193.146.190.0/24 -p tcp -m multiport --ports 22 -m comment
+--comment "101 allow ssh from our public network" -j ACCEPT 
+COMMIT
+# Completed on Thu Jan 15 11:05:41 2015
+[root@sl2 ~]# 
+
+
+[root@sl2 ~]# service iptables status
+Table: filter
+Chain INPUT (policy ACCEPT)
+num  target     prot opt source               destination         
+1    ACCEPT     icmp --  0.0.0.0/0            0.0.0.0/0           /* 000
+accept all icmp */ 
+2    ACCEPT     all  --  0.0.0.0/0            0.0.0.0/0           /* 001
+accept all to lo interface */ 
+3    REJECT     all  --  0.0.0.0/0            127.0.0.0/8         /* 002
+reject local traffic not on loopback interface */ reject-with
+icmp-port-unreachable 
+4    ACCEPT     all  --  0.0.0.0/0            0.0.0.0/0           /* 003
+accept related established rules */ state RELATED,ESTABLISHED 
+5    ACCEPT     tcp  --  172.20.16.0/24       0.0.0.0/0           multiport
+ports 22 /* 100 allow ssh from our private network */ 
+6    ACCEPT     tcp  --  193.146.190.0/24     0.0.0.0/0           multiport
+ports 22 /* 101 allow ssh from our public network */ 
+7    DROP       tcp  --  0.0.0.0/0            0.0.0.0/0           /* 999 drop
+all other requests */ 
+
+Chain FORWARD (policy ACCEPT)
+num  target     prot opt source               destination         
+
+Chain OUTPUT (policy ACCEPT)
+num  target     prot opt source               destination         
+
+[root@sl2 ~]#
+
+--- 
+de moment ho deixem aixi
+
+************
+canvis fstab
+************
+
+
+[root@puppet manifests]# cat fstab.pp 
+# treure una entrada de fstab per un lab
+case $lab {
+
+	'cslab' : {
+
+		 mount { '/db':
+  			device => "epsilon:/db",
+  			fstype   => "nfs",
+  			ensure => "absent",
+		}
+	}
+}
+
+*******
+canvis dns
+*********
+
+[root@puppet manifests]# puppet module install saz-resolv_conf
+Notice: Preparing to install into /etc/puppet/environments/production/modules
+...
+Notice: Downloading from https://forgeapi.puppetlabs.com ...
+Notice: Installing -- do not interrupt ...
+/etc/puppet/environments/production/modules
+└─┬ saz-resolv_conf (v3.0.3)
+  └── puppetlabs-stdlib (v4.4.0)
+[root@puppet manifests]# vi dns.pp
+[root@puppet manifests]# cat dns.pp 
+class { 'resolv_conf':
+  nameservers => ['193.144.6.107', '193.144.6.252'],
+  domainname => 'imim.es',
+}
+
+[root@puppet manifests]# 
+
+i al client:
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1421079480'
+Notice: /Stage[main]/Resolv_conf/File[resolv.conf]/content: 
+--- /etc/resolv.conf	2014-11-17 15:07:42.239999988 +0100
++++ /tmp/puppet-file20150115-11102-1ew6nzt-0	2015-01-15 11:57:41.427236348
++0100
+@@ -1,3 +1,5 @@
+-# Generated by NetworkManager
+-search imim.es
++# File managed by puppet
++
++domain imim.es
+ nameserver 193.144.6.107
++nameserver 193.144.6.252
+
+Info: Computing checksum on file /etc/resolv.conf
+Info: /Stage[main]/Resolv_conf/File[resolv.conf]: Filebucketed
+/etc/resolv.conf to puppet with sum 00155636279fcbf48845b72517127787
+Notice: /Stage[main]/Resolv_conf/File[resolv.conf]/content: content changed
+'{md5}00155636279fcbf48845b72517127787' to
+'{md5}274fb073c6c7d510fc54166991daa14b'
+Notice: Finished catalog run in 3.94 seconds
+[root@sl2 ~]# cat /etc/resolv.conf 
+# File managed by puppet
+
+domain imim.es
+nameserver 193.144.6.107
+nameserver 193.144.6.252
+[root@sl2 ~]#
+
+**********
+entrades a l'/etc/hosts
+*********
+No cal instalar res, el puppet ja porta incorporat un:
+
+[root@puppet manifests]# cat hosts.pp 
+# manega les entrades de l'/etc/hosts
+
+host {'pandora':
+	name => 'pandora.imim.es',
+	ip => '172.20.16.5',
+	host_aliases => 'pandora',
+	ensure => present,
+}
+
+host {'alfa':
+	name => 'alfa.imim.es',
+	ip => '172.20.16.20',
+	host_aliases => 'alfa',
+	ensure => present,
+}
+	
+	
+[root@puppet manifests]# 
+
+i a l'executar el client:
+
+[root@scientific ~]# cat /etc/hosts
+# HEADER: This file was autogenerated at Thu Jan 15 12:07:13 +0100 2015
+# HEADER: by puppet.  While it can still be managed manually, it
+# HEADER: is definitely not recommended.
+127.0.0.1	localhost	localhost.localdomain localhost4
+localhost4.localdomain4
+::1	localhost	localhost.localdomain localhost6
+localhost6.localdomain6
+172.20.16.20	alfa.imim.es	alfa
+172.20.16.5	pandora.imim.es	pandora
+
+----------
+Podem intentar fer el modul mes net, fent servir el create resources:
+
+[root@puppet manifests]# cat hosts.pp 
+# manega les entrades de l'/etc/hosts
+
+$afegir_host = {
+	name => 'default.domain',
+	ip => '192.168.10.1',
+	host_aliases => 'default',
+	ensure => present,
+}
+
+$data_host = {
+	'gutenberg' => {
+                name => 'gutenberg.imim.es',
+                ip => '172.20.16.192',
+                host_aliases => 'gutenberg',
+        	},
+	'pandora' => {
+		name => 'pandora.imim.es',
+		ip => '172.20.16.5',
+        	host_aliases => 'pandora',	
+		},
+	'epsilon' => {
+		name => 'espilon.imim.es',
+		ip => '172.20.16.24',	
+		host_aliases => 'epsilon',
+		},
+	'beta'  => {
+                name => 'beta.imim.es',
+                ip => '172.20.16.21',
+                host_aliases => 'beta',
+        	},
+	'alfa'  => {
+                name => 'alfa.imim.es',
+                ip => '172.20.16.20',
+                host_aliases => 'alfa',
+        	}
+}
+create_resources('host', $data_host, $afegir_host)
+
+--
+Al executar-lo:
+
+[root@sl2 ~]# cat /etc/hosts
+# HEADER: This file was autogenerated at Thu Jan 15 12:40:14 +0100 2015
+# HEADER: by puppet.  While it can still be managed manually, it
+# HEADER: is definitely not recommended.
+127.0.0.1	localhost	localhost.localdomain localhost4
+localhost4.localdomain4
+::1	localhost	localhost.localdomain localhost6
+localhost6.localdomain6
+172.20.16.21	beta.imim.es	beta
+172.20.16.192	gutenberg.imim.es	gutenberg
+172.20.16.20	alfa.imim.es	alfa
+172.20.16.5	pandora.imim.es	pandora
+172.20.16.24	espilon.imim.es	epsilon
+
+----
+**********++
+crear directoris pels usuaris del NIS
+***********
+
+[root@puppet manifests]# pwd
+/etc/puppet/environments/production/manifests
+[root@puppet manifests]# mkdir -p ../modules/create_homes/files
+[root@puppet manifests]# scp
+alfons@moebius.imim.es:/home/alfons/scripts/create-homes-nis.sh
+../modules/create_homes/files
+alfons@moebius.imim.es's password: 
+create-homes-nis.sh                       100%  504     0.5KB/s   00:00    
+[root@puppet manifests]# 
+[root@puppet manifests]# chown -R puppet:puppet ../modules/create_homes
+[root@puppet manifests]# cat ../modules/create_homes/files/create-homes-nis.sh 
+#!/bin/sh
+# scriptillo per no fer els mkdir a ma
+#
+LIST=`ypcat passwd | cut -d ':' -f1`
+for name in $LIST 
+do
+        grup=`ypcat passwd|grep $name| cut -d ':' -f4`
+#       echo $name
+#       echo $grup
+        if [ -d /home/$name ]
+        then 
+                echo "ja existeix el directori de $name"
+        else
+                mkdir /home/$name
+                cp -rp /etc/skel/. /home/$name
+                chown -R $name:$grup /home/$name
+        fi
+done
+echo "Ja hem acabat"
+ls -l /home
+exit 0
+
+[root@puppet manifests]# 
+[root@puppet manifests]# cat create-homes.pp 
+# crear els homes dels usuaris del nis
+# si no existeixen
+exec { "create_homes":
+    command => "/root/create-homes-nis.sh 2>/root/create-homes.err",
+}
+
+# copiem l'script 
+file { "/root/create-homes-nis.sh":
+    mode   => 755,
+    owner  => root,
+    group  => root,
+    ensure => present,
+    source => "puppet:///modules/create_homes/create-homes-nis.sh",
+}
+
+[root@puppet manifests]#
+
+Executem a un client:
+
+[root@sl2 ~]# puppet agent --test
+Info: Retrieving pluginfacts
+Info: Retrieving plugin
+Info: Loading facts
+Info: Caching catalog for sl2.imim.es
+Warning: The package type's allow_virtual parameter will be changing its
+default value from false to true in a future release. If you do not want to
+allow virtual packages, please explicitly set allow_virtual to false.
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/type/package.rb:430:in `default')
+Info: Applying configuration version '1421088856'
+Notice: /Stage[main]/Main/File[/root/create-homes-nis.sh]/ensure: defined
+content as '{md5}c3e63552d237d7ffdbdfc219c72ff6c5'
+Notice: /Stage[main]/Main/Exec[create_homes]/returns: executed successfully
+Notice: Finished catalog run in 7.22 seconds
+[root@sl2 ~]# ls /home/
+adriano  ben     jdelgado  jordi    marti     ricard  stefanie
+aina     bernat  jmacia    josep    max       salva
+andreea  carlos  joaquin   lseoane  msanchez  sergi
+[root@sl2 ~]# 
+
+--------OK-----------
+
+Passem la vm de pursang a delta. Tot i que potser esperem a posar-la en
+produccio (primer haurem de passar totes les ws a SL) 
+
+per fer-ho:
+
+[root@pursang ~]# scp /home/vm/kvm/puppet.img root@delta.imim.es:/VirtualMachines/images/
+
+[root@pursang ~]# scp /etc/libvirt/qemu/puppet.xml root@delta.imim.es:/VirtualMachines/config/etc/libvirt/qemu/
+
+
+[root@delta ~]# cp /VirtualMachines/config/etc/libvirt/qemu/puppet.xml
+/etc/libvirt/qemu
+
+[root@delta ~]# virsh define /etc/libvirt/qemu/puppet.xml
+
+[root@delta ~]# virsh edit puppet 
+
+canviem la configuracio pel path on esta el .img a /VirtualMachines/images/
+
+i ja el podem engegar
+
+[root@delta ~]# ping puppet
+PING delta.imim.es (172.20.16.23) 56(84) bytes of data.
+64 bytes from delta.imim.es (172.20.16.23): icmp_seq=1 ttl=64 time=0.059 ms
+64 bytes from delta.imim.es (172.20.16.23): icmp_seq=2 ttl=64 time=0.056 ms
+
+
+ 

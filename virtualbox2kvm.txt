@@ -1,0 +1,125 @@
+Tenim una maquina virtual feta amb VirtualBox i la volem passar a kvm:
+
+-----------------------------
+si la tenim en format .ova
+-----------------------------
+
+eTOXWS-template-2014-06.ova
+
+el format .ova es un tar, que conte dos fitxers: ovf i vmdk
+
+
+[root@pursang vbox]# tar -tvf eTOXWS-template-2014-06.ova 
+-rw------- someone/someone 14238 2014-02-07 12:28 eTOXWS-template-2014-06.ovf
+-rw------- someone/someone 5899465216 2014-02-07 12:41 eTOXWS-template-2014-06-disk1.vmdk
+
+els desempaquetem:
+
+[root@pursang vbox]# tar -xvf eTOXWS-template-2014-06.ova 
+eTOXWS-template-2014-06.ovf
+eTOXWS-template-2014-06-disk1.vmdk
+[root@pursang vbox]# 
+
+
+ara intentem el obrir el vmdk desde el kvm:
+
+primer posem permisos:
+
+[root@pursang vbox]# chown qemu:qemu *
+[root@pursang vbox]# ls -l
+total 11522428
+-rw------- 1 qemu qemu 5899465216 Feb  7 12:41 eTOXWS-template-2014-06-disk1.vmdk
+-rw------- 1 qemu qemu 5899480576 Feb 20 12:12 eTOXWS-template-2014-06.ova
+-rw------- 1 qemu qemu      14238 Feb  7 12:28 eTOXWS-template-2014-06.ovf
+
+el convertim (OJO s'ha de fer amb un centOS 6.5, segons la versio de qemu pot
+donar problemes)
+
+[root@pursang vbox]# qemu-img convert -O raw
+eTOXWS-template-2014-06-disk1.vmdk  ../eTOXWS-2014.img
+[root@pursang vbox]# cd ..
+[root@pursang images]# ls -lh
+total 62G
+-rw-r--r-- 1 root root 15G Feb 24 12:27 eTOXWS-2014.img
+-rwxr-xr-x 1 qemu qemu 50G Feb 24 17:16 sauron.img
+drwxr-xr-x 2 root root 115 Feb 20 14:17 vbox
+[root@pursang images]# 
+
+Un cop tenim el disk en format .img:
+virt-install --import --disk=/VirtualMachines/images/eTOXWS-2014.img --name
+etoxws --ram 2048
+
+i ja tenim la maquina: caldra configurar la xarxa, iptables, init a 3,
+chkconfig (NetworkManager <--> network), parar sendmail...
+
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+
+
+----------------------------
+Si la tenim en format .vdi
+----------------------------
+
+A la maquina desti (on hi ha kvm+qemu) ha d'haver tambe un virtualbox instal.lat.
+
+Agafem els fitxers .vbox i .vdi del VirtualBox
+
+[root@capablanca ~]# ls /vm/vbox/DonateatHome/
+DonateAtHome.vbox  DonateAtHome.vdi
+
+Amb una utilitat del VirtualBox fem la conversio:
+
+[root@capablanca ~]# VBoxManage clonehd  /vm/vbox/DonateatHome/DonateAtHome.vdi  /vm/kvm/DonateatHome.img --format raw
+WARNING: The vboxdrv kernel module is not loaded. Either there is no module
+         available for the current kernel (2.6.32-358.el6.x86_64) or it failed to
+         load. Please recompile the kernel module and install it by
+
+           sudo /etc/init.d/vboxdrv setup
+
+         You will not be able to start VMs until this problem is fixed.
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Clone hard disk created in format 'raw'. UUID: a713e4ed-4114-4808-a51e-ee1826410896
+[root@capablanca ~]# ls  /vm/kvm
+datadonate.qcow2  DonateatHome.img  donate.img  moleculis.img
+
+fem qemu el propietari del fitxer:
+
+[root@capablanca ~]# chown qemu:qemu /vm/kvm/DonateatHome.img 
+
+ ja podem fer l'import
+
+[root@capablanca ~]# virt-install --import --name kasparov --ram 4096 --disk /vm/kvm/DonateatHome.img 
+
+Starting install...
+Creating domain...     
+
+La maquina arrenca pero no te xarxa. Cal:
+
+a.- editar el fitxer /etc/sysconfig/newtork-scripts/ifcfg-eth0
+
+i modificar la MAC pel valor que hi ha a /etc/libvirt/qemu/kasparov.xml que es el fitxer que ha generat el virt-install al fer l'import.
+
+b.- afegir la ip/netmask/gateway que toquin
+
+c.- moure /etc/sysconfig/newtork-scripts/ifcfg-eth0 a /etc/sysconfig/newtork-scripts/ifcfg-eth1 i canviar device=eth0 per device=eth1
+
+d.- reengegar el servei.
+
+Ja esta:
+
+[alfons@moebius ~]$ ssh 193.146.190.84
+alfons@193.146.190.84's password: 
+Warning: untrusted X11 forwarding setup failed: xauth key data not generated
+Warning: No xauth data; using fake authentication data for X11 forwarding.
+Last login: Wed Nov 27 17:30:05 2013 from 172.20.16.221
+[alfons@kasparov ~]$ 
+
+----
+
+si la tenim en kvm i la volem en vbox:
+
+
+VBoxManage convertdd /home/vm/kasparov-Jul30 /home/vm/kasparov.vdi --format
+VDI
+
+

@@ -1,0 +1,18 @@
+Comandos
+========
+
+- Ver el número de recursos que nos ofrece cada nodo (incluido los gres):
+
+sinfo -o "%15N %10c %10m  %25f %10G"
+
+- Cuanta memoria han usado los jobs que han acabado?:
+
+sacct --format JobID,jobname,NTasks,nodelist,MaxRSS,MaxVMSize,AveRSS,AveVMSize
+
+- Ver info del job que está en run:
+
+scontrol show job <jobid>
+
+- Ver en un nodo cuantos GRES (pe: gpu) tiene libres:
+
+scontrol show node blu -d

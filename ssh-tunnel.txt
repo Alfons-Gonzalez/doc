@@ -1,0 +1,31 @@
+To ssh from outside (host.outside) to a workstation (workstation.grib) with private IP.
+
+
+in host.outside
+
+A) /etc/hosts --> add
+
+127.0.0.1 localhost workstation.grib
+
+B) edit $home/.ssh/config and put
+
+Host workstation.grib
+port 4444
+
+C) host.outside$ ssh -f alfons@apolo.imim.es -N -L 4444:workstation.grib:22
+
+D) host.outside$ ssh workstation.grib 
+
+you're in.
+
+That's all
+
+
+or just:
+
+host.outside$ ssh -f alfons@apolo.imim.es -N -L 4444:workstation.grib:22
+host.outside$ ssh -p 4444 localhost
+you'r in
+
+
+

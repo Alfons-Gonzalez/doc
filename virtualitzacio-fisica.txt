@@ -1,0 +1,137 @@
+Per virtualitzar una maquina fisica:
+
+Maquina fisica: natal (F12 amb 1 disc de 160Gb)
+Maquina host on estan instal.lades les maquines virtuals: delta
+
+1.-boot natal amb DVD de F12, mode rescue 
+2.- al fer el boot  configurem idioma, teclat *i xarxa*
+3.- *no muntem* els filesystems
+4.- anem a la shell
+# dd if=/dev/sda | ssh root@delta.imim.es 'cat > /VirtualMachines/images/natal.img'
+
+un cop esta feta la copia:
+
+
+[root@delta ~]# ls -lh /VirtualMachines/images/
+total 210G
+-rw------- 1 qemu qemu 8.0G Jan 28 16:25 bradbury.img
+-rw------- 1 qemu qemu  45G Jan 28 16:25 impala.img
+-rw-r--r-- 1 root root 150G Jan 28 15:46 natal.img
+-rw------- 1 qemu qemu 8.0G Jan 28 16:25 orwell.img
+
+[root@delta ~]# chown qemu:qemu /VirtualMachines/images/natal.img 
+
+[root@delta ~]# virt-install --import --name natal --ram 2048 --disk
+/VirtualMachines/images/natal.img
+
+Starting install...
+Creating domain...                                       |    0 B     00:21     
+WARNING  Unable to connect to graphical console: virt-viewer not installed.
+Please install the 'virt-viewer' package.
+Domain creation completed. You can restart your domain by running:
+  virsh --connect qemu:///system start natal
+[root@delta ~]# 
+
+
+Provem:
+
+[root@delta ~]# virsh list
+ Id    Name                           State
+----------------------------------------------------
+ 7     bradbury                       running
+ 8     orwell                         running
+ 14    impala                         running
+ 15    natal                          running
+
+
+Pero no contesta al ping...i amb
+
+virt-manager quan anem a la consola esta mig fregit...so, fem un poweroff(de
+natal) i comprovem el xml que ha generat 
+
+[root@delta ~]# virsh edit natal
+
+Tot ok. 
+
+Per modificar fitxers a natal, sense arrencar la maquina:
+
+root@delta ~]# guestfish -i natal
+
+Welcome to guestfish, the libguestfs filesystem interactive shell for
+editing virtual machine filesystems.
+
+Type: 'help' for help on commands
+      'man' to read the manual
+      'quit' to quit the shell
+
+Operating system: Fedora release 12 (Constantine)
+/dev/vda1 mounted on /
+/dev/vda3 mounted on /home
+
+><fs> edit /etc/inittab 
+
+i posem a 3 (pq sembla que les X donen pel sac)
+
+><fs> edit /etc/sysconfig/network-scripts/ifcfg-eth0 
+ 
+
+i canviem la HWADDR que hi ha (mac fisica de natal) per la mac que hi ha a:
+
+/etc/libvirt/qemu/natal.xml
+
+><fs> quit
+
+[root@delta ~]# virsh start natal
+Domain natal started
+[root@delta ~]# 
+[root@delta ~]# virsh list
+ Id    Name                           State
+----------------------------------------------------
+ 7     bradbury                       running
+ 8     orwell                         running
+ 14    impala                         running
+ 16    natal                          running
+[root@delta ~]# 
+
+Ara podem entrar a la maquina a traves del virt manager (segueix sense
+xarxa...)
+
+El que passa es que veu un device eth1 i no eth0
+
+desde natal:
+cp /etc/sysconfig/network-scripts/ifcfg-eth0
+/etc/sysconfig/network-scripts/ifcfg-eth1
+
+ modifiquem el  /etc/sysconfig/network-scripts/ifcfg-eth1 (linea device=eth1)
+movem el ifcfg-eth0 a /root (just in case)
+
+reengeguem el servei de xarxa i yata:
+
+[alfons@moebius ~]$ ssh natal
+alfons@natal's password: 
+Warning: untrusted X11 forwarding setup failed: xauth key data not generated
+Warning: No xauth data; using fake authentication data for X11 forwarding.
+Last login: Fri Jan 25 15:42:38 2013 from 172.20.16.221
+Could not chdir to home directory /home/alfons: No such file or directory
+/usr/bin/xauth:  error in locking authority file /home/alfons/.Xauthority
+-bash-4.0$ 
+
+
+
+
+
+ triga (tot plegat) unes 5h
+Ara, per no entrar en conflicte amb la maquina fisica:
+
+[root@delta ~]# virsh shutdown natal
+Domain natal is being shutdown
+
+[root@delta ~]# virsh list
+ Id    Name                           State
+----------------------------------------------------
+ 7     bradbury                       running
+ 8     orwell                         running
+ 14    impala                         running
+
+I desde el virt-manager em carrego natal (seleccionant la maquina i 'delete')
+

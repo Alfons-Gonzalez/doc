@@ -1,0 +1,329 @@
+Slurm accounting
+================
+
+1.- Tipos de accounting
+2.- Configuración de SlurmDBD
+	2.1.- slurmdbd.conf
+	2.2.- slurm.conf
+3.- Policies (acceso a recursos)
+	3.1.- Slurm.conf
+	3.2.- Comandos para gestinoar asociaciones en el accounting
+	3.3.- Ejemplos de uso de los comandos de accounting
+		3.3.1 - sacctmgr
+		3.3.2.- sacct
+		3.3.3.- sreport
+4.- Referencias
+
+
+
+1.- Tipos de accounting
+=======================
+
+Slurm tiene quantro tipos de accounting posibles:
+
+a.- No hacer accounting
+b.- En un fichero
+c.- Directamente en una mysql/MariaDB
+d.- SlurmDBD, que actua de driver de mysql (más seguro que directametne en mysql).
+
+Si texto: perdemos la posibilidad de hacer consultar relacionales/cruzadas entre diferentes
+	elementos del cluster: usuario, account, patition, etc. que si que nos 
+	permite hacerlo una base de datos usando sql. 
+
+Si mysql: todos los nodos del cluster han de tener acceso a la base de datos por lo
+que han de saber el user y password y mysql abierto a todo el cluster. Poco seguro.
+
+Si SlurmDBD: toda la escritura en la bases de datos la hace un servicio adicional 
+	llamado SlurmDBD. Los nodos solo tienen que saber donde está el servicio para
+	pedirele añadir o consultar info del accounting. Más seguro.
+
+2.- Configuración de SlurmDBD
+=============================
+
+Vamos a usar SlurmDBD así que también hemos de generar el fichero de configuración
+slurmdbd.conf (plantilla en los fuentes, en el subdirectoio etc) que irá acompañado 
+del init.d del servicio (init.d.slurmdbd). Básicamente este fichero contiene la
+información de como conectar con la base de datos donde se guardará el accounting.
+
+La base de datos la hemos de crear. En la primera conexión, SlurmDBD ya verá que 
+no están creadas las tablas y las creará.
+
+2.1.- slurmdbd.conf
+-------------------
+
+AuthType=auth/munge : usamos munge com método seguro (cabe la posibilidad de usar 
+	un segundo daemon de muge con una key diferente, lo tienen documentado).
+
+DbdAddr=localhost : Donde está el servicio.
+DbdHost=sherpa : Donde está el servicio.
+#DbdPort=6819 : Por defecto ya esa este puerto, lo podemos cambiar.
+SlurmUser=slurm : Usuario con el que se ejecutará este servicio (de root en el 
+	arranque se pasa a este usuario).
+LogFile=/var/log/slurm/slurmdbd.log : Pues eso, lof file (lo hemos de crear a 
+	mano y el owner ha de ser el SlurmUser)
+StorageType=accounting_storage/mysql : Tipo de storage, indicamos que será 
+	mysql/MariaDB.
+StorageLoc=slurm_acct_db : nombre de la BBDD.
+StorageUser=slurm : Usuari que tiene all privileges en la BBDD
+PStoragePass=slurmacct : Contraseña del usuari StorageUser.
+#StoragePort=1234 : Por si tenemos a mysql escuchando en un puerto que no sea 3360
+DebugLevel=4 : Lo podemos subir si hemos de debugar.
+
+Este servidio lo arrancamos antes que el slurmctl. 
+
+/usr/local/slurm/init.d/init.d.slurmdbd start
+
+Puede estar fuera del host del controlador, sería lo recomendable si tenemos un 
+cluster muy grande con mucha carga (debería de ser una máquina con discos rápidos).
+
+2.2.- slurm.conf
+----------------
+
+Básicamente hemos de indicar que se hace acconting y que será usando el servicio
+SlurmDBD y donde corre este servicio.
+
+AccountingStorageType=accounting_storage/slurmdbd : Indicamos el tipo de 
+	accounting. En este caso, slurmdbd.
+AccountingStorageHost=localhost : Donde corre el servicio SlurmDBD.
+AccountingStorageLoc=/tmp/slurm_job_accounting.txt : ¿?
+JobAcctGatherType=jobacct_gather/linux : dependiente del S.O, que mecanismo de
+	accounting es usado, elegimos tipo linux.
+
+3.- Policies (acceso a recursos)
+================================
+
+En verdad las políticas de uso/acceso al cluster queda configurado con la 
+activación del servicio SlurmDBD. Es decir, la info que introducimos en la
+estructura del accounting también la hacemos servir para indicar los privilegios
+de acceso al cluster: quien puede calcular, sobre que particiones, etc. Idem para
+indicar límites.
+
+Para entender el accounting primero hemos de tener claro lo que es un asociación
+para slurm. Una association es una relacion existente entre cluster, account y 
+usuario y adicionalmente una particion.
+
+NOTE: The association is a combination of cluster, account, user names and optional partition name.
+
+Esto quiere decir, que si el usuario A, usando la cuenta C quire calcular en la 
+paticion P del cluster X y existe esta association efinida, este usuario podrá
+calculas, aplicando los límites y demás parámetros añadidos a la account que está
+usando. Si por lo contrario, esta association no existe, no se le dejará calcular 
+recibiendo un mensaje de error:
+
+[msanchez@ace3 ~]$ sbatch test2.sh adios
+sbatch: error: Batch job submission failed: Invalid account or account/partition combination specified
+[msanchez@ace3 ~]$
+
+Una account viene a ser como el grupo al cual pertenece el usuario. El usuario 
+hereda los privilegios, límites, etc del account al que pertenece. Un usuario 
+puede pertener a varios accounts pero solo tendrá un account por defecto (es el
+que se haría servir si cuando envia un job no especifica bajo que account lo envia).
+Esto se indica en el fichero de definición del job con el parámetro:
+
+#SBATCH -A <account-name>
+
+3.1.- Slurm.conf
+----------------
+
+Directivas para activar el accounting/policies: 
+
+AccountingStorageEnforce=associations : Si la asociacion del usuario que quiere 
+	enviar un job no existe en la BBDD, entonces no se permitirá a este este 
+	usuario el envio del job. Aquí también se puede indicar que tenga en cuenta
+	los límites, Qos, etc (mirar docu de Slurm).
+
+ClusterName=gpucluster : nombre del cluster (Slurm puede controlar más de un
+	cluster, puede llegar a ser un cluster de clusters)
+
+JobCompType: Todo lo que sea JobComp* es sobre accounting de los jobs que están
+	en ejecucion. En algún lugar de la docu dice que si se usa SlurmDBD es
+	redundante el activar este accounting (¿?), así que se hizo caso a este
+	comentario de la docu y no se activado.
+
+AccountingStorageType=accounting_storage/slurmdbd
+
+AccountingStorageHost=sherpa
+
+Activamos el accounting en modo 'association'. 
+
+NOTA: En nuestro caso, una vez añadido el accounting en la base de datos se
+tubieron que reiniciar los servicios, no lo pilló en caliente.
+
+3.2.- Comandos para gestionar asociaciones en el accounting
+-----------------------------------------------------------
+
+Herramientas disponibles:
+
+sacctmgr : permite añadir, configurar, eliminar elementos sobre el cual hacer
+	el accounting. Estos elementos pueden ser clusters, particiones, accounts,
+	cuentas de usuario, etc.
+
+sacct: para hacer consultar sobre accounting tanto de jobs acabados como de jobs
+	en ejecución.
+
+sreport: para generar reportes en un periodo de tiempo.
+
+
+3.3.- Ejemplos de uso de los comandos de accounting
+---------------------------------------------------
+
+Sobre las asociaciones, vi que una vez definida una asociacions que NO se puede 
+modificar ninguno de los tres/cuatro elementos que la definen (cluster, account, 
+username y partición). Por ejemplo, no podemos modificar la account a la que pertenece 
+una asociación, en todo caso, has de crear una nueva. En canvio otros parámetros como 
+un límite de uso, etc, sí que nos lo permite modificar.
+
+3.3.1 - sacctmgr
+----------------
+
+Estos son algunos ejemplo de como añadir asociaciones, consultar, modificar, etc. 
+Solo es una muestra, se pueden hacer muchísimas más cosas.
+
+Los límites también se ponen con el comando sacctmgr:
+
+- Añadimos el cluster:
+
+sacctmgr add cluster gpucluster
+
+- Ver la info del cluster:
+
+sacctmgr show cluster gpucluster
+
+- verlos todos:
+
+sacctmgr show clusters
+
+- Añadimos dos tipos de account 'test' y 'lab':
+
+sacctmgr add account test,lab Cluster=gpucluster Description="none" Organization="none"
+
+- Añado al usuario miguels y le digo que su DefaultAcount es test (la partition es opcional):
+
+sacctmgr add user miguels DefaultAccount=test Partition=multiscale
+
+Una vez añadido este usuario ya tengo mi primera asociación definida ya que ya tengo 
+un elemento creado en el cual he generado una relación que involucra a un
+cluster (gpucluster), una account (test), un usuario (miguels) y adicionalmente, 
+a una partición (multiscale). 
+
+- Ahora también lo añado a otra account (la default será la test):
+
+sacctmgr add user miguels Account=lab Partition=multiscale
+
+- Para ver la lista de usuarios:
+
+sacctmgr show users
+
+- y para ver a solo un usuario:
+
+sacctmgr show users
+
+- Para ver un listado de asociaciones
+
+sacctmgr show clusters
+
+- Se puede ver mejor si lo consultamos así:
+
+sacctmgr show association format=Account,Cluster,User,Partition tree
+
+- También podemos hacer modificaciones. Si tenemos a un usuari asociado a dos
+accounts y queremos cambiar el la default account:
+
+sacctmgr modify user name=msanchez set defaultaccount=lab
+
+- o borrar un account (también se pueden borrar users, clusters, ...):
+
+sacctmgr delete account name=physics cluster=tux
+
+3.3.2.- sacct
+-------------
+
+Algunos ejemplos para consultar el accounting:
+
+
+- Solo muestra de los jobs del usuario tomek las info del JobID, user, jobname,
+NTasks, nodelist:
+
+sacct --format JobID,user,jobname,NTasks,nodelist --user=tomek
+
+- a partir de la fecha indicada:
+
+sacct --format JobId,JobName,Partition,Account,User -S 2016-05-26
+
+
+- Parece que por defecto solo muestra info de los jobs más recientes, del dia
+actual o algo así
+
+- A partir de la fecha indicada y que los jobs sean solo del usuario msanchez:
+
+sacct --format JobId,JobName,Partition,Account,User --user=msanchez -S 2016-05-25
+
+- Entre dos fechas (especificamos hora):
+
+sacct --format JobId,JobName,Partition,Account,User --user=miguels -S2016-05-25-08:00 -E2016-05-26-23:00
+
+- Entre dos fechas (sin hora):
+
+sacct --format JobId,JobName,Partition,Account,User --user=miguels -S2016-05-25 -E2016-05-26
+
+- How do I know how much memory my job is using/has used?
+
+sacct --format JobID,jobname,NTasks,nodelist,MaxRSS,MaxVMSize,AveRSS,AveVMSize -S2016-05-01
+
+NOTA: Por defecto parece que solo muestra la info del dia actual, se ha de indicar 
+-S para que sea a partir de una fecha.
+
+3.3.3.- sreport
+---------------
+
+- Utilización total del cluster (solo si SlurmDBD)
+
+sreport cluster utilization
+
+- Reporte del total de cpu usadas por account desde la fecha
+
+sreport job sizesbyaccount start=2016-05-25
+
+- Usuarios que más han usado el cluster desde la fecha:
+
+sreport user top start=2016-01-01
+
+- Utilización por usuario desde la fecha:
+
+sreport cluster AccountUtilizationByUser start=2016-01-01
+
+- Con -tminper vemos los tantos por cientos:
+
+sreport -tminper cluster utilization --tres="cpu,mem" start=2015-09-01T00:00:00
+
+- Se están usando las GPU's:
+
+sreport -tminper cluster utilization --tres="cpu,gres/gpu" start=2015-09-02T00:00:0
+
+- Que GPU se usa más (supongo que tendríamos que declarar subgrupos dentro de las
+GPU):
+
+sreport -tminper cluster utilization --tres="gres/gpu:k40,gres/gpu:k80" start=2015-09-02T00:00:00
+
+NOTA: Por defecto parece que solo muestra la info del dia actual, se ha de indicar 
+'start' para que sea a partir de una fecha.
+
+4.- Referencias
+===============
+
+http://slurm.schedmd.com/accounting.html
+http://slurm.schedmd.com/sacct.html
+http://slurm.schedmd.com/sacctmgr.html
+http://slurm.schedmd.com/sreport.html
+
+
+- Cosas a mirar:
+================
+
+- Otros tipos de AccountingStorageEnforce como Qos, safe, limit, etc.
+
+- Poner limites: walltime, maxrunjobs, etc.
+
+
+
+

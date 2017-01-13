@@ -1,0 +1,70 @@
+
+
+Para conectarnos desde un portátil con linux a un switch a traveś del puerto
+serie se puede hacer usando la herramienta minicom. Esta herramienta
+está disponible tanto en el repositorio de Ubuntu como en los de 
+Scientific Linux / CentOS. 
+
+Para poder conectarnos a los switches, en el caso de los tres nuevos a gigabit de la
+planta cuarta (HP ProCurve 2910al-48G) que son los switches 3, 4 y 5, tenemos 
+que hacer servir los cables serie que venían con estos switches que en un lado 
+tienen un conector serie que es el que va al portàtil y por el otro un ethernet 
+que va al conector que está a la izquierda del frontal. 
+
+En el caso de los dos antiguos, que son los switches 1 y 2 (HP HP ProCurve 3400cl),
+hemos de hacer servir un conector serie de color azul que tiene opción de usar
+conectores DB9 o DB25 en ambos extremos (nosostros haremos servir los dos DB9).
+
+Ambos cables están en la misma caja en el armario azul junto con los cables de red
+cruzados.
+
+También necesitaremos el adaptador de USB a serie para el portàtil (nos lo suelen
+dejar o los del CRG o Manel del PRBB).
+
+Conectarnos al switch
+=====================
+
+1.- Nos conectamos al switch con el adaptador serie del portàtil y el cable serie
+que necesitemos según el modelo del switch.
+
+2.- Abrimos la aplicación minicom usando estos parámetros:
+
+$ minicom -s -c o
+
+3.- Entramos directamente al menú de configuración de minicom. Vamos a la opción 
+"Serial Port Setup" y ponemos:
+
+ * Para switch HP ProCurve 2910al-48G
+
+	Device: /dev/ttyUSB0
+	Bps/Par/Bits: 9600N1 (9600 Baud, 8 data bits, No parity, 1 stop bit)
+	Hardware Flow Control: NO
+	Soft Flow Control: YES
+
+ * Para 3Com 2920-SFPPlus
+
+	Device: /dev/ttyUSB0
+	Bps/Par/Bits; 38400N1 (38400 Baud, 8 data bits, No parity, 1 stop bit)
+	Hardware Flow Control: NO
+	Soft Flow Control: NO
+
+Salimos con Esc
+
+4.- Al haber salido del menú, el programa ya intenta conectarse con el swith con
+esta configuració y ya deberíamos de tener el prompt del switch que nos pide la
+contraseña.
+
+Una vez estamos dentro de minicom, podemos pulsar las teclas simultáneas Control+A y
+luego la tecla Z para acceder al menú general. Desde este menú podemos volver a entrar
+al menú sel puerto serie para configurar el puerto serie (no recuerdo si era 
+'com parameters (P)' o 'configure minicom (O)')
+
+Referencias:
+
+http://www.cyberciti.biz/tips/connect-soekris-single-board-computer-using-minicom.html
+
+	
+
+	
+
+
