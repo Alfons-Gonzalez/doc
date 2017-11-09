@@ -1,0 +1,171 @@
+Instal.lacio d'un cluster de Virtualitzacio amb Proxmox VE
+
+1.- descarrega de proxmox-ve_4.4-eb2d6f1e-2.iso comunity edition de la web de proxmox i ho gravem a un dvd
+
+2.- instalacio de dues maquines
+
+172.20.16.197 (sc1435, 8Gb de ram, 2 hd 1Tb en RAID1)
+172.20.16.196 (PE 2950, 32Gb RAM, 1 hd 500Gb)
+
+
+Atencio: els nodes han d'estar en la mateixa xarxa i despres no es pot canviar la IP.
+
+3.- fem login via ssh al primer node que hem instalat
+
+[alfons@moebius ~]$ ssh root@172.20.16.197
+
+4.- creem el cluster (Atencio: el nom NO  es pot canviar despres)
+
+root@pve:~# pvecm create VE-Beta
+Corosync Cluster Engine Authentication key generator.
+Gathering 1024 bits for key from /dev/urandom.
+Writing corosync key to /etc/corosync/authkey.
+root@pve:~#
+
+
+5.- comprovem:
+
+root@pve:~# pvecm status
+Quorum information
+------------------
+Date:             Thu Mar 30 16:34:28 2017
+Quorum provider:  corosync_votequorum
+Nodes:            1
+Node ID:          0x00000001
+Ring ID:          1/4
+Quorate:          Yes
+
+Votequorum information
+----------------------
+Expected votes:   1
+Highest expected: 1
+Total votes:      1
+Quorum:           1  
+Flags:            Quorate 
+
+Membership information
+----------------------
+    Nodeid      Votes Name
+0x00000001          1 172.20.16.197 (local)
+root@pve:~# 
+
+
+6.- ens connectem al segon node
+
+[alfons@moebius ~]$ ssh root@172.20.16.196
+The authenticity of host '172.20.16.196 (172.20.16.196)' can't be established.
+RSA key fingerprint is de:e8:da:50:93:d0:5a:64:8b:c0:25:14:a8:12:93:d3.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added '172.20.16.196' (RSA) to the list of known hosts.
+root@172.20.16.196's password: 
+Warning: untrusted X11 forwarding setup failed: xauth key data not generated
+Warning: No xauth data; using fake authentication data for X11 forwarding.
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+/usr/bin/xauth:  file /root/.Xauthority does not exist
+root@pve1:~#
+
+7.- l'afegim al cluster
+
+root@pve1:~# pvecm add 172.20.16.197  (La ip del primer node)
+The authenticity of host '172.20.16.197 (172.20.16.197)' can't be established.
+ECDSA key fingerprint is ff:a7:00:73:a8:02:af:7c:8c:27:85:d3:94:d2:10:e6.
+Are you sure you want to continue connecting (yes/no)? yes
+root@172.20.16.197's password: 
+copy corosync auth key
+stopping pve-cluster service
+backup old database
+waiting for quorum...OK
+generating node certificates
+merge known_hosts file
+restart services
+successfully added node 'pve1' to cluster.
+root@pve1:~#
+
+8.- tornem a mirar l'status:
+
+root@pve:~# pvecm status
+Quorum information
+------------------
+Date:             Thu Mar 30 16:37:08 2017
+Quorum provider:  corosync_votequorum
+Nodes:            2
+Node ID:          0x00000001
+Ring ID:          2/8
+Quorate:          Yes
+
+Votequorum information
+----------------------
+Expected votes:   2
+Highest expected: 2
+Total votes:      2
+Quorum:           2  
+Flags:            Quorate 
+
+Membership information
+----------------------
+    Nodeid      Votes Name
+0x00000002          1 172.20.16.196
+0x00000001          1 172.20.16.197 (local)
+root@pve:~# 
+
+9.- si volem llistar els nodes:
+
+root@pve:~# pvecm nodes
+
+Membership information
+----------------------
+    Nodeid      Votes Name
+         2          1 pve1
+         1          1 pve (local)
+root@pve:~#
+
+
+Mes info a:
+http://pve.proxmox.com/pve-docs/chapter-pvecm.html
+
+Connectats a https://172.20.16.197:8006/ podem gestionar el cluster, crear una VM
+
+creo una VM amb CentOS7 i IP 172.20.16.195
+
+Per importar una maquina
+
+root@pve:~# pvesm add dir local2 --path /var/imatges/
+root@pve:~# cat /etc/pve/storage.cfg 
+dir: local
+	path /var/lib/vz
+	content backup,iso,vztmpl
+
+lvmthin: local-lvm
+	thinpool data
+	vgname pve
+	content images,rootdir
+
+dir: local2
+	path /var/imatges/
+root@pve:~# pvesm set local2 --content images
+root@pve:~# cat /etc/pve/storage.cfg 
+dir: local
+	path /var/lib/vz
+	content iso,backup,vztmpl
+
+lvmthin: local-lvm
+	vgname pve
+	thinpool data
+	content images,rootdir
+
+dir: local2
+	path /var/imatges/
+	content images
+
+root@pve:~#
+
+root@pve:~# ls /var/imatges/
+dump  images  private
+
+

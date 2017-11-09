@@ -361,6 +361,22 @@ module-naming-scheme=GRIBModuleNamingScheme
 NOTA: La docu oficial de EasyBuild recomana NO barrejar en un mateix repo varis 
 module naming scheme !!
 
+MODIFICACIO: Aquesta nomenclatura no ens va bé ja que alguns mòduls necessiten
+afegir un sufixversion al final per poder tindre una versió per un toolchain
+i una altre per un altre toolchain (mateix soft, mateixa versió). D'això ens vam
+adonar compte a l'instal·lar el toolchain foss-2016b (el goolf va quedar sense
+continuïtat):
+
+FFTW/3.3.4-gompi-2016b    --> compilat i dependèndia de foss-2016b
+FFTW/3.3.4		  --> compilat i dependència de goolf-1.7.20
+
+So, tenim que permetre que es pugui afegir aquest suffixversion en el module
+name scheme, el que implica modificar el fitxer grib_module_name_scheme.py i
+que el return sigui (que de fet estava comentat):
+
+return os.path.join(ec['name'], ec['version'] + ec['versionsuffix'])
+
+
 3.- ToolChain a fer servir
 ==========================
 

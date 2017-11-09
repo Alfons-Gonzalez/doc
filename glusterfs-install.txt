@@ -1,0 +1,214 @@
+Muntem dos servers amb centOS 7.x
+
+store1: 172.20.16.218
+store2: 172.20.16.219
+
+A les dues maquines:
+
+wget  -P /etc/yum.repos.d http://download.gluster.org/pub/gluster/glusterfs/3.7/3.7.5/CentOS/glusterfs-epel.repo
+
+
+yum -y install glusterfs glusterfs-fuse glusterfs-server --nogpgcheck
+
+yum install glusterfs-server samba -y
+
+systemctl start glusterd.service
+
+systemctl enable glusterd.service
+
+Obrim el firewall per tota la classe C (si volem ser mes restrictius caldra obrir nomes els ports que faci anar el gluster)
+
+firewall-cmd  --add-rich-rule='rule family="ipv4" source
+ address="172.20.16.0/24"  accept'
+
+
+Comprovem que es veuen:
+
+[root@store1 ~]# gluster peer probe store2
+peer probe: success. 
+[root@store1 ~]#
+
+[root@store2 ~]# gluster peer probe store1
+peer probe: success. Host store1 port 24007 already in peer list
+[root@store2 ~]#
+
+[root@store1 ~]# gluster peer status
+Number of Peers: 1
+
+Hostname: store2
+Uuid: 8dfdeeae-0577-4ed9-a0a7-0996b4e74b4d
+State: Peer in Cluster (Connected)
+[root@store1 ~]#
+
+[root@store1 ~]# gluster pool list
+UUID					Hostname 	State
+8dfdeeae-0577-4ed9-a0a7-0996b4e74b4d	store2   	Connected 
+e026cf0c-4ff5-43b4-91d2-7b94da9d5f4b	localhost	Connected 
+[root@store1 ~]# 
+
+ Ara crearem bricks a cada maquina, totes dues tenen un /dev/sdb (de diferents tamanys)
+
+Creem un volum fisic:
+
+[root@store1 ~]# pvcreate /dev/sdb1
+  Physical volume "/dev/sdb1" successfully created.
+[root@store1 ~]# 
+
+[root@store2 ~]# pvcreate /dev/sdb1
+  Physical volume "/dev/sdb1" successfully created.
+[root@store2 ~]#
+
+Ara el volum group:
+
+[root@store1 ~]# vgcreate vg_cluster /dev/sdb1
+  Volume group "vg_cluster" successfully created
+[root@store1 ~]#
+
+[root@store2 ~]# vgcreate vg_cluster /dev/sdb1
+  Volume group "vg_cluster" successfully created
+[root@store2 ~]#
+
+I ara els logical volumes (a tots dos servers)
+
+# lvcreate -L 10G -n brick1 vg_cluster
+# lvcreate -L 50G -n brick2 vg_cluster
+# lvcreate -L 50G -n brick3 vg_cluster
+
+setup els filesystems
+
+# mkfs.xfs /dev/vg_cluster/brick1
+# mkfs.xfs /dev/vg_cluster/brick2
+# mkfs.xfs /dev/vg_cluster/brick3
+
+Creem mountpoints:
+
+# mkdir -p /bricks/brick{1,2,3}
+
+# mount /dev/vg_cluster/brick1 /bricks/brick1
+# mount /dev/vg_cluster/brick2 /bricks/brick2
+# mount /dev/vg_cluster/brick3 /bricks/brick3
+
+els afegim al fstab
+
+Ara crearem un volum replicat (estil RAID1) 
+
+Creem un directori buit:
+
+[root@store1 ~]# mkdir /bricks/brick2/brick
+[root@store2 ~]# mkdir /bricks/brick2/brick
+
+A store1 (nomes aqui) fem
+
+[root@store1 ~]# gluster volume create vol1 replica 2 transport tcp store1:/bricks/brick2/brick store2:/bricks/brick2/brick 
+volume create: vol1: success: please start the volume to access data
+[root@store1 ~]# 
+[root@store1 ~]# gluster volume start vol1
+volume start: vol1: success
+[root@store1 ~]#
+
+volume start: vol1: success
+[root@store1 ~]# gluster volume info all
+ 
+Volume Name: vol1
+Type: Replicate
+Volume ID: a4500dd0-9dfc-408a-b99d-0de25d5b8410
+Status: Started
+Number of Bricks: 1 x 2 = 2
+Transport-type: tcp
+Bricks:
+Brick1: store1:/bricks/brick2/brick
+Brick2: store2:/bricks/brick2/brick
+Options Reconfigured:
+performance.readdir-ahead: on
+[root@store1 ~]#
+
+Per crear un altre volum (aquest dsitrubuit)
+
+[root@store1 ~]# gluster volume create vol2  store1:/bricks/brick3/brick store2:/bricks/brick3/brick 
+volume create: vol2: success: please start the volume to access data
+[root@store1 ~]# gluster volume start vol2
+
+
+[root@store1 ~]#  gluster volume info all
+ 
+Volume Name: vol1
+Type: Replicate
+Volume ID: a4500dd0-9dfc-408a-b99d-0de25d5b8410
+Status: Started
+Number of Bricks: 1 x 2 = 2
+Transport-type: tcp
+Bricks:
+Brick1: store1:/bricks/brick2/brick
+Brick2: store2:/bricks/brick2/brick
+Options Reconfigured:
+performance.readdir-ahead: on
+ 
+Volume Name: vol2
+Type: Distribute
+Volume ID: 21301522-88ed-4cd1-94b5-7158b6748747
+Status: Started
+Number of Bricks: 2
+Transport-type: tcp
+Bricks:
+Brick1: store1:/bricks/brick3/brick
+Brick2: store2:/bricks/brick3/brick
+Options Reconfigured:
+performance.readdir-ahead: on
+[root@store1 ~]#
+
+
+Podem crear un volum distribuit vol4, muntar-lo a un client i despres fer-lo
+creixer.
+
+Per muntar-lo a un client centOs 7, al client:
+
+[root@el3 ~]# yum install glusterfs glusterfs-fuse attr -y
+
+[root@el3 ~]# mkdir /test
+
+[root@el3 ~]#  mount -t glusterfs store1:/vol4 /test
+
+[root@el3 ~]# df -h
+Filesystem               Size  Used Avail Use% Mounted on
+/dev/mapper/centos-root   31G  1.9G   29G   7% /
+devtmpfs                 486M     0  486M   0% /dev
+tmpfs                    497M     0  497M   0% /dev/shm
+tmpfs                    497M  6.6M  490M   2% /run
+tmpfs                    497M     0  497M   0% /sys/fs/cgroup
+/dev/sda1                497M  171M  327M  35% /boot
+tmpfs                    100M     0  100M   0% /run/user/0
+store1:/vol4             100G   65M  100G   1% /test
+
+
+I ara el fem creixer:
+
+[root@store2 ~]# gluster volume add-brick vol4 store2:/bricks/brick6/brick 
+
+[root@el3 ~]# df -h
+Filesystem               Size  Used Avail Use% Mounted on
+/dev/mapper/centos-root   31G  1.9G   29G   7% /
+devtmpfs                 486M     0  486M   0% /dev
+tmpfs                    497M     0  497M   0% /dev/shm
+tmpfs                    497M  6.6M  490M   2% /run
+tmpfs                    497M     0  497M   0% /sys/fs/cgroup
+/dev/sda1                497M  171M  327M  35% /boot
+tmpfs                    100M     0  100M   0% /run/user/0
+store1:/vol4             150G  250M  150G   1% /test
+[root@el3 ~]#
+
+automaticament veu 50G mes.
+
+
+Ara cal estudiar quin tipus de filesystem ens pot interessar: 
+
+https://gluster.readthedocs.io/en/latest/Quick-Start-Guide/Architecture/
+
+https://gluster.readthedocs.io/en/latest/Administrator%20Guide/Setting%20Up%20Volumes/
+
+
+
+
+
+
+
+

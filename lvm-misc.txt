@@ -497,4 +497,10 @@ tmpfs                 32G     0   32G   0% /dev/shm
 /dev/mapper/vg1-lv2   99G   69M   94G   1% /test2
 /dev/mapper/vg2-lv2   92G   61M   87G   1% /test4
 [root@wallace ~]# 
+--------------
+
+per LVM thin Volumes: man lvmthin
+Quan tenim LVMThin volume creat pdem crear LVs a partir d'ell:
+
+lvcreate -n ThinLV -V VirtualSize --thinpool VG/ThinPoolLV
 
