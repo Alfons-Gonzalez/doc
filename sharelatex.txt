@@ -1,0 +1,93 @@
+ Instalacio de sharelatex
+
+
+1.- instalem una VM al proxmox amb centos 7.x (lambda)
+
+L'instalo al node 'delta' del proxmox.
+Desde la GUI (https://172.20.16.196:8006) 
+
+- escollim visio 'datacenter'
+- seleccionem el node 'delta'
+- a storage local: upload de la iso del CentOS 7
+- escollim la opcio 'create VM'
+- nom: lambda
+- OS: linux kernel 3.x
+- DVD: escollim la iso que haviem pujat
+- HD 32Gb
+- 4 cores & 4 Gb (es recomana ~ 1 core i 1 Gb x cada 10 usuaris potencials del sharelatex)
+- xarxa en mode bridge vbr0 (de moment amb IP privada: hem reservat la 172.20.16.119)
+
+- engeguem la VM i anem a 'console'
+- engega de la iso del dvd de centOS i l'instal.lem.
+- post config habitual: yum update, deshabilitem selinux, configurem el firewallper permetre nomes ssh desde la nostra subnet i en aquest cas, obro tot per moebius/cappra i el port 80 x everybody (ja que al sharelatex s'accedira al port 80)
+
+
+2.- instal.lem docker
+
+yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+yum install docker-ce -y
+mkdir /etc/docker
+vi /etc/docker/daemon.json
+cat /etc/docker/daemon.json
+{
+  "storage-driver": "devicemapper"
+}
+
+systemctl start docker
+systemctl enable docker
+
+
+3.- instal.lem docker-compose
+
+curl -L https://github.com/docker/compose/releases/download/1.17.0/docker-compose-`uname -s`-`uname -m` -o /usr/local/bin/docker-compose
+
+chmod +x /usr/local/bin/docker-compose
+docker-compose --version
+
+4.- baixem el docker-compose.yml del github de sharelatex
+
+mkdir sharelatex
+cd sharelatex
+wget https://raw.githubusercontent.com/sharelatex/sharelatex/master/docker-compose.yml
+
+
+5.- creem els containers i els engeguem fent 
+
+pwd
+/root/sharelatex
+docker-compose up
+
+6.- podem aturar-los fent 
+
+docker-compose stop
+docker-compose start
+
+[root@lambda sharelatex]# docker-compose ps
+   Name                 Command               State         Ports       
+------------------------------------------------------------------------
+mongo        docker-entrypoint.sh mongod      Up      27017/tcp         
+redis        docker-entrypoint.sh redis ...   Up      6379/tcp          
+sharelatex   /sbin/my_init                    Up      0.0.0.0:80->80/tcp
+[root@lambda sharelatex]# 
+
+7.- faig un backup de la VM dins del proxmox
+
+- node delta
+- storage local
+- backup
+- lzo, mode snapshot
+
+8.- faig un backup a pandora:/VirtualMachines/images
+
+root@delta:/imatges/images/118# pwd
+/imatges/images/118
+root@delta:/imatges/images/118# ls
+vm-118-disk-1.qcow2
+root@delta:/imatges/images/118# scp vm-118-disk-1.qcow2 root@pandora:/VirtualMachines/images/lambda-Nov09.qcow2
+The authenticity of host 'pandora (172.20.16.5)' can't be established.
+ECDSA key fingerprint is 19:4d:14:4b:46:1c:81:cd:6a:84:8a:e4:5e:45:90:d7.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'pandora,172.20.16.5' (ECDSA) to the list of known hosts.
+root@pandora's password: 
+vm-118-disk-1.qcow2                                                                                      100%   32GB  50.9MB/s   10:44    
+root@delta:/imatges/images/118#

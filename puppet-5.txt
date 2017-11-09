@@ -1,0 +1,79 @@
+A puppet 5.x canvia la manera de funcionar
+
+
+Server:
+
+CentOS 7.x
+
+rpm -Uvh https://yum.puppetlabs.com/puppet5/puppet5-release-el-7.noarch.rpm
+
+yum install puppetserver
+systemctl enable puppetserver
+systemctl start puppetserver
+
+/usr/bin/firewall-cmd  --zone=public --add-port=8140/tcp 
+/usr/bin/firewall-cmd  --zone=public --add-port=8140/tcp --permanent
+
+
+Els directori on esta tota la config:
+
+/etc/puppetlabs/
+
+manifests: 
+/etc/puppetlabs/code/environments/production/manifests/
+modules:
+/etc/puppetlabs/code/environments/production/modules/
+
+
+Copio els antics manifests/modules que tenia:
+
+[alfons@moebius production]$ pwd
+/home/alfons/puppet-backup/production
+[alfons@moebius production]$ 
+
+scp manifests/*.pp root@puppet:/etc/puppetlabs/code/environments/production/manifests/
+
+scp -rp modules/* root@puppet:/etc/puppetlabs/code/environments/production/modules
+
+CLIENT:
+
+Elimino l'anterior versio:
+
+1.- yum remove puppet-3.8.7-1.el7.noarch
+2.- cd /var/lib && rm -rf puppet
+
+instal.lem la nova:
+
+1. rpm -Uvh https://yum.puppetlabs.com/puppet5/puppet5-release-el-7.noarch.rpm
+2. yum install puppet-agent -y
+3. si es una nova instal.lacio, creem el fitxer
+/etc/facter/facts.d/custom_facts.yaml
+
+mkdir -p /etc/facter/facts.d
+echo 'lab: lab_name' >> /etc/facter/facts.d/custom_facts.yaml
+
+(on lab_name pot ser: ibi,cgl,phi,sbi,genomics,cslab, multiscale)
+
+generem certificat
+/opt/puppetlabs/bin/puppet agent --test
+
+al server el signem:
+puppet cert list
+puppet cert sign "brigid.prib.upf.edu"
+
+i al client ja podem tornar a executar:
+
+/opt/puppetlabs/bin/puppet agent --test
+
+Configurem al client que puppet estigui com service:
+
+[root@brigid ~]# /opt/puppetlabs/bin/puppet resource service puppet ensure=running enable=true
+Notice: /Service[puppet]/ensure: ensure changed 'stopped' to 'running'
+service { 'puppet':
+  ensure => 'running',
+  enable => 'true',
+}
+[root@brigid ~]#
+
+
+

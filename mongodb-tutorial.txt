@@ -1,0 +1,99 @@
+Mongodb
+=========
+
+- Conectar con la base de datos:
+
+# mongo
+
+- Ver una pequeña ayuda
+# help 
+
+- Ver las bases de datos:
+
+# show dbs
+
+- Usar una de esas bases de datos:
+
+# use <db-name>
+
+- Crear usuario administrador
+
+# mongo
+
+> use admin
+> db.createUser(
+  {
+    user: "myUserAdmin",
+    pwd: "abc123",
+    roles: [ { role: "userAdminAnyDatabase", db: "admin" } ]
+  }
+)
+>
+
+A continuación hay que reiniciar mongodb con el flag --auth para que habilite
+la autenticación:
+
+/usr/local/mongodb/bin/mongod --auth --config /usr/local/mongodb/etc/mongod.conf
+
+Ahora ya podemos conectar con mongodb como usuario administrador:
+
+mongo --port 27017 -u "myUserAdmin" -p "abc123" --authenticationDatabase "admin"
+
+- Crear usuario adicional y darle privilegios para una base de datos.
+
+use test
+db.createUser(
+  {
+    user: "myTester",
+    pwd: "xyz123",
+    roles: [ { role: "readWrite", db: "test" },
+             { role: "read", db: "reporting" } ]
+  }
+)
+
+Y para probar que funcinoa bien:
+
+mongo --port 27017 -u "myTester" -p "xyz123" --authenticationDatabase "test"
+
+OJO: los usuarios quedan guardados dentro de la base de datos para la cual han 
+sido definidos, so, es imprescindible indicar la base de datos con la cual
+queremos conectar:
+
+mongo -u "myTester" -p "xyz123" --authenticationDatabase "test"
+
+o
+
+mongo test -u "myTester" -p "xyz123"
+
+
+NOTA: los usuarios definidos para una base de datos son guardados dentro de la
+propia base de datos, así que el nombre de la base de datos es necesaria en 
+la cadena de conexión para que lo encuentre.
+
+- Con nanopub-server apareció el problema de que en lineas de comandos era posible
+conectar con user/password/databasename pero nanopub-serve no. El problema resultó
+ser que los usuarios habían sido creados con la versión de schema 5 y nanopub
+hacer servir la 3. Para cambiar a la 3 (esto afectaba a todas las bd que estén en
+este servidor de MongoDB):
+
+1.- Arrancamos monbodb sin el falg --auth (sin autentificación)
+
+mongo
+use admin
+db.system.users.remove({})    <== removing all users
+db.system.version.remove({}) <== removing current version 
+db.system.version.insert({ "_id" : "authSchema", "currentVersion" : 3 })
+
+2.- Volvemos a crear los usuarios como se explica más arriba (ya harán servir
+la verión 3 de Schema).
+
+3.- Volvemos a arrancar MongoDb con autentificación (--auth)
+
+El error que daba en los logs que nos llevó a ver que era este el problema era:
+
+ I -        [conn977] end connection 127.0.0.1:38400 (1 connection now open)
+ I NETWORK  [thread1] connection accepted from 127.0.0.1:38402 #978 (1 connection now open)
+ I ACCESS   [conn978]  authenticate db: nanopub-server { authenticate: 1, user: "nanopub", nonce: "xxx", key: "xxx" }
+ I ACCESS   [conn978] Failed to authenticate nanopub@nanopub-server with mechanism MONGODB-CR: AuthenticationFailed: MONGODB-CR credentials missing in the user document
+ I -        [conn978] end connection 127.0.0.1:38402 (1 connection now open)
+
