@@ -86,12 +86,9 @@ Status: Downloaded newer image for mariadb:latest
 3.- Baixar imatges
 
 [alfons@kubo ~]$ docker images
-REPOSITORY          TAG                 IMAGE ID            CREATED
-SIZE
-mariadb             latest              7fcf8c1a96d2        9 days ago
-397MB
-hello-world         latest              725dcfab7d63        10 days ago
-1.84kB
+REPOSITORY          TAG                 IMAGE ID            CREATED SIZE
+mariadb             latest              7fcf8c1a96d2        9 days ago 397MB
+hello-world         latest              725dcfab7d63        10 days ago 1.84kB
 [alfons@kubo ~]$ 
 
 4.- llistar containers estan en marxa (amb docker ps -a es veuen tots)
@@ -144,7 +141,7 @@ local               apache-data
 tot i aixi no es el qeu volem:
 
 a) el volum al que he associat /var/www/html al container no es accessible per
-l'usuari alfons de manera facil
+el usuari alfons de manera facil
 
 b) el port 80 només està escoltant al container
 
@@ -153,9 +150,8 @@ Parem i esborrem el contenidor:
 [alfons@kubo ~]$ docker stop  apachetest
 apachetest
 [alfons@kubo ~]$ docker ps
-CONTAINER ID        IMAGE               COMMAND             CREATED STATUS              PORTS               NAMES
-[alfons@kubo ~]$ docker rm apachetest
-apachetest
+CONTAINER ID        IMAGE               COMMAND             CREATED STATUS              PORTS               NAMES 
+[alfons@kubo ~]$ docker rm apachetest apachetest
 [alfons@kubo ~]$
 
 Em carrego tambe el volum que havia creat:
@@ -186,7 +182,7 @@ ha creat també el directori apache_data:
 apache_data
 [alfons@kubo ~]$
 
-Pero no puc posar res pq l'ha creat com a root
+Pero no puc posar res pq ha estat creat com a root
 
 [alfons@kubo ~]$ ls -ld apache_data/
 drwxr-xr-x. 2 root root 6 Nov 14 11:01 apache_data/
@@ -196,7 +192,7 @@ miro a veure si realment funciona:
 
 [root@kubo ~]# chown alfons:alfons /home/alfons/apache_data
 
-No funciona pq el container del httpd te els paths de l'apache
+No funciona pq el container del httpd te els paths de apache
 compilat...(/usr/local/apache2/htdocs...)
 
 Faig servir el 'docker cp' per copiar el fitxer:
