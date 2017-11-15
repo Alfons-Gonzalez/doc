@@ -91,3 +91,42 @@ Warning: Permanently added 'pandora,172.20.16.5' (ECDSA) to the list of known ho
 root@pandora's password: 
 vm-118-disk-1.qcow2                                                                                      100%   32GB  50.9MB/s   10:44    
 root@delta:/imatges/images/118#
+
+9.- Faig un backup cap a pandora de configuracions i dels serveis del
+sharelatex:
+
+El fitxer de configuracio de docker-compose.yml:
+
+[root@lambda sharelatex]# scp docker-compose.yml
+root@circe.upf.edu:/backup/sharelatex/config-docker-compose
+The authenticity of host 'circe.upf.edu (84.89.134.130)' can't be established.
+ECDSA key fingerprint is SHA256:YyrtBURJl1th7WNGLkgDNaMVk7Gzlr3oJ0EWo9bzXwQ.
+ECDSA key fingerprint is MD5:19:4d:14:4b:46:1c:81:cd:6a:84:8a:e4:5e:45:90:d7.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'circe.upf.edu,84.89.134.130' (ECDSA) to the list
+of known hosts.
+root@circe.upf.edu's password: 
+docker-compose.yml
+100%  925   584.0KB/s   00:00    
+[root@lambda sharelatex]#
+
+Les dades del /var/lib/sharelatex del container sharelatex:
+
+[root@lambda sharelatex]# docker-compose exec sharelatex scp -r
+/var/lib/sharelatex/data root@circe.upf.edu:/backup/sharelatex
+
+Les dades del mongodb del container mongo:
+
+docker-compose exec mongo mongodump --archive=test.gz --gzip
+cp /var/lib/docker/devicemapper/mnt/58f592bdeadb9c57fac8e403d1f6e482bb4e80734216f2c737e68d694544f041/rootfs/test.gz .  
+scp test.gz root@circe.upf.edu:/backup/sharelatex/mongodumparchive.gz
+
+10.- Li hem posat IP publica: 84.89.134.146
+
+per fer-ho:
+
+- canvi de IP, GW i domini a la VM amb nmtui
+- poweroff
+- al proxmox a lambda, hardware, network, canviem el bridge a vmbr1 (bridge
+  amb la interficie publica de delta) 
+- arrenquem la VM i ja es accessible via IP publica
