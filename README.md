@@ -6,6 +6,8 @@ documentació diversa relativa a sistemes, aqui es pot trobar informació sobre:
  3. sistemes de cues (slurm, sge)
  4. sistemes operatius (CentOS, Mac OS X)
  5. sistemes de backup (bacula..)
- 6. sistemes de fitxers (glusterfs)
+ 6. sistemes de fitxers (glusterfs, nfs, xfs)
  7. monitorització (logstash, kibana, nagios, elasticsearch)
+ 8. configuració de serveis (apache, nis, nfs )
+ 9. altres... 
 
