@@ -1,0 +1,59 @@
+
+yum install centos-release-gluster
+yum install glusterfs-server
+yum install samba
+systemctl start glusterd.service
+systemctl enable glusterd.service
+firewall-cmd --add-rich-rule='rule family=ipv4 source address=172.20.16.0/24 accept' --permanent
+firewall-cmd --remove service=ssh --permanent
+firewall-cmd  --remove-service="dhcpv6-client" --permanent
+firewall-cmd --reload
+
+[root@gluster1 ~]#  cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+172.20.16.218	gluster1
+172.20.16.219   gluster2
+172.20.16.220	aslan
+
+[root@gluster1 ~]# gluster peer status
+Number of Peers: 2
+
+Hostname: gluster2
+Uuid: 783e8471-c054-4547-8dd5-7fa5852635bd
+State: Peer in Cluster (Connected)
+
+Hostname: aslan
+Uuid: a1e67ca3-a89e-466d-9633-46718bd32b12
+State: Peer in Cluster (Connected)
+[root@gluster1 ~]# 
+
+lvcreate -L 4T -n brick1 vg1
+
+mkfs.xfs /dev/vg1/brick1
+mkdir -p /bricks/brick1
+mount /dev/vg1/brick1 /bricks/brick1
+
+ gluster volume create vol1 replica 3 transport tcp gluster1:/bricks/brick1/brick gluster2:/bricks/brick1/brick aslan:/bricks/brick1/brick
+
+gluster volume start vol1
+
+[root@gluster1 ~]# gluster volume info vol1
+ 
+Volume Name: vol1
+Type: Replicate
+Volume ID: 79b5fca9-667c-47cf-91e5-8b51b2cf68bf
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 1 x 3 = 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick1/brick
+Brick2: gluster2:/bricks/brick1/brick
+Brick3: aslan:/bricks/brick1/brick
+Options Reconfigured:
+transport.address-family: inet
+nfs.disable: on
+[root@gluster1 ~]#
+
+
