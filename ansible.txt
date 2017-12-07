@@ -492,4 +492,39 @@ client2 | SUCCESS => {
 }
 [root@server ~]#
 
+----------
+
+Fer servir playbooks: 
+
+A hydra (nou cluster del GRIB) 
+
+Defineixo un primer playbook:
+
+[root@hydra ~]# cat playbook-1.yml 
+---
+
+- hosts: nodes
+
+  remote_user: root
+  tasks:
+
+  - name: asegurar paquets
+    yum: name=wget state=present 
+
+  - name: client de NIS instalat
+    yum: name=ypbind state=present
+  - name: configuracio del client
+    template: src=/root/nisclient.conf dest=/etc/yp.conf
+  - name: client de NIS engegat
+    service: name=ypbind state=started
+
+
+Per comprovar la sntaxi:
+ansible-playbook playbook-1.yml --syntax-check
+
+un cop esta ok:
+ansible-playbook playbook-1.yml
+
+I es desplega per tots els nodes
+
 
