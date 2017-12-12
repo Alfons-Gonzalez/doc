@@ -1,1 +1,50 @@
+## Nou cluster del GRIB
+
+Fem una fusio entre les restes de gaudi & gencluster, al mateix temps, si volem evitar que el NFS sigui un coll d'ampolla per un cluster a nivell de programa, muntem un glusterfs per servir disc.
+
+
+## Config
+
+node master: hydra 
+OS: CentOS 7
+
+172.20.16.17 (privada GRIB)
+192.168.10.100 (interna cluster + gluster)
+
+
+# La xarxa esta configurada per a que els nodes surtin via NAT
+#
+doc: centOS7-NAT.txt
+
+# Te un servidor dhcp per la 192.168.10.[1-99] amb un kickstart i pxe
+#
+doc: kicksart.txt
+conf-exemple: dhcpd.conf, centos7.cfg
+
+# servidor de NIS, domainname cluster.
+#
+doc: nis.txt
+# via glusterfs munta /soft (replica de /soft de epsilon) i /users/lab
+#
+doc: gluster.txt
+
+
+# te instal.lat ansible, amb els playbooks podem configurar els nodes
+#
+doc: ansible.txt
+conf: playbook*.yml
+
+# sistema de cues : slurm
+#
+doc: slurm.txt
+conf: slurm.conf, slurmdbd.conf
+
+# afegir un node
+#
+doc: add-node.txt
+
+
+
+
+
 
