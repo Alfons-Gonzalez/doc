@@ -1,0 +1,110 @@
+Instalacio d'slurm a hydra
+
+yum install epel-release -y
+yum install munge munge-devel -y
+systemctl enable munge
+ dd if=/dev/urandom bs=1 count=1024 >/etc/munge/munge.key
+chmod 0700 /etc/munge/munge.key
+chown slurm:slurm /etc/munge/munge.key
+systemctl start munge
+
+wget https://download.schedmd.com/slurm/slurm-17.11.0.tar.bz2
+tar -jxvf slurm-17.11.0.tar.bz2 
+cd slurm-17.11.0
+./configure --prefix=/usr/local/slurm-17.11.0 --with-munge
+make
+make install
+
+ln -s /usr/local/slurm-17.11.0 /usr/local/slurm
+
+groupadd -g 800 slurm
+useradd -u 800 slurm -g slurm
+
+mkdir /usr/local/slurm/etc
+mkdir /usr/local/slurm/init.d
+mriaDB [(none)]> grant all on slurm_acct_db.* to slurm@localhost identified by
+'slurmacct';kdir -p /usr/local/spool/slurm
+mkdir /usr/local/log
+chown slurm:slurm /usr/local/slurm/etc /usr/local/slurm/init.d /usr/local/spool/slurm /usr/local/log
+cp /root/slurm-17.11.0/etc/slurm.conf.example /usr/local/slurm/etc/slurm.conf
+cp /root/slurm-17.11.0/etc/init.d.slurmdbd /usr/local/slurm/init.d
+cp /root/slurm-17.11.0/etc/init.d.slurm /usr/local/slurm/init.d
+
+editem el slurm.conf , abans d'engegar el servei cal posar en marxa el tema de
+l'accounting i del slurmdbd, que estara lligar a una db mysql:
+
+Fitxer de config:
+/usr/local/slurm/etc/slurmdbd.conf 
+
+
+systemctl enable mariadb.service
+systemctl start mariadb.service
+
+mysql -p
+
+MariaDB [(none)]> create database slurm_acct_db;
+MariaDB [(none)]> grant all on slurm_acct_db.* to slurm@localhost identified
+by 'slurmacct';
+
+
+
+
+[root@hydra ~]# cat /etc/systemd/system/slurmdbd.service
+[Unit]
+Description=Slurm DBD accounting daemon
+After=network.target
+ConditionPathExists=/usr/local/slurm/etc/slurmdbd.conf
+Requires=mariadb.service
+
+[Service]
+Type=forking
+#EnvironmentFile=-/etc/sysconfig/slurmdbd
+ExecStart=/usr/local/slurm/init.d/init.d.slurmdbd start
+ExecStop=/usr/local/slurm/init.d/init.d.slurmdbd stop
+ExecReload=/usr/local/slurm/init.d/init.d.slurmdbd reload
+PIDFile=/var/run/slurmdbd.pid
+
+[Install]
+WantedBy=multi-user.target graphical.target
+[root@hydra ~]#
+
+systemctl enable slurmdbd
+systemctl start slurmdbd
+
+un cop slurmdbd esta engegat:
+
+sacctmgr add cluster gribcluster
+sacctmgr show cluster gribcluster
+sacctmgr add account test,genomics,sbi,syspharm Cluster=gribcluster
+sacctmgr add user alfons DefaultAccount=test Partition=short32
+sacctmgr show users
+sacctmgr show association format=Account,Cluster,User,Partition tree
+
+
+ara ja podem engegar  el servei de slumctld
+
+
+[root@hydra ~]# cat /etc/systemd/system/slurmctld.service 
+[Unit]
+Description=Slurm controller daemon
+After=network.target
+ConditionPathExists=/usr/local/slurm/etc/slurm.conf
+Requires=slurmdbd.service
+
+[Service]
+Type=forking
+#EnvironmentFile=-/etc/sysconfig/slurmctld
+ExecStart=/usr/local/slurm/init.d/init.d.slurm start
+ExecStop=/usr/local/slurm/init.d/init.d.slurm stop
+ExecReload=/usr/local/slurm/init.d/init.d.slurm reload
+PIDFile=/var/run/slurmctld.pid
+
+[Install]
+WantedBy=multi-user.target graphical.target
+
+[root@hydra ~]#
+
+systemctl start slurmctld
+systemctl enable slurmctld
+
+

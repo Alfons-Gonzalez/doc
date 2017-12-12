@@ -1,0 +1,132 @@
+Al node master (hydra)
+
+
+tenir el dhcp configurat i amb aquesta config:
+
+[root@hydra ~]# cat /etc/dhcp/dhcpd.conf 
+#
+# DHCP Server Configuration file.
+#   see /usr/share/doc/dhcp*/dhcpd.conf.example
+#   see dhcpd.conf(5) man page
+#
+default-lease-time			604800;
+ignore 					client-updates;
+max-lease-time				604800;
+ddns-update-style                       interim;
+lease-file-name                         "/var/lib/dhcpd/dhcpd.leases";
+# opcions per pxe
+allow booting;
+allow bootp;
+filename "pxelinux.0";
+
+subnet 192.168.10.0 netmask 255.255.255.0 {
+    option subnet-mask	255.255.0.0;
+    option broadcast-address 192.168.255.255;
+    option routers 192.168.10.100;
+    option nis-domain "cluster";
+    option nis-servers 192.168.10.100;
+    option time-servers 192.168.10.100;
+    option domain-name-servers 84.89.128.11;
+
+host node01 {
+	hardware ethernet 78:2b:cb:4b:11:5f;
+	fixed-address 192.168.10.1;
+	option host-name "node01";
+    }
+host node02 {
+	hardware ethernet 00:22:19:98:41:27;
+	fixed-address 192.168.10.2;
+	option host-name "node02";
+    }
+}
+[root@hydra ~]#
+
+yum install tftp-server tftp syslinux vsftpd xinetd -y
+
+vi /etc/xinetd.d/tftp
+
+canviar diable=yes, per disable=no
+
+cp -v /usr/share/syslinux/pxelinux.0 /var/lib/tftpboot
+cp -v /usr/share/syslinux/menu.c32 /var/lib/tftpboot
+cp -v /usr/share/syslinux/memdisk /var/lib/tftpboot
+cp -v /usr/share/syslinux/mboot.c32 /var/lib/tftpboot
+cp -v /usr/share/syslinux/chain.c32 /var/lib/tftpboot
+mkdir /var/lib/tftpboot/pxelinux.cfg
+mkdir /var/lib/tftpboot/networkboot
+
+copiem el fitxer CentOS-7-x86_64-DVD-1511.iso a /usr/local/isos/
+
+mount -o loop CentOS-7-x86_64-DVD-1511.iso /mnt/
+cd /mnt/
+cp -av * /var/ftp/pub/
+cp /mnt/images/pxeboot/vmlinuz /var/lib/tftpboot/networkboot/
+cp /mnt/images/pxeboot/initrd.img /var/lib/tftpboot/networkboot/
+umount /mnt
+
+passwd encriptat que farem servir al fitxer de kickstart:
+
+openssl passwd -1 x2+y2=1
+
+vi /var/ftp/pub/centos7.cfg 
+
+[root@hydra ~]# cat /var/ftp/pub/centos7.cfg 
+#platform=x86, AMD64, or Intel EM64T
+#version=DEVEL
+# Firewall configuration
+firewall --enabled
+# Install OS instead of upgrade
+install
+# Use FTP installation media
+url --url="ftp://192.168.10.100/pub/"
+# Root password
+rootpw --iscrypted $1$i2PeJb1D$lt9i8OF5u9Rdzjb/6FrwS.
+# System authorization information
+auth useshadow passalgo=sha512
+# Use graphical install
+graphical
+firstboot disable
+# System keyboard
+keyboard --vckeymap=es --xlayouts='es'
+# System language
+lang en_US.UTF-8
+# SELinux configuration
+selinux disabled
+# Installation logging level
+logging level=info
+# System timezone
+timezone Europe/Madrid
+# System bootloader configuration
+bootloader location=mbr
+clearpart --all --initlabel --drives=sda
+autopart --type=lvm
+
+%packages
+@^minimal
+@core
+%end
+%addon com_redhat_kdump --disable --reserve-mb='auto'
+%end
+[root@hydra ~]#
+
+vi /var/lib/tftpboot/pxelinux.cfg/default
+
+[root@hydra ~]# cat /var/lib/tftpboot/pxelinux.cfg/default
+default menu.c32
+prompt 0
+timeout 30
+MENU TITLE GRIB_CLUSTER PXE Menu
+LABEL centos7_x64
+MENU LABEL CentOS 7_X64
+KERNEL /networkboot/vmlinuz
+APPEND initrd=/networkboot/initrd.img inst.repo=ftp://192.168.10.100/pub ks=ftp://192.168.10.100/pub/centos7.cfg
+[root@hydra ~]#
+
+systemctl start xinetd
+systemctl enable xinetd
+systemctl start vsftpd
+ systemctl enable vsftpd
+firewall-cmd --permanent --zone=internal --add-service=ftp
+firewall-cmd  --zone=internal --add-service=ftp
+
+

@@ -1,0 +1,110 @@
+
+Host:
+
+hydra:
+
+configurem la xarxa:
+
+em1: 172.20.16.17/24 amb GW 172.20.16.245 
+
+em2: 192.168.10.100 : volem que sigui GW de la resta de nodes de calcul
+que estaran a 192.168.10.0
+
+0.-  activem el ip forwarding:
+
+sysctl -w net.ipv4.ip_forward=1
+echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.d/ip_forward.conf
+
+
+
+1.- separem les interficies per zones (deixo em1 a la zona public i poso em2 a
+la zona internal)
+
+firewall-cmd --permanent --zone=internal --change-interface=em2
+
+nmcli con mod em2 connection.zone internal
+
+2.- modifico algunes regles del firewall per deixar cada zona amb les regles
+que vull:
+
+firewall-cmd --permanent --zone=internal --add-rich-rule='rule family=ipv4
+source address=192.168.0.0/16 accept'
+
+[root@hydra ~]# firewall-cmd --list-all --zone=public
+public (active)
+  target: default
+  icmp-block-inversion: no
+  interfaces: em1
+  sources: 
+  services: ssh
+  ports: 
+  protocols: 
+  masquerade: no
+  forward-ports: 
+  source-ports: 
+  icmp-blocks: 
+  rich rules: 
+	
+[root@hydra ~]#
+
+[root@hydra ~]# firewall-cmd --list-all --zone=internal
+internal (active)
+  target: default
+  icmp-block-inversion: no
+  interfaces: em2
+  sources: 
+  services: ssh mdns
+  ports: 
+  protocols: 
+  masquerade: no
+  forward-ports: 
+  source-ports: 
+  icmp-blocks: 
+  rich rules: 
+	rule family="ipv4" source address="192.168.0.0/16" accept
+[root@hydra ~]#
+
+3.- ara afegim les regles de NAT
+
+[root@hydra ~]# firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -o em1 -j MASQUERADE
+success
+[root@hydra ~]# firewall-cmd --direct --add-rule ipv4 filter FORWARD 0 -i em2 -o em1 -j ACCEPT
+success
+[root@hydra ~]# firewall-cmd --direct --add-rule ipv4 filter FORWARD 0 -i em1 -o em2 -m state --state RELATED,ESTABLISHED -j ACCEPT
+success
+[root@hydra ~]# 
+
+[root@hydra ~]# firewall-cmd  --direct --get-all-rules 
+ipv4 nat POSTROUTING 0 -o em1 -j MASQUERADE
+ipv4 filter FORWARD 0 -i em2 -o em1 -j ACCEPT
+ipv4 filter FORWARD 0 -i em1 -o em2 -m state --state RELATED,ESTABLISHED -j
+ACCEPT
+[root@hydra ~]# 
+
+les posem com --permanent:
+
+firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -o em1 -j MASQUERADE
+firewall-cmd --permanent --direct --add-rule ipv4 filter FORWARD 0 -i em2 -o em1 -j ACCEPT
+firewall-cmd --permanent --direct --add-rule ipv4 filter FORWARD 0 -i em1 -o em2 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+
+4.- ja funciona:
+
+[root@node01 ~]# ping 84.89.128.11
+PING 84.89.128.11 (84.89.128.11) 56(84) bytes of data.
+64 bytes from 84.89.128.11: icmp_seq=1 ttl=60 time=0.596 ms
+64 bytes from 84.89.128.11: icmp_seq=2 ttl=60 time=0.469 ms
+^C
+--- 84.89.128.11 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1000ms
+rtt min/avg/max/mdev = 0.469/0.532/0.596/0.067 ms
+[root@node01 ~]# ping www.upf.edu
+PING www.upf.edu (84.89.128.15) 56(84) bytes of data.
+64 bytes from www.upf.edu (84.89.128.15): icmp_seq=1 ttl=60 time=0.466 ms
+64 bytes from www.upf.edu (84.89.128.15): icmp_seq=2 ttl=60 time=0.450 ms
+64 bytes from www.upf.edu (84.89.128.15): icmp_seq=3 ttl=60 time=0.472 ms
+^C
+--- www.upf.edu ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2001ms
+rtt min/avg/max/mdev = 0.450/0.462/0.472/0.026 ms
+[root@node01 ~]#

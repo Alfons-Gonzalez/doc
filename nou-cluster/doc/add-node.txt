@@ -1,0 +1,178 @@
+## Afegim un nou node
+
+# posar la MAC address del node al dhcpd d'hydra
+
+host node03 {
+        hardware ethernet A4:BA:DB:40:16:90;
+	fixed-address 192.168.10.3;
+	option host-name "node03";
+    }
+
+# reengeguem el dhcpd a hydra
+
+systemctl restart dhcpd
+
+# punxem el node al switch de la 192.168.0.0
+
+# engeguem el node, seleccionem boot amb PXE, al cap d'uns minuts esta instal.lat amb CentOS7:
+
+[root@hydra ~]# ssh node03
+The authenticity of host 'node03 (192.168.10.3)' can't be established.
+ECDSA key fingerprint is SHA256:sD2iu4BT94FCuB8RtFa50qwS7rnU1LbhTbMsBr6A2xM.
+ECDSA key fingerprint is MD5:e9:55:d8:5a:3d:ca:44:f2:9e:2c:c8:39:f1:ac:13:e6.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'node03,192.168.10.3' (ECDSA) to the list of known hosts.
+root@node03's password: 
+[root@node03 ~]#
+
+# configurem el node per a poder accedir desde hydra sense passwd
+
+[root@node03 ~]# mkdir .ssh
+
+[root@hydra ~]# scp .ssh/id_rsa.pub root@node03:/root/.ssh/authorized_keys
+root@node03's password: 
+id_rsa.pub                                                                                         100%  392   242.7KB/s   00:00    
+[root@hydra ~]# 
+
+[root@hydra ~]# ssh node03
+Last login: Tue Dec 12 11:56:01 2017 from gateway
+[root@node03 ~]#
+
+(NOTA: mirar com automatitzar-ho amb un %post del kickstart, per tenir la la maquina instalada amb la clau ssh)
+
+# fem un update
+
+[root@node03 ~]# yum update -y
+
+# reiniciem
+
+# comprovem que el nom del node esta al /etc/hosts de hydra, dels nodes de gluster i del /root/templates/hosts.nodes (he afegit fins node30, 192.168.10.30, pero si fessim un node nou caldria afegir-ho)
+#
+[root@hydra ~]# grep node03 /etc/hosts /root/templates/hosts.nodes 
+/etc/hosts:192.168.10.3 node03
+/root/templates/hosts.nodes:192.168.10.3    node03
+[root@hydra ~]#
+
+# afegim el node a la Partition que volguem de slurm.conf
+#
+[root@hydra ~]# grep node03 /usr/local/slurm/etc/slurm.conf 
+NodeName=node03 CPUs=8 Sockets=2 CoresPerSocket=4 ThreadsPerCore=1 RealMemory=29937 Tmpdisk=15175
+PartitionName=short32 Nodes=node01,node02,node03 Default=YES MaxTime=06:00:00 State=UP TRESBillingWeights="CPU=1.0,Mem=0.25G"
+[root@hydra ~]#
+
+# afegim el node a /etc/ansible/hosts seccio [nous]
+#
+[root@hydra ~]# tail /etc/ansible/hosts 
+# leading 0s:
+#
+# ## db-[99:101]-node.example.com
+
+ [nodes]
+ node01
+ node02
+
+ [nous]
+ node03
+[root@hydra ~]#
+
+
+# executem ansible-playbook playbook-1.yml
+#
+
+[root@hydra ~]# ansible-playbook playbook-1.yml 
+
+PLAY [nous] **********************************************************************************************************************
+
+TASK [Gathering Facts] ***********************************************************************************************************
+ok: [node03]
+
+TASK [assegurem regles de firewall] **********************************************************************************************
+changed: [node03]
+....
+
+al final veiem:
+
+PLAY RECAP ***********************************************************************************************************************
+node03                     : ok=26   changed=24   unreachable=0    failed=0   
+
+# executem ansible-playbook playbook-slurm-install.yml
+#
+
+ot@hydra ~]# ansible-playbook playbook-slurm-install.yml 
+
+PLAY [nous] **********************************************************************************************************************
+
+TASK [Gathering Facts] ***********************************************************************************************************
+ok: [node03]
+
+TASK [epel release instalada] ****************************************************************************************************
+ok: [node03]
+
+TASK [paquet munge instalat] *
+
+....
+
+Al final veiem:
+
+TASK [engeguem el servei] ********************************************************************************************************
+changed: [node03]
+
+PLAY RECAP ***********************************************************************************************************************
+node03                     : ok=16   changed=6    unreachable=0    failed=0   
+
+[root@hydra ~]#
+
+
+# treiem el node de la seccio [nous] de /etc/ansible/hosts i el posem a
+# [nodes]
+[root@hydra ~]# tail /etc/ansible/hosts
+# leading 0s:
+#
+# ## db-[99:101]-node.example.com
+#
+ [nodes]
+ node01
+ node02
+ node03
+
+ [nous]
+ [root@hydra ~]#
+# executem ansible-playbook playbook-slurm-config.yml
+#
+
+ot@hydra ~]# ansible-playbook playbook-slurm-config.yml 
+
+PLAY [nodes] *********************************************************************************************************************
+
+TASK [Gathering Facts] ***********************************************************************************************************
+ok: [node02]
+ok: [node01]
+ok: [node03]
+
+TASK [fitxer de config igual a tots els nodes] ***********************************************************************************
+changed: [node02]
+ok: [node03]
+changed: [node01]
+
+TASK [engeguem el servei] ********************************************************************************************************
+changed: [node02]
+changed: [node01]
+changed: [node03]
+
+PLAY RECAP ***********************************************************************************************************************
+node01                     : ok=3    changed=2    unreachable=0    failed=0   
+node02                     : ok=3    changed=2    unreachable=0    failed=0   
+node03                     : ok=3    changed=1    unreachable=0    failed=0   
+
+[root@hydra ~]#
+
+# reengeguem el controler
+#
+[root@hydra ~]# systemctl restart slurmctld
+
+[root@hydra ~]# sinfo
+PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST
+short32*     up    6:00:00      3   idle node[01-03]
+[root@hydra ~]# 
+
+

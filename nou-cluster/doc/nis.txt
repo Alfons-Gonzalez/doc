@@ -1,0 +1,18 @@
+yum install ypserv -y
+systemctl enable rpcbind ypserv ypxfrd yppasswdd
+
+[root@hydra ~]# cat /etc/sysconfig/network
+# Created by anaconda
+NISDOMAIN="cluster"
+[root@hydra ~]# 
+
+[root@hydra ~]# cat /var/yp/securenets 
+255.0.0.0       127.0.0.0
+255.255.255.0   192.168.10.0
+[root@hydra ~]#
+
+systemctl start rpcbind ypserv ypxfrd yppasswdd
+
+/usr/lib64/yp/ypinit -m
+
+
