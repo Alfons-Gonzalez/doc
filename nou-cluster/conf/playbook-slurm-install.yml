@@ -1,0 +1,83 @@
+---
+
+- hosts: nous
+
+  remote_user: root
+  tasks:
+
+
+  - name: epel release instalada
+    yum: name="epel-release" state=present
+
+  - name: paquet munge instalat
+    yum: name=munge state=present
+
+  - name: paquet de munge-devel instalat
+    yum: name=munge-devel state=present
+
+
+  - name: posem la mateixa key amb els permisos que toquen
+    copy:
+      src: /etc/munge/munge.key
+      dest: /etc/munge/munge.key
+      owner: munge
+      group: munge
+      mode: 0700
+      
+
+  - name: servei munge engegat
+    service: name=munge state=started
+
+  - name: usuari slurm creat
+    user:
+      name: slurm
+      uid: 800
+      state: present  
+
+  - name: copiem el source de slurm
+    copy: src=/root/slurm-17.11.0.tar.bz2 dest=/root/slurm-17.11.0.tar.bz2
+  
+  - name: descomprimim i compilem slurm
+    shell: |
+     cd /root
+     tar -jxvf slurm-17.11.0.tar.bz2
+     cd slurm-17.11.0
+     ./configure --prefix=/usr/local/slurm-17.11.0 --with-munge
+     make
+     make install
+     ln -s /usr/local/slurm-17.11.0 /usr/local/slurm
+     mkdir /usr/local/slurm/etc
+     mkdir /usr/local/slurm/init.d
+     mkdir /usr/local/log
+     mkdir -p /usr/local/spool/slurm
+     touch /usr/local/log/slurmd.log
+     chown -R slurm:slurm /usr/local/slurm/
+     chown -R slurm:slurm /usr/local/log
+     chown -R slurm:slurm /usr/local/spool
+     exit 0
+
+  - name: fitxer de config igual a tots els nodes
+    template: src=/usr/local/slurm/etc/slurm.conf dest=/usr/local/slurm/etc/slurm.conf
+
+  - name: fitxers per iniciar el servei 
+    template: src=/root/templates/init.d.slurm dest=/usr/local/slurm/init.d/init.d.slurm
+
+  - name: permisos del fitxer init.d.slurm
+    file: 
+     path: /usr/local/slurm/init.d/init.d.slurm
+     owner: slurm
+     mode: 0755
+  - name: fitxer del log del servei
+    file: 
+      path: /usr/local/log/slurmd.log
+      owner: slurm
+      mode: 0644
+      state: file
+
+  - name: fitxers al systemd
+    template: src=/root/templates/slurmd.service dest=/etc/systemd/system/slurmd.service
+
+  - name: engeguem el servei
+    service: name=slurmd state=started
+
+

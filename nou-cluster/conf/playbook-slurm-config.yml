@@ -1,0 +1,15 @@
+---
+
+- hosts: nodes
+
+  remote_user: root
+  tasks:
+
+
+  - name: fitxer de config igual a tots els nodes
+    template: src=/usr/local/slurm/etc/slurm.conf dest=/usr/local/slurm/etc/slurm.conf
+
+  - name: engeguem el servei
+    service: name=slurmd state=restarted
+
+

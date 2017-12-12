@@ -1,0 +1,108 @@
+---
+
+- hosts: nodes
+
+  remote_user: root
+  tasks:
+
+  - name: assegurem regles de firewall
+    firewalld:
+      rich_rule: 'rule family=ipv4 source address=192.168.0.0/16 accept'
+      permanent: true
+      state: enabled
+
+  - name: asegurar wget
+    yum: name=wget state=present 
+
+  - name: asegurar paquets de devel
+    yum: name="@Development tools" state=present
+
+  - name: repositori de glusterfs
+    yum: name="centos-release-gluster" state=present
+
+  - name: client de NIS instalat
+    yum: name=ypbind state=present
+  
+  - name: configuracio del /etc/hosts
+    template: src=/root/templates/hosts.nodes dest=/etc/hosts
+
+  - name: configuracio del client
+    template: src=/root/templates/nisclient.conf dest=/etc/yp.conf
+
+  - name: client de NIS engegat
+    service: name=ypbind state=started
+
+  - name: client glusterfs instalat
+    yum: name=glusterfs state=present
+
+  - name: client glusterfs-fuse instalat
+    yum: name=glusterfs-fuse state=present
+
+  - name: paquet attr instalat
+    yum: name=attr state=present
+
+  - name: creem el punt de muntatge /soft
+    file: path=/soft state=directory
+
+  - name: creem punt de muntatge /users/sbi
+    file: path=/users/sbi state=directory
+
+  - name: creem el punt de muntatge /users/genomics
+    file: path=/users/genomics state=directory
+
+  - name: creem punt de muntatge /users/syspharm
+    file: path=/users/syspharm state=directory
+
+  - name: muntem /soft
+    mount:
+      path: /soft
+      src:  gluster1.hydra:/Soft
+      fstype: glusterfs
+      opts: _netdev
+      state: mounted
+
+  - name: muntem /users/sbi
+    mount:
+      path: /users/sbi
+      src: gluster1.hydra:/Sbi
+      fstype: glusterfs
+      opts: _netdev
+      state: mounted
+
+  - name: muntem /users/genomics
+    mount:
+      path: /users/genomics
+      src: gluster1.hydra:/Genomics
+      fstype: glusterfs
+      opts: _netdev
+      state: mounted
+
+  - name: muntem /users/syspharm
+    mount:
+      path: /users/syspharm
+      src: gluster1.hydra:/Syspharm
+      fstype: glusterfs
+      opts: _netdev
+      state: mounted
+
+  - name: copiem lmod.sh al /etc/profile.d
+    template: src=/root/templates/lmod.sh dest=/etc/profile.d/lmod.sh
+
+  - name: epel release instalada
+    yum: name="epel-release" state=present
+
+  - name: paquet munge instalat
+    yum: name=munge state=present
+
+  - name: key munge la mateixa
+    template: src=/etc/munge/munge.key dest=/etc/munge/munge.key
+
+  - name: permisos de la key
+    file:
+      path: /etc/munge/munge.key
+      owner: munge
+      group: munge
+      mode: 0700
+
+  - name: servei munge engegat
+    service: name=munge state=started
