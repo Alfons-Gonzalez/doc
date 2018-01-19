@@ -1,0 +1,53 @@
+Graphite:
+
+Documentacio: https://github.com/graphite-project/docker-graphite-statsd
+
+docker run -d\
+ --name graphite\
+ --restart=always\
+ -p 80:80\
+ -p 2003-2004:2003-2004\
+ -p 2023-2024:2023-2024\
+ -p 8125:8125/udp\
+ -p 8126:8126\
+-v /opt/graphite/conf:/opt/graphite/conf\
+ -v /opt/graphite/storage:/opt/graphite/storage\
+ -v /opt/statsd:/opt/statsd\
+ graphiteapp/graphite-statsd
+
+
+Test:
+
+1) podem anar a http://localhost i arribem a la web del graphite. OK
+2) mirem d'entrar dades al graphite:
+
+while true; do echo -n "example:$((RANDOM % 100))|c" | nc -w 1 -u 127.0.0.1 8125; done
+
+Mirem a :
+http://localhost/render?from=-10mins&until=now&target=stats.exemple
+
+OK
+
+Post-install-tasks:
+
+
+
+
+Grafana:
+
+# create /var/lib/grafana as persistent volume storage
+docker run -d -v /var/lib/grafana --name grafana-storage busybox:latest
+
+# start grafana
+docker run \
+  -d \
+  -p 3000:3000 \
+  --name=grafana \
+  --volumes-from grafana-storage \
+  grafana/grafana
+
+Un cop engegat hem de poder veure la web a port 3000
+
+OK.
+
+Fem que parli amb el container del graphite i xucli les dades (aixo sembla mes complicat pq em perdo una mica bastant amb les dues interficies (graphite/grafana)  i amb els conceptes d'ambdos eines..
