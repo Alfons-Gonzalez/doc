@@ -1,0 +1,166 @@
+## Docker Swarm
+
+# Tenim 3 maquines instal.lades amb centos 7 i docker
+# (ho he fet amb 3 vbox, cadascun amb 2 IP, la del NAT i una altra nterna qeu fan servir per comunicar-se entre ells)
+
+# Xarxa:
+
+# manager: 
+
+enp0s8: 192.168.1.1 (comunicacio entre Vms)
+Te el firewall obert per la 192.168.1.0/24
+
+worker1: 192.168.1.2
+worker2: 192.168.1.3
+
+# Al manager inicialitzem el swarm: 
+
+
+[root@manager] docker swarm init --advertise-addr 192.168.1.1
+Swarn initialized: current node (ov7qb1xzi8qhccpv6wm8ntfho) is now manager.
+
+To add a worker to this swarm, run the following command:
+
+   docker swarm join --token SWMTKN-1-3h8wxu89t2osu4x3jxyotktdf824z7nwhkxad6w9czvmj9lvhl-9ulbhzhn4vihi5ppo8rtwiy50 192.168.1.1:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+
+# comprovem
+
+[root@manager]# docker info | grep -i swarm
+
+Swarm: active
+
+[root@manager]# docker node ls
+
+ID		HOSTNAME	STATUS	AVAILABILITY
+ov7qb... 	manager		Ready	Active
+
+# anem a un dels workers i executem la comanda anterior
+
+[root@worker1]# docker swarm join --token SWMTKN-1-3h8wxu89t2osu4x3jxyotktdf824z7nwhkxad6w9czvmj9lvhl-9ulbhzhn4vihi5ppo8rtwiy50 192.168.1.1:2377
+This node joined a swarm as a worker
+[root@worker1]#
+
+
+#si haguessim perdut la linea del token i no sabem que hem de fer, podriem executar, desde el manager:
+
+docker swarm join-token worker
+
+# i ens donaria les intruccions
+
+# fem el mateix al worker2, quan esta afegit veiem al manager:
+
+[root@manager]# docker node ls
+
+ID		HOSTNAME	STATUS	AVAILABILITY
+ov7qb...	manager		Ready	Active
+ncd7...		worker1		Ready	Active
+kaigh...	worker2		Ready	Active
+
+# deploy de un servei
+
+#A manager1
+
+[root@manager]# docker service create --replicas 1 --name helloworld alpine ping docker.com
+
+# mirem que esta en marxa
+
+[root@manager]# docker service ls
+
+ID	NAME		MODE		REPLICAS IMAGE		PORTS
+cmx..	helloworld	replicated	1/1	alpine:latest
+
+# inspect the service
+
+docker service inspect --pretty helloworld
+
+# dona info de l'estil
+
+ID:  cmxs...
+Name: helloworld
+Service Mode:	Replicated
+ Replicas:	1
+PLacement:
+UPdateConfig:
+ Parallelism: 1
+ On failure: pause
+ Monitoring period: 5s
+ Max failure ratio: 0
+ UPdate order: stop-first
+RollbackConfig:
+ Parallelism: 1
+ On failure: pause
+ Monitoring period: 5s
+ Max failure ratio: 0
+ UPdate order: stop-first
+ContainerSpec:
+ Image: alpine:latest
+ Args: ping docker.com
+Resources:
+Endpoint Mode: vip
+
+
+# amb docker service ps veiem quins nodes estan fent la feina
+
+[root@manager]# docker service ps helloworld
+
+ID	NAME   		 IMAGE	NODE	DESIRED STATE	CURRENT STATE		ERROR	PORTS
+9dvv.. helloworld.1	alpine	worker1 Running		Running 9 minutes ago
+
+# podem anar a worker1 i mirar
+
+[root@worker1]# docker ps
+
+CONTAINER ID	IMAGE	COMMAND		CREATED		STATUS	PORTS	NAMES
+7fe...		alpine	"ping docker.com" 14 min	Up 14 min	helloworld.1.9dvv...
+
+# Canviem l'escala del servei 
+
+[root@manager]# docker service scale helloworld=5
+helloworld scaled to 5
+overall progress: 5 out of 5 tasks
+1/5: running
+2/5: running
+3/5: running
+4/5: running
+5/5: running
+verify: Service converged
+[root@manager]# docker service ps helloworld
+ID      NAME             IMAGE  NODE    DESIRED STATE   CURRENT STATE           ERROR   PORTS
+9dvv... helloworld.1	alpine	worker1	Running		Running 18 min
+q6i...	helloworld.2	alpine	worker2	Running		Running 29 sec
+u1t...	helloworld.3	alpine	manager	Running		Running 27 sec
+dvf..	helloworld.4	alpine	manager	Running		Running 27 sec
+u3eg	helloworld.5	alpine	worker2	Running		Running 36 sec
+
+# els 5 processos s'ha repartit entre els 2 workers i el manager 
+# ens carreguem el servei
+
+[root@manager]# docker service rm helloworld
+
+# podem posar un node en drain (com a l'slurm)
+
+docker node update --availability drain worker1
+
+# el podem tornar a posar actiu
+
+docker node update --availability active worker1
+
+# routing mesh: publicar ports dels nodes fora del swarm
+
+  docker service create \
+  --name my-web \
+  --publish published=8080,target=80 \
+  --replicas 2 \
+  nginx
+
+# aquesta comanda engega 2 contenidor de nginx al swarm, accessible al port 8080 dels nodes del swarm   (published: es el port del node on es mapeja el target port del contenidor)
+
+# de fet fent
+
+[root@manager]# docker service ps my-web
+
+# veiem que hi ha un nginx a manager i un nginx a worker1, pero si anem a worker2, podem accedir a l'nginx al port 8080 
+
+
