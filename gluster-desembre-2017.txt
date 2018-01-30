@@ -1,0 +1,189 @@
+
+yum install centos-release-gluster
+yum install glusterfs-server
+yum install samba
+systemctl start glusterd.service
+systemctl enable glusterd.service
+firewall-cmd --add-rich-rule='rule family=ipv4 source address=172.20.16.0/24 accept' --permanent
+firewall-cmd --remove service=ssh --permanent
+firewall-cmd  --remove-service="dhcpv6-client" --permanent
+firewall-cmd --reload
+
+[root@gluster1 ~]#  cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+172.20.16.218	gluster1
+172.20.16.219   gluster2
+172.20.16.220	aslan
+
+[root@gluster1 ~]# gluster peer status
+Number of Peers: 2
+
+Hostname: gluster2
+Uuid: 783e8471-c054-4547-8dd5-7fa5852635bd
+State: Peer in Cluster (Connected)
+
+Hostname: aslan
+Uuid: a1e67ca3-a89e-466d-9633-46718bd32b12
+State: Peer in Cluster (Connected)
+[root@gluster1 ~]# 
+
+lvcreate -L 4T -n brick1 vg1
+
+mkfs.xfs /dev/vg1/brick1
+mkdir -p /bricks/brick1
+mount /dev/vg1/brick1 /bricks/brick1
+
+ gluster volume create vol1 replica 3 transport tcp gluster1:/bricks/brick1/brick gluster2:/bricks/brick1/brick aslan:/bricks/brick1/brick
+
+gluster volume start vol1
+
+[root@gluster1 ~]# gluster volume info vol1
+ 
+Volume Name: vol1
+Type: Replicate
+Volume ID: 79b5fca9-667c-47cf-91e5-8b51b2cf68bf
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 1 x 3 = 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick1/brick
+Brick2: gluster2:/bricks/brick1/brick
+Brick3: aslan:/bricks/brick1/brick
+Options Reconfigured:
+transport.address-family: inet
+nfs.disable: on
+[root@gluster1 ~]#
+
+Aquest volum el muntem al Proxmox com a espai d'storage 
+
+Creem un stripped per al nou cluster (on copiarem el software)
+
+A les tres maquines:
+
+lvcreate -L 1T -n brick2 vg1
+mkfs.xfs /dev/vg1/brick2
+mkdir -p /bricks/brick2
+vi /etc/fstab
+# tail -1 /etc/fstab
+/dev/vg1/brick2		/bricks/brick2		xfs	_netdev         0 0
+#
+mount /bricks/brick2
+
+llavors desde gluster1:
+
+gluster volume create Soft  gluster1:/bricks/brick2/brick gluster2:/bricks/brick2/brick aslan:/bricks/brick2/brick
+
+gluster volume start Soft
+
+Al client:
+
+
+instalem el client de glusterfs:
+
+
+
+
+definim els nodes de gluster al /etc/hosts:
+[root@hydra ~]# cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+
+192.168.10.100	master.hydra
+192.168.11.1	gluster1.hydra
+192.168.11.2	gluster2.hydra
+192.168.11.3	aslan.hydra
+[root@hydra ~]#
+
+
+mkdir /soft
+mount -t glusterfs gluster1.hydra:/Soft    /soft
+
+Ho posem al fstab:
+
+[root@hydra ~]# tail -1 /etc/fstab 
+gluster1.hydra:/Soft	/soft	glusterfs	defaults,_netdev 0 0
+[root@hydra ~]#
+
+
+Al gluster hi ha (a data 5/12)
+
+1 volum replicat de 4Tb per imatges de VM al ProxMox
+1 volum distribuit de 3Tb per /soft al nou cluster
+1 volum distribuit de 24Tb per /users/genomics al nou cluster
+1 volum distribuit de 24Tb per /users/sbi al nou cluster
+
+queda lliure:
+
+gluster1: 5Tb a vg1 + 10Tb a vg2
+gluster2: 6T lliures a vg1
+aslan: 6Tb lliures a vg1
+
+quedaran 21Tb lliures a gencluster+cabina
+
+
+
+
+[root@gluster1 ~]# gluster volume info all
+ 
+Volume Name: Genomics
+Type: Distribute
+Volume ID: 3f372e0c-de9b-4288-bc89-157126f370f8
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick3/brick
+Brick2: gluster2:/bricks/brick3/brick
+Brick3: aslan:/bricks/brick3/brick
+Options Reconfigured:
+transport.address-family: inet
+nfs.disable: on
+ 
+Volume Name: Sbi
+Type: Distribute
+Volume ID: fea86bc1-6153-4980-8520-308c2ec61829
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick4/brick
+Brick2: gluster2:/bricks/brick4/brick
+Brick3: aslan:/bricks/brick4/brick
+Options Reconfigured:
+transport.address-family: inet
+nfs.disable: on
+ 
+Volume Name: Soft
+Type: Distribute
+Volume ID: 6a4ec9d7-8019-410e-8c77-170ec3c44d19
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick2/brick
+Brick2: gluster2:/bricks/brick2/brick
+Brick3: aslan:/bricks/brick2/brick
+Options Reconfigured:
+transport.address-family: inet
+nfs.disable: on
+ 
+Volume Name: vol1
+Type: Replicate
+Volume ID: 79b5fca9-667c-47cf-91e5-8b51b2cf68bf
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 1 x 3 = 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick1/brick
+Brick2: gluster2:/bricks/brick1/brick
+Brick3: aslan:/bricks/brick1/brick
+Options Reconfigured:
+transport.address-family: inet
+nfs.disable: on
+[root@gluster1 ~]#
