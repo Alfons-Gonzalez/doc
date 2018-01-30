@@ -328,4 +328,108 @@ bin  build  cgi-bin  conf  error  htdocs  icons  include  logs  modules
 <html><body><h1>Web1 funcionant al docker swarm</h1></body></html>
 [alfons@moebius ~]$ 
 
+# engeguem un segon servei al 8181 del swarm i amb les dades a pursang:/data/swarm/web2
 
+[root@dock0 ~]# docker volume create --driver local --opt type=nfs --opt o=addr=172.20.16.223,rw --opt device=:/data/swarm/web2 web2-data
+web2-data
+
+[root@dock0 ~]# docker service create --mount src=web2-data,dst=/usr/local/apache2 --name web2 --publish published=8181,target=80 --replicas 1 httpd
+a4xlh8lo74gftvl827szwsb1g
+overall progress: 1 out of 1 tasks 
+1/1: running   [==================================================>] 
+verify: Service converged 
+[root@dock0 ~]#
+
+[root@dock0 ~]# docker service ls
+ID                  NAME                MODE                REPLICAS            IMAGE               PORTS
+crrr8n6d7jlg        web1                replicated          2/2                 httpd:latest        *:8080->80/tcp
+a4xlh8lo74gf        web2                replicated          1/1                 httpd:latest        *:8181->80/tcp
+[root@dock0 ~]#
+
+[root@dock0 ~]# docker service ps web1
+ID                  NAME                IMAGE               NODE                DESIRED STATE       CURRENT STATE            ERROR               PORTS
+nk4wbyqzvm7a        web1.1              httpd:latest        dock0               Running             Running 31 minutes ago                       
+6sqxrer20xni        web1.2              httpd:latest        dock1               Running             Running 31 minutes ago                       
+[root@dock0 ~]# docker service ps web2
+ID                  NAME                IMAGE               NODE                DESIRED STATE       CURRENT STATE           ERROR               PORTS
+25r4snj8ktw6        web2.1              httpd:latest        dock2               Running             Running 3 minutes ago                       
+[root@dock0 ~]#
+
+# Pero aquest segon web no ha mapejat be el volum...
+
+# ATENCIO: CAL crear el volum a tots els nodes del swarm...un cop s'ha fet ja rula
+
+# com tinc una instancia de web1 corrent a un node on no s'ha creat el volum l'aturo:
+
+[root@dock1 ~]# docker volume inspect web1-data
+[
+    {
+        "CreatedAt": "2018-01-30T11:54:32+01:00",
+        "Driver": "local",
+        "Labels": null,
+        "Mountpoint": "/var/lib/docker/volumes/web1-data/_data",
+        "Name": "web1-data",
+        "Options": {},
+        "Scope": "local"
+    }
+]
+[root@dock1 ~]# docker ps
+CONTAINER ID        IMAGE               COMMAND              CREATED             STATUS              PORTS               NAMES
+715c9f75ef5d        httpd:latest        "httpd-foreground"   44 minutes ago      Up 44 minutes       80/tcp              web1.2.6sqxrer20xnifatvk46mp7d0a
+[root@dock1 ~]#
+
+[root@dock0 ~]# docker node update --availability drain dock1
+dock1
+[root@dock0 ~]#
+
+[root@dock1 ~]# docker ps
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
+[root@dock1 ~]#
+
+De fet em carrego el servei, creo el volum web1-data i web2-data a tots els nodes del swarm, de manera que a qualsevol d'ells veig el mateix al fer:
+
+[root@dock1 ~]# docker volume inspect web1-data
+[
+    {
+        "CreatedAt": "2018-01-30T12:45:16+01:00",
+        "Driver": "local",
+        "Labels": {},
+        "Mountpoint": "/var/lib/docker/volumes/web1-data/_data",
+        "Name": "web1-data",
+        "Options": {
+            "device": ":/data/swarm/web1",
+            "o": "addr=172.20.16.223,rw",
+            "type": "nfs"
+        },
+        "Scope": "local"
+    }
+]
+[root@dock1 ~]#
+
+# engeguem de nou el servei:
+
+tpd
+
+mgaxewim7xc4h4f18056jec3z
+overall progress: 2 out of 2 tasks 
+1/2: running   [==================================================>] 
+2/2: running   [==================================================>] 
+verify: Service converged 
+[root@dock0 ~]#
+
+
+[root@dock0 ~]# docker service ls
+ID                  NAME                MODE                REPLICAS            IMAGE               PORTS
+mgaxewim7xc4        web1                replicated          2/2                 httpd:latest        *:8080->80/tcp
+t7c3ucqdyzsg        web2                replicated          1/1                 httpd:latest        *:8181->80/tcp
+[root@dock0 ~]# 
+
+# Ara quan accedim al swarm desde fora
+
+[alfons@moebius ~]$ curl dock1:8181
+<html><body><h1>web2 al swarm</h1></body></html>
+[alfons@moebius ~]$ curl dock1:8080
+<html><body><h1>Web1 funcionant al docker swarm</h1></body></html>
+[alfons@moebius ~]$ 
+
+(i.e. als ports 8080 o 8181 de qualsevol node del swarm)
