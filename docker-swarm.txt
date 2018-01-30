@@ -225,5 +225,107 @@ Commercial support is available at
 
 # es podria configurar un HAProxy per balancejar la carrega del server nginx entre els tres nodes del swarm (manager i workers)
 
+# anem a engegar un apache al swarm, pero volem que agafi les dades d'un volum (per controlar el contingut de /usr/local/apache2/ localment) 
+
+# Per a que els tres nodes del swarm puguin veure el mateix contingut, farem servir un volum NFS:
+
+# Preparem el server NFS:
+
+[root@pursang ~]# mkdir /data/swarm/web1
+[root@pursang ~]# grep swarm /etc/exports
+/data/swarm/web1 172.20.16.91(rw,async,no_root_squash) 172.20.16.92(rw,async,no_root_squash) 172.20.16.93(rw,async,no_root_squash)
+[root@pursang ~]#
+[root@pursang ~]# exportfs -rv
+
+# creem el volum de docker:
+
+[root@dock0 ~]# docker volume create --driver local --opt type=nfs --opt o=172.20.16.223,rw --opt device=:/data/swarm/web1 web1-data
+web1-data
+[root@dock0 ~]# 
+
+# ara creem el servei 
+
+
+[root@dock0 ~]# docker service create --mount src=web1-data,dst=/usr/local/apache2 --name web1 --publish published=8080,target=80 --replicas 2 httpd
+xw9k0hmzumaigvc5rxi4oma5b
+overall progress: 2 out of 2 tasks 
+1/2: running   [==================================================>] 
+2/2: running   [==================================================>] 
+verify: Service converged 
+[root@dock0 ~]# 
+
+[root@dock0 ~]# docker service ls
+ID                  NAME                MODE                REPLICAS            IMAGE               PORTS
+xw9k0hmzumai        web1                replicated          2/2                 httpd:latest        *:8080->80/tcp
+[root@dock0 ~]# docker service ps web1
+ID                  NAME                IMAGE               NODE                DESIRED STATE       CURRENT STATE            ERROR               PORTS
+xu08ld1cnown        web1.1              httpd:latest        dock1               Running             Running 39 seconds ago                       
+y4hr66gron32        web1.2              httpd:latest        dock2               Running             Running 33 seconds ago                       
+[root@dock0 ~]#
+
+# esta funcionant:
+
+[alfons@moebius ~]$ curl dock2:8080
+<html><body><h1>It works!</h1></body></html>
+[alfons@moebius ~]$
+
+Pero el volum no sembla que tingui les dades de /usr/local/apache2...
+
+[root@pursang ~]# ls /data/swarm/web1/
+[root@pursang ~]# 
+
+M'ho carrego tot i torno a crear-ho, aquest cop fent:
+
+[root@dock0 ~]# docker volume create --driver local --opt type=nfs --opt o=addr=172.20.16.223,rw --opt device=:/data/swarm/web1 web1-data
+web1-data
+[root@dock0 ~]#
+
+[root@dock0 ~]# docker volume inspect web1-data
+[
+    {
+        "CreatedAt": "2018-01-30T11:53:09+01:00",
+        "Driver": "local",
+        "Labels": {},
+        "Mountpoint": "/var/lib/docker/volumes/web1-data/_data",
+        "Name": "web1-data",
+        "Options": {
+            "device": ":/data/swarm/web1",
+            "o": "addr=172.20.16.223,rw",
+            "type": "nfs"
+        },
+        "Scope": "local"
+    }
+]
+[root@dock0 ~]#
+
+
+[root@dock0 ~]# docker service create --mount src=web1-data,dst=/usr/local/apache2 --name web1 --publish published=8080,target=80 --replicas 2 httpd
+crrr8n6d7jlgu3z3s9bjtpxzh
+overall progress: 2 out of 2 tasks 
+1/2: running   [==================================================>] 
+2/2: running   [==================================================>] 
+verify: Service converged 
+[root@dock0 ~]#
+
+[root@dock0 ~]# docker service ps web1
+ID                  NAME                IMAGE               NODE                DESIRED STATE       CURRENT STATE            ERROR               PORTS
+nk4wbyqzvm7a        web1.1              httpd:latest        dock0               Running             Running 25 seconds ago                       
+6sqxrer20xni        web1.2              httpd:latest        dock1               Running             Running 30 seconds ago                       
+[root@dock0 ~]#
+
+
+[root@pursang ~]# ls /data/swarm/web1
+bin  build  cgi-bin  conf  error  htdocs  icons  include  logs  modules
+[root@pursang ~]#
+
+[root@pursang ~]# cat  /data/swarm/web1/htdocs/index.html 
+<html><body><h1>Web1 funcionant al docker swarm</h1></body></html>
+[root@pursang ~]# 
+
+# Accedim desde fora:
+
+[alfons@moebius ~]$ curl dock2:8080
+<html><body><h1>Web1 funcionant al docker swarm</h1></body></html>
+[alfons@moebius ~]$ 
 
 
