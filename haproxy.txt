@@ -1,0 +1,118 @@
+instalacio de HAProxy en un centOS 7
+
+yum install haproxy
+
+systemctl enable haproxy
+
+firewall-cmd --permanent --zone=public --add-service=http
+
+firewall-cmd --reload
+
+cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.orig
+
+[root@kubo ~]# cat /etc/haproxy/haproxy.cfg
+global
+   log /dev/log local0
+   log /dev/log local1 notice
+   chroot /var/lib/haproxy
+   stats timeout 30s
+   user haproxy
+   group haproxy
+   daemon
+
+defaults
+   log global
+   mode http
+   option httplog
+   option dontlognull
+   timeout connect 5000
+   timeout client 50000
+   timeout server 50000
+
+frontend http_front
+   bind *:80
+   stats uri /haproxy?stats
+   default_backend http_back
+
+backend http_back
+   balance roundrobin
+   server web1 172.20.16.91:8080 check
+   server web1 172.20.16.92:8080 check
+   server web1 172.20.16.93:8080 check
+
+[root@kubo ~]# 
+
+systemctl start haproxy
+
+# Funciona, pero ara volem: que en funcio de si arriba el request com http://web1 o http://web2 vagi a web1 o web2 (l'altre contenidor al swarm corrents al port 8181) i tambe comprovar que tot rula (i.e. que fa balanceig)
+
+# Modifiquem el fitxer:
+
+[root@kubo ~]# cat /etc/haproxy/haproxy.cfg
+global
+   log /dev/log local0
+   log /dev/log local1 notice
+   chroot /var/lib/haproxy
+   stats timeout 30s
+   user haproxy
+   group haproxy
+   daemon
+
+defaults
+   log global
+   mode http
+   option httplog
+   option dontlognull
+   timeout connect 5000
+   timeout client 50000
+   timeout server 50000
+   stats enable
+   stats uri /testhaproxy?stats
+   stats uri /haproxy?stats
+
+frontend http_front
+   bind *:80
+   default_backend web1
+   acl host_web1 hdr_beg(host) -i web1
+   acl host_web2 hdr_beg(host) -i web2
+   use_backend  web1 if host_web1
+   use_backend web2 if host_web2
+
+backend web1
+   mode http
+   balance roundrobin
+   server dock0 172.20.16.91:8080 check
+   server dock1 172.20.16.92:8080 check
+   server dock2 172.20.16.93:8080 check
+
+backend web2
+   mode http
+   server dock1 172.20.16.92:8181 check
+   server dock2 172.20.16.93:8181 check
+
+[root@kubo ~]#
+
+# reengeguem el servei
+
+systemctl restart haproxy
+
+# 'enganyem a moebius' per a que vagi a la ip de kubo tant si demanem per web1 com per web2
+
+[root@moebius ~]# tail -2 /etc/hosts
+# tests haproxy
+172.20.16.95	web1	web2
+[root@moebius ~]
+
+# testegem que funciona:
+
+[root@moebius ~]# curl http://web1
+<html><body><h1>Web1 funcionant al docker swarm</h1></body></html>
+[root@moebius ~]# 
+
+[root@moebius ~]# curl http://web2
+<html><body><h1>web2 al swarm</h1></body></html>
+[root@moebius ~]# 
+
+
+
+
