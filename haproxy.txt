@@ -67,7 +67,6 @@ defaults
    timeout client 50000
    timeout server 50000
    stats enable
-   stats uri /testhaproxy?stats
    stats uri /haproxy?stats
 
 frontend http_front
@@ -114,5 +113,5 @@ systemctl restart haproxy
 [root@moebius ~]# 
 
 
-
+# les estadistiques sembla qeu no rulen...
 
