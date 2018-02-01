@@ -1,0 +1,16 @@
+# per fer un backup
+
+
+root@pve:~# vzdump 100 --dumpdir /mnt/pve/storebackup --mode snapshot --mailto root
+
+
+#Pero has d'estar al node de proxmox on esta corrent la maquina, si no no rula.
+
+# Per restaurar:
+
+qmrestore /mnt/pve/storebackup/vzdump-qemu-126-2018_02_01-12_46_33.vma 126
+
+
+
+
++ info a https://pve.proxmox.com/wiki/Backup_and_Restore
