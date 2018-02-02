@@ -1,0 +1,135 @@
+## Grib Cluster
+#
+# 
+#
+# Brief description
+#
+masternode: hydra.prib.upf.edu
+
+This first cluster is composed of
+
+7 compute nodes, 32Gb RAM each, providing 88 cores 
+
+A storage cluster using glusterfs providing:
+
+24Tb for /users/genomics
+24Tb for /users/sbi
+5Tb  for /users/syspharm
+3Tb  for /soft
+
+They are distributed filesystems, so there's a higher probability of data loss. *Do not store important data in them* . This space is provided for computation. Keep a backup data of your important files/scripts elsewhere.
+
+
+the following NFS mounts are available rw in masternode and ro in the compute nodes:
+
+shannon:/projects_rg      121T  108T   13T  90% /projects_rg
+beta:/genomics/users       12T   11T  1.5T  88% /genomics/users
+wallace:/projects_eg       34T   28T  6.4T  82% /projects_eg
+rabat:/projects_fg         27T  4.5T   22T  18% /projects_fg
+
+The OS of all the nodes & master is centOS 7.x (like in your workstations) And you should be able to run the same programs that run in your worskations.
+For instance:
+
+[alfons@hydra ~]$ module avail python
+Rebuilding cache, please wait ... (not written to file) done
+
+------------------------------------------------------------ /soft/devel ------------------------------------------------------------
+   Boost/1.58.0-Python-2.7.11    Python/2.7.11    Python/3.6.2                 (D)
+   Boost/1.63.0-Python-3.5.2     Python/3.5.2     RDKit/2017.03.2-Python-3.5.2 (D)
+
+  Where:
+   D:  Default Module
+
+Use "module spider" to find all possible modules.
+Use "module keyword key1 key2 ..." to search for all possible modules matching any of the "keys".
+
+[alfons@hydra ~]$ 
+
+The queue system used is slurm.
+Right now there's only one queue named short32, with 6h walltime.
+
+[root@hydra ~]# sinfo
+PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST
+short32*     up    6:00:00      7   idle node[01-07]
+[root@hydra ~]# 
+
+Please do try this cluster, to check that:
+
+a) all the software you need is available and working
+b) the glusterfs partitions perform at least equal than NFS and not worse 
+c) the queue system works fine.
+
+
+Once we're sure that a,b,c are ok, we will start moving compute nodes from gencluster and the remainings of gaudi to this cluster. 
+
+At some point we should discuss about the queues and walltimes you think best suit your needs.
+
+We'll also add some new storage  and users for other GRIB labs.
+
+## Some tips of use
+
+# See the queues
+[alfons@hydra alfons]$ sinfo -Nel
+Thu Dec 14 09:25:05 2017
+NODELIST   NODES PARTITION       STATE CPUS    S:C:T MEMORY TMP_DISK WEIGHT AVAIL_FE REASON              
+node01         1  short32*        idle   12    2:6:1  31997    15175      1   (null) none                
+node02         1  short32*       mixed    8    2:4:1  32170    15175      1   (null) none                
+node03         1  short32*        idle   16    2:4:2  32162    21175      1   (null) none                
+node04         1  short32*        idle   16    2:4:2  32162    25175      1   (null) none                
+node05         1  short32*        idle   12    2:6:1  32159    25175      1   (null) none                
+node06         1  short32*        idle   12    2:6:1  32159    20175      1   (null) none                
+node07         1  short32*        idle   12    2:6:1  32159    21175      1   (null) none                
+[alfons@hydra alfons]$
+
+
+# make your script:
+
+[alfons@hydra alfons]$ cat exemple.sh 
+#!/bin/bash
+
+# set the partition where the job will run
+#SBATCH --partition=short32
+
+# set the number of nodes
+#SBATCH --nodes=1
+
+# set max wallclock time
+#SBATCH --time=1:00:00
+
+# mail alert at start, end and abortion of execution
+#SBATCH --mail-type=ALL
+
+# send mail to this address
+#SBATCH --mail-user=alfons.gonzalez@upf.edu
+
+# run the application
+date > /users/syspharm/alfons/exemple.log
+sleep 600
+date >> /users/syspharm/alfons/exemple.log
+
+[alfons@hydra alfons]$
+
+# submit it
+
+[alfons@hydra ~]$ sbatch exemple.sh 
+Submitted batch job 2
+[alfons@hydra ~]$ 
+
+# check queue state
+
+[alfons@hydra alfons]$ squeue
+             JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+                 3   short32 exemple.   alfons  R       7:38      1 node02
+[alfons@hydra alfons]$
+
+# Get more help about the options
+man sbatch
+man sinfo
+man squeue
+
+Command summary:
+https://slurm.schedmd.com/pdfs/summary.pdf
+
+Lots of info & tutorials:
+https://slurm.schedmd.com/documentation.html
+

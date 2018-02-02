@@ -1,0 +1,66 @@
+Slurm, activar soporte para cgroups
+===================================
+
+- Cogemos como muestra la configuración que hizo en el SIT la empresa HPCNow:
+
+1.- Donde tenemos la configuracion de slurm.conf, hemos de crear estos ficheros
+de configuración adicionales:
+
+a.- cgroup.conf
+
+[root@mr-login slurm]# cat cgroup.conf
+CgroupAutomount=yes
+#CgroupReleaseAgentDir="/etc/slurm/cgroup"
+AllowedDevicesFile="/etc/slurm/cgroup_allowed_devices_file.conf"
+ConstrainCores=yes
+ConstrainRAMSpace=yes
+TaskAffinity=yes
+AllowedSwapSpace=5
+ConstrainSwapSpace=yes
+[root@mr-login slurm]# 
+
+
+b.- cgroup_allowed_devices_file.conf
+
+[root@mr-login slurm]# cat cgroup_allowed_devices_file.conf
+/dev/null
+/dev/urandom
+/dev/zero
+/dev/sda*
+/dev/cpu/*/*
+/dev/pts/*
+[root@mr-login slurm]# 
+
+La directiva #CgroupReleaseAgentDir="/etc/slurm/cgroup" hace referencia a un
+directorio que contiene más ficheros pero como está comentada no hace falta
+tener este directorio con sus ficheros creados.
+
+NOTA: Recuerdo un problema en Marvin con el que selian unos errores de "No space
+left on device" en el tmpfs del cgoup y una de las soluciones era comentar
+esta directiva. 
+
+2.- Ahora hemos de activar el soporte para cgroup en el fichero de configuración
+de slurm. Hemos de indicarlo en tres directivas:
+
+- ProctrackType=proctrack/cgroup
+
+Process tracking and suspend/resume capability. Mas fiable que los proctrack/linux.
+
+- TaskPlugin=task/cgroup
+
+Este plagin es el que se encarga de confinar a un job dentro en una 'jaula' y que 
+esa jauala solo pueda usar cierta cantidad de memoria, cores, gres resources, etc.
+
+- JobAcctGatherType=jobacct_gather/cgroup
+
+Plugin para la recompilación de info para el accounting. El jobacct_gather/linux
+tira del /proc, este hace servir la infor de cgroups (es más lento que el linux)
+
+Documentación:
+
+https://slurm.schedmd.com/cgroups.html
+
+
+
+
+
