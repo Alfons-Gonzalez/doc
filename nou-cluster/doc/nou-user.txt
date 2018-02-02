@@ -1,0 +1,15 @@
+##Afegir un usuari:
+
+#crear-lo
+useradd -g 2200 -u 2221 -d /users/genomics/hector hector
+
+#posar-li passwd
+
+#actualitzar la db del NIS
+
+cd /var/yp ; make
+
+#afegir-lo a la db accounting
+sacctmgr add user hector DefaultAccount=genomics
+
+ 
