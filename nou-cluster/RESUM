@@ -28,6 +28,9 @@ doc: nis.txt
 #
 doc: gluster.txt
 
+# munta via nfs /projects_lab i /lab/users 
+#
+nfs.txt
 
 # te instal.lat ansible, amb els playbooks podem configurar els nodes
 #
@@ -44,6 +47,12 @@ conf: slurm.conf, slurmdbd.conf
 doc: add-node.txt
 
 
+# afegir un usuari
+doc: nou-user.txt
+
+# manual per usuaris
+#
+doc: manual.txt
 
 
 
