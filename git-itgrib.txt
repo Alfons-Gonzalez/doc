@@ -1,0 +1,52 @@
+Us del git pel repo de documentacio.
+
+A sauron.prib.upf.edu tenim:
+
+/var/www/html/repositori
+
+amb un git.
+
+Creem un shared repo a partir d'aquest:
+
+mkdir -p /var/git/repositori
+cd /var/git/repositori
+git --bare init
+cd /var/www/html/repositori/
+git remote add origin /var/git/repositori/
+git push origin master
+
+Un cop el tenim desde la estacio de treball dels sysadmins (a l'exemple soc jo desde moebius):
+
+mkdir /home/alfons/itgrib
+
+cd /home/alfons/itgrib
+
+git clone ssh://root@sauron.prib.upf.edu/var/git/repositori
+
+ja tenim clonada la docu.
+Per assegurar-nos que tenim la darrera versio:
+
+git pull
+
+per enviar canvis:
+
+vi README.1
+
+git add README.1
+
+git commit -a -m "test afegir desde moebius"
+
+git push
+
+A sauron, per a que el contingut del repo original a /var/www/html/repositori estigui up to date he posat un cron:
+
+*/10 * * * * /root/git-sync.sh
+
+cada 10' executa:
+
+cd /var/www/html/repositori
+git pull origin master
+
+i aixi agafa els canvis que haguem enviat els sysadmins desde les nostres worsktations.
+
+
