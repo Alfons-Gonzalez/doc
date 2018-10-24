@@ -1,0 +1,57 @@
+Per treure la llista de VMs que tenim al proxmox:
+
+Desde omega:
+
+ansible proxmox -m shell -a "qm list"
+
+pve | SUCCESS | rc=0 >>
+      VMID NAME                 STATUS     MEM(MB)    BOOTDISK(GB) PID       
+       109 asimov               running    512               10.00 16976     
+       112 wilde                running    512               10.00 16969     
+       115 cortazar             running    512               10.00 11158     
+       116 carver               running    512               10.00 16966     
+
+pve3 | SUCCESS | rc=0 >>
+      VMID NAME                 STATUS     MEM(MB)    BOOTDISK(GB) PID       
+       102 puppet               running    2048              50.00 1794      
+       103 galton-devel         running    4096              50.00 1877      
+       111 knime                running    8192              50.00 17883     
+       128 XDMoD                running    1024              32.00 22500     
+       133 trec1                running    8192             170.00 24669     
+
+pve2 | SUCCESS | rc=0 >>
+      VMID NAME                 STATUS     MEM(MB)    BOOTDISK(GB) PID       
+       110 gutenberg            running    1024              20.00 22790     
+       113 bradbury             running    512                8.00 22802     
+       120 kubo                 running    512               10.00 15177     
+       122 centos7w3            stopped    1024              32.00 0         
+       124 dock0                stopped    512                8.00 0         
+       125 dock1                stopped    512                8.00 0         
+       126 dock2                stopped    512                8.00 0         
+
+delta | SUCCESS | rc=0 >>
+      VMID NAME                 STATUS     MEM(MB)    BOOTDISK(GB) PID       
+       101 tolkien              running    4096              24.10 11303     
+       104 eutoxrisk            running    4096              40.00 11301     
+       105 collector            running    2048              50.00 10887     
+       106 envoy                running    2048               9.77 10924     
+       107 etox                 running    1024              15.00 26212     
+       114 borges               running    512               10.00 11414     
+       117 orwell               running    512                8.00 11442     
+       118 lambda               running    8192              32.00 14986     
+       123 similarity           running    2048              10.00 15408     
+       127 syspharm             running    1024              32.00 5917      
+       129 elastic-imasis2      running    12288             32.00 1673      
+       131 grib-new             running    1024              50.00 17123     
+       132 brainstormathome     running    1024             200.00 23307     
+
+pve1 | SUCCESS | rc=0 >>
+      VMID NAME                 STATUS     MEM(MB)    BOOTDISK(GB) PID       
+       100 omega                running    1024              10.00 5208      
+       108 impala               running    2048             120.00 28131     
+       119 w3ibi                stopped    16384             50.00 0         
+       121 sauron               running    1024              32.00 1078      
+       130 comorbidity          running    6144              32.00 25781     
+       134 trec2                running    8192             170.00 24629     
+
+

@@ -1,0 +1,158 @@
+
+De les tres quatre gluster1, gluster2, glaster3, aslan
+
+gluster1 queden ~ 3Tb   a vg2
+gluster2 queden ~ 300Gb a vg1
+gluster3 queden ~ 17T   a vol1
+aslan	 queden ~ 300Gb a vg1
+
+L'espai emprat:
+
+3 x 4Tb (Total: 4Tb) en replica 3: vol1 (proxmox espai per les imatges de vm)
+3 x 2Tb (Total: 2Tb) en replica 3: proxmox-backup (espai per fer backup )
+3 x 2Tb (Total: 6Tb) distributed: Syspharm a hydra
+3 x 1Tb (Total: 3Tb) distributed: Soft a hydra
+3 x 8Tb (Total: 24Tb) distributed: Sbi a hydra
+3 x 8Tb (Total: 24Tb) distributed: Genomics a hydra
+1 x 5Tb + 1 x 6Tb (Total: 11Tb) distributed: GPCR a hydra
+3 x 2TB (Total: 6Tb) distributed: IBI a hydra
+3 x 2TB (Total: 6Tb) distributed: Phi a hydra
+
+
+[root@gluster1 ~]# gluster volume info all
+ 
+Volume Name: Genomics
+Type: Distribute
+Volume ID: 3f372e0c-de9b-4288-bc89-157126f370f8
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick3/brick
+Brick2: gluster2:/bricks/brick3/brick
+Brick3: aslan:/bricks/brick3/brick
+Options Reconfigured:
+nfs.disable: on
+transport.address-family: inet
+ 
+Volume Name: Gpcr
+Type: Distribute
+Volume ID: 327c8b5c-c901-476a-932e-d46de651aa5c
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 2
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick9/brick
+Brick2: gluster3:/bricks/brick3/brick
+Options Reconfigured:
+nfs.disable: on
+transport.address-family: inet
+ 
+Volume Name: Ibi
+Type: Distribute
+Volume ID: 460133ef-7e8f-4ee8-afc2-187015bda174
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick8/brick
+Brick2: aslan:/bricks/brick7/brick
+Brick3: gluster3:/bricks/brick2/brick
+Options Reconfigured:
+nfs.disable: on
+transport.address-family: inet
+ 
+Volume Name: Phi
+Type: Distribute
+Volume ID: 2dcb50a7-cc13-4ace-9a6f-219a527bd7c0
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick7/brick
+Brick2: gluster2:/bricks/brick7/brick
+Brick3: gluster3:/bricks/brick1/brick
+Options Reconfigured:
+nfs.disable: on
+transport.address-family: inet
+ 
+Volume Name: Sbi
+Type: Distribute
+Volume ID: fea86bc1-6153-4980-8520-308c2ec61829
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick4/brick
+Brick2: gluster2:/bricks/brick4/brick
+Brick3: aslan:/bricks/brick4/brick
+Options Reconfigured:
+nfs.disable: on
+transport.address-family: inet
+ 
+Volume Name: Soft
+Type: Distribute
+Volume ID: 6a4ec9d7-8019-410e-8c77-170ec3c44d19
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick2/brick
+Brick2: gluster2:/bricks/brick2/brick
+Brick3: aslan:/bricks/brick2/brick
+Options Reconfigured:
+nfs.disable: on
+transport.address-family: inet
+ 
+Volume Name: Syspharm
+Type: Distribute
+Volume ID: 114e4a0f-a448-4653-801d-15babec02fba
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick5/brick
+Brick2: gluster2:/bricks/brick5/brick
+Brick3: aslan:/bricks/brick5/brick
+Options Reconfigured:
+nfs.disable: on
+transport.address-family: inet
+ 
+Volume Name: proxmox-backup
+Type: Replicate
+Volume ID: 877f9823-8cf5-4824-815e-9ba374e7ffec
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 1 x 3 = 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick6/brick
+Brick2: gluster2:/bricks/brick6/brick
+Brick3: aslan:/bricks/brick6/brick
+Options Reconfigured:
+nfs.disable: on
+transport.address-family: inet
+ 
+Volume Name: vol1
+Type: Replicate
+Volume ID: 79b5fca9-667c-47cf-91e5-8b51b2cf68bf
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 1 x 3 = 3
+Transport-type: tcp
+Bricks:
+Brick1: gluster1:/bricks/brick1/brick
+Brick2: gluster2:/bricks/brick1/brick
+Brick3: aslan:/bricks/brick1/brick
+Options Reconfigured:
+nfs.disable: on
+transport.address-family: inet
+[root@gluster1 ~]# 
+

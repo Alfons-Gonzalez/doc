@@ -1,0 +1,102 @@
+Oracle:
+
+- Me conecto como sysdba:
+
+[root@gea ~]# su - oracle
+ORACLE_UNQNAME=ORA11G
+ORACLE_SID=ORA11G
+ORACLE_BASE=/usr/local/oracle-11g/app/oracle
+ORACLE_HOSTNAME=gea.prib.upf.edu
+ORACLE_HOME=/usr/local/oracle-11g/app/oracle/product/11.2.0/db_1
+[oracle@gea ~]$ sqlplus /nolog
+
+SQL*Plus: Release 11.2.0.1.0 Production on Mon Mar 12 16:50:41 2018
+
+Copyright (c) 1982, 2009, Oracle.  All rights reserved.
+
+SQL> connect sys as sysdba
+Enter password: 
+Connected.
+SQL> 
+
+- Creo un usuario que será el propietario de la base de datos:
+
+SQL> CREATE USER vitic2016 IDENTIFIED BY <password>;
+
+- Le doy los privilegios para que pueda administrar la base de datos:
+
+GRANT CREATE SESSION to vitic2016;
+GRANT CREATE TABLE to vitic2016;
+GRANT UNLIMITED TABLESPACE to vitic2016;
+GRANT SELECT ANY TABLE to vitic2016;
+GRANT UPDATE ANY TABLE to vitic2016;
+GRANT INSERT ANY TABLE to vitic2016;
+GRANT DROP ANY TABLE to vitic2016;
+
+- Me conecto como este usuario (esto hace que las tablas estarán dentro de su
+tablespace):
+
+SQL> connect vitic2016/<password>
+Connected.
+SQL> 
+
+- Miro si tiene alguna base de datos y no tiene nada (que es lo correcto y lo
+esperado):
+
+SQL> select tablespace_name, table_name from user_tables;
+
+no rows selected
+
+SQL> 
+
+- Creo una base de datos de prueba y esta se crea y existe, luego la borro:
+
+SQL> CREATE TABLE commodities(
+  2  commodity_id     VARCHAR2(4),
+  3  commodity_name   VARCHAR2(20),
+  4  unit_price       NUMBER(8,2) NOT NULL,
+  5  CONSTRAINT comm_id_pk PRIMARY KEY(commodity_id) );
+
+Table created.
+
+SQL> select tablespace_name, table_name from user_tables;
+
+TABLESPACE_NAME 	       TABLE_NAME
+------------------------------ ------------------------------
+USERS			       COMMODITIES
+
+SQL> drop table commodities;
+
+Table dropped.
+
+SQL> select tablespace_name, table_name from user_tables;
+
+no rows selected
+
+SQL> 
+
+- Bueno, despues de esta pequeña prueba parece que esto xuta. 
+
+- Ahora voy a cargar un .sql que se llama 2016_2.sql. El fichero se encuetra en el
+directorio en el cual nos encontrábamos al invocar al sqlplus (creo que se puede 
+poner también el full path del fichero .sql:
+
+SQL> SPOOL out.txt
+SQL> @2016_2.sql
+
+- Para cambiar la configuración by default para que las contrasenyas no caduquen:
+
+(nos conectamos como sysdba)
+SQL> select * from dba_profiles;
+SQL> ALTER PROFILE DEFAULT LIMIT PASSWORD_LIFE_TIME UNLIMITED;
+
+Profile altered.
+
+SQL> alter user vitic2016 identified by T0Vitic2016 account unlock;
+
+User altered.
+
+SQL> commit;
+
+
+

@@ -1,0 +1,63 @@
+El server de sharelatex falla
+
+
+1.- recuperar el backup de la VM anterior
+
+2.-  al cabo de poco volvio a fallar
+
+[root@lambda ~]# df -h
+Filesystem           Size  Used Avail Use% Mounted on
+/dev/mapper/cl-root   29G   14G   16G  47% /
+devtmpfs             3.9G     0  3.9G   0% /dev
+tmpfs                3.9G     0  3.9G   0% /dev/shm
+tmpfs                3.9G  8.6M  3.9G   1% /run
+tmpfs                3.9G     0  3.9G   0% /sys/fs/cgroup
+/dev/sda1           1014M  185M  830M  19% /boot
+/dev/dm-3             10G  144M  9.9G   2% /var/lib/docker/devicemapper/mnt/df797415b31ca2cc5f7ed9a1fe6cbb766e010a64442f13fb7ab9ca751af5a0b6
+/dev/dm-4             10G   10G   20K 100% /var/lib/docker/devicemapper/mnt/1d199ae6f4fc615bdedcf780af4d23e7c3840a0f25bdca3e4814f60de3e6c056
+/dev/dm-5             10G  387M  9.7G   4% /var/lib/docker/devicemapper/mnt/58f592bdeadb9c57fac8e403d1f6e482bb4e80734216f2c737e68d694544f041
+shm                   64M     0   64M   0% /var/lib/docker/containers/5205f380dac418be18175c9eb96fe1ec70ceaba0e9d03924ef8998558ac30f70/shm
+shm                   64M     0   64M   0% /var/lib/docker/containers/ea281cade8b5ae54167a7a5c8a0bddf670e5fbece6897b0fe30f1a01e4c50dd9/shm
+shm                   64M     0   64M   0% /var/lib/docker/containers/ae7c069ef3c3a3529d4007cae02e3853a6fa1ffb49024adabaa9b1f33e50f9f9/shm
+tmpfs                783M     0  783M   0% /run/user/0
+[root@lambda ~]# 
+
+Hay un device al 100%
+
+[root@lambda ~]# cd /var/lib/docker/devicemapper/mnt/1d199ae6f4fc615bdedcf780af4d23e7c3840a0f25bdca3e4814f60de3e6c056
+[root@lambda 1d199ae6f4fc615bdedcf780af4d23e7c3840a0f25bdca3e4814f60de3e6c056]# ls
+id  rootfs
+
+es el / de uno del container de sharelatex:
+
+
+[root@lambda ~]# docker ps
+CONTAINER ID        IMAGE                   COMMAND                  CREATED             STATUS              PORTS                NAMES
+ae7c069ef3c3        sharelatex/sharelatex   "/sbin/my_init"          8 months ago        Up 6 hours          0.0.0.0:80->80/tcp   sharelatex
+ea281cade8b5        mongo                   "docker-entrypoint..."   8 months ago        Up 6 hours          27017/tcp            mongo
+5205f380dac4        redis                   "docker-entrypoint..."   8 months ago        Up 6 hours          6379/tcp             redis
+[root@lambda ~]# docker exec -it ae7c069ef3c3 /bin/bash
+root@ae7c069ef3c3:/# df -h
+Filesystem                                                                                          Size  Used Avail Use% Mounted on
+/dev/mapper/docker-253:0-50486155-1d199ae6f4fc615bdedcf780af4d23e7c3840a0f25bdca3e4814f60de3e6c056   10G   10G   20K 100% /
+tmpfs                                                                                                64M     0   64M   0% /dev
+tmpfs                                                                                               3.9G     0  3.9G   0% /sys/fs/cgroup
+/dev/mapper/cl-root                                                                                  29G   14G   16G  47% /etc/hosts
+shm                                                                                                  64M     0   64M   0% /dev/shm
+root@ae7c069ef3c3:/# 
+
+root@ae7c069ef3c3:/tmp# rm gs*
+root@ae7c069ef3c3:/tmp# df -h
+Filesystem                                                                                          Size  Used Avail Use% Mounted on
+/dev/mapper/docker-253:0-50486155-1d199ae6f4fc615bdedcf780af4d23e7c3840a0f25bdca3e4814f60de3e6c056   10G  8.4G  1.6G  85% /
+tmpfs                                                                                                64M     0   64M   0% /dev
+tmpfs                                                                                               3.9G     0  3.9G   0% /sys/fs/cgroup
+/dev/mapper/cl-root                                                                                  29G   14G   16G  47% /etc/hosts
+shm                                                                                                  64M     0   64M   0% /dev/shm
+root@ae7c069ef3c3:/tmp# exit
+exit
+[root@lambda ~]# 
+
+
+
+
