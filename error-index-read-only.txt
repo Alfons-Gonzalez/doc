@@ -1,0 +1,63 @@
+Aquest problema el vam tindre en el elasticsearch del SIT que estava format
+per un única node amb poc disc (32GB):
+
+Problema
+=========
+
+Amb la primera instal·lació del servidor de elasticsearch, la VM que on estava 
+instal·lat aquest servei només tenia un disc de una mica més de 30Gb que durant 
+el nadal del 2018 es va omplir.
+
+Degut a això, el elasticsearch es va parar tot i que entenc que els clients del 
+metricbeat que son en els nodes de càlcul continuavem enviant les mètriques al 
+elasticsearch. -> Correció: no es va parar el elasticsearch, es van possar tots 
+els indexos en mode read-only i clar, no xutava res.
+
+Als logs del elasticsearch estava aquest missatge:
+
+[2019-01-08T05:02:56,310][WARN ][o.e.c.r.a.DiskThresholdMonitor] [sit-metrics.s.upf.edu] flood stage disk watermark [95%] exceeded on [iikM-81ORtmu229fkPCrNw][sit-metrics.s.upf.edu][/var/lib/elasticsearch/nodes/0] free: 1.3gb[4.9%], all indices on this node will be marked read-only
+
+Es a dir, com que l’espai del disc on es guarden les métriques (/var/lib/elasticsearch) 
+estava al 95%, tots els indexos entraven en mode read-only. Al entrar al kibana no 
+xutaba res, sortien una pila de time-outs a les gràfiques i no es veia res (suposo que 
+era degut a que el propi kibana té el seu propi index i no podia escriure res en ell).
+
+Solució
+=======
+
+El primer va ser donar-li a la VM sit-metrics.s.upf.edu més espai. Ho vam fer afegint 
+un disc virtual de 500GB que es va muntar en el directori /var/lib/elasticsearch.
+
+Un cop fet això, vaig tornar a engegar la VM pero el elasticsearch continuava igual, 
+es a dir, tots els indexos estaven encara en mode read-only.
+
+La solució va ser treure aquest read-only sobre tots els indexos. Ho vaig fer executant 
+aquestes due ordres des de la consola del Kibana (opció “Dev Tools” del menú de l’esquerra):
+
+PUT _settings
+    {
+    "index": {
+    "blocks": {
+    "read_only_allow_delete": "false"
+    }
+    }
+    }
+
+i
+
+PUT metricbeat-6.5.3-*/_settings
+    {
+    "index": {
+    "blocks": {
+    "read_only_allow_delete": "false"
+    }
+    }
+    }
+
+És important el detall de la segona comanda on indiquem que volem que aquesta comanda 
+PUT s’executi en tot els indexos del metricbeat fent servir un caràcter comodín 
+(metricbeat-6.5.3-*).
+
+Amb això es va arreglar i tot va començar a funcionar correctament.
+
+

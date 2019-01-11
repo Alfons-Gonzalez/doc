@@ -1,0 +1,1108 @@
+
+Vamos a instalar un cluster de elasticsearch compuesto por tres máquinas:
+quercus (Dell R310), kabul (Dell R210) i sefarad (Dell R210)
+
+Como de las tres quercus es quien tiene más memória y con diferencia, será esta
+donde instalaremos las web que nos permitirán interactuar con elasticsearch:
+kibana, grafana y elasticsearch-HQ (permite ver el estado del cluster).
+
+ Indice
+========
+
+1.- Elasticsearch
+	1.1.- Java
+	1.2.- Elementos básicos
+	1.3.- Puertos
+	1.4.- Ficheros de configuración
+	1.5.- X-Pack
+	1.6.- Instalación
+	1.7.- Configuracion
+		1.7.1.- Activar el modo Cluster
+	1.8.- Fichero de log
+	1.9.- Interactuar con la consola
+
+2.- Elasticsearch-HQ
+	2.1.- Instalación
+	2.2.- Puerto
+	2.3.- Modo produccion
+	2.4.- Fichero de log
+
+3.- Kibana
+	3.1.- Instalacion
+	3.2.- Puertos
+	3.3.- Configuracion
+	3.4.- Fichero de log
+
+4.- Grafana
+
+5.- Beats
+
+
+1.- Elasticsearch
+=================
+
+Se intala con RPM mediante el repo oficial. Usando este repo podemos instalar mediante
+yum el elasticsearch, kibana, logstash, los beats, etc. 
+
+1.1.- Java
+-----------
+
+IMPORTANTE: Usa java y se recomienda hacer servir la versión de java de oracle y para
+evitar problemas, que en todos los nodos del cluster se tenga la misma versión. Yo puse
+el último estable: 
+
+[root@quercus html]# java -version
+java version "1.8.0_191"
+Java(TM) SE Runtime Environment (build 1.8.0_191-b12)
+Java HotSpot(TM) 64-Bit Server VM (build 25.191-b12, mixed mode)
+[root@quercus html]# 
+
+1.2.- Elementos básicos
+-----------------------
+
+Es importante tener claro lo que son los Documents, indices, shards
+
+    Documento: el tipo de objeto que guardamos.
+
+    Indice: cada Documento tiene su indice que no tiene por que caber en una solo 
+	nodo: puede estar distribuido y resplicado en varios nodos para tener alta 
+	disponibilidad, mejor rendimiento (acceso en paralelo), etc.
+    Shards: un índice se divide en X shards (siendo X => 1). Los shards pueden estar 
+	distribuidos en los n nodos lo que permite acceso paralelo.
+    Replica: cuantas copias de un índice tenemos en el cluster. Permite alta disponibilidad 
+	en caso de petada de un nodo y ayuda al acceso en paralelo.
+    By default: cuando un nuevo Index es creado, si no se especifica lo contrario, este 
+	es creado con shards=5 y replica=1.
+
+Como con Slurm, en todos los nodos estos ficheros han de estar iguales !!
+
+1.3.- Puertos
+-------------
+
+    9200 -> Puerto http. Es este el puerto que usarán aplicaciones como kibana, grafana,
+    9300 -> Puerto de transporte. Este puerto es importante ya que es el que hacen 
+	los nodos del elasticsearch para comunicarse entre ellos (yo no lo tenía abierto 
+	y no se podrían ver por lo que no estaban en modo cluster !!)
+
+1.4.- Ficheros de configuración
+-------------------------------
+
+Directorio principal de configuración: /etc/elasticsearch
+
+    * elasticsearch.yml : fichero general de configuración. Algunas cosas como el 
+	logging se pueden poer o bien aquí o en el fichero de configuración de java.
+    * jvm.options: configuración de los parámetros de java. Tal vez el más importante sea
+	el tamaño del heape space.
+    * log4j2.properties: logging configuration parameters.
+
+1.5.- X-Pack
+------------    
+
+El módulo del X-Pack se autoinstala pero es de pago. Por lo que vi, entre otras coas, es el
+que permite configurar opciones de seguridad (que las conexiones entre los nodos y webs
+de monitorización/gestion vaya por ssl), que kibana pida entrar usuario y passords, la creación
+de usuarios, etc. Por defecto viene activado con una configuración básica que és la gratuita.
+OJO, que si lo activamos por equivocacion, es con licencia de 30 dias y luego nos tendremos 
+que acordar de desactivar. La info dice de este módulo:
+
+"X-Pack is an Elastic Stack extension that provides security, alerting, monitoring, reporting, 
+machine learning, and many other capabilities. By default, when you install Elasticsearch, 
+X-Pack is installed." y  yo añado "... si, installed, pero es de pago (los manguis no lo dejan 
+claro en la docu).
+
+1.6.- Instalación
+-----------------
+
+Para hacer la instalación, lo hice así: 
+
+a.- Si se instaló con el sistema algún interprete de java
+del repo, lo quitamos para que solo esté el de Oracle (evitamos
+posibles confuciones/conflictos).
+
+b.- Instalamos el último jdk estable de Oracle, yo instalé este:
+
+[root@quercus html]# java -version
+java version "1.8.0_191"
+Java(TM) SE Runtime Environment (build 1.8.0_191-b12)
+Java HotSpot(TM) 64-Bit Server VM (build 25.191-b12, mixed mode)
+[root@quercus html]# 
+
+c.- Añadimos el repo de elasticsearch:
+
+[root@quercus ~]# cat /etc/yum.repos.d/elasticsearch.repo 
+[elasticsearch-6.x]
+name=Elasticsearch repository for 6.x packages
+baseurl=https://artifacts.elastic.co/packages/6.x/yum
+gpgcheck=1
+gpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch
+enabled=1
+autorefresh=1
+type=rpm-md
+[root@quercus ~]# 
+
+d.- Instalamos el elasticsearch: 
+
+yum install elasticsearch -y
+
+
+1.7.- Configuracion
+-------------------
+
+Y aquí es donde está la chicha del asunto. Hemos de hacer cambio en
+el fichero de configuración del elasticsearch y a nivel de sistema 
+operativo. La gran ventaja de hacer la instalación mediante yum y no
+mediante los .tar.gz, es que el rpm ya nos deja el sistema casi 
+preparado (es el fichero del systemd que gestiona el servicio quien
+se encarga de hacer los cambios necesarios en el sistema):
+
+a.- (Opcinoal) Si queremos ver la info del elasticsearch mediante el
+comando del sistema journalctld:
+
+- Editamos el fichero del servicio del systemd (/usr/lib/systemd/system/elasticsearch.service)
+y quitamos '--quiet' a la linea del ExecStart:
+
+#ExecStart=/usr/share/elasticsearch/bin/elasticsearch -p ${PID_DIR}/elasticsearch.pid --quiet
+ExecStart=/usr/share/elasticsearch/bin/elasticsearch -p ${PID_DIR}/elasticsearch.pid
+
+b.- Aumentamos el heap de java de 1Gb a 4GB. Siempre se ha de poner el min i el max 
+con el mismo tamaño. No pasar del 50% de la memoria física (hay una web de la docu 
+con más recomendaciones sobre estos tamaños). Esto se pone en el fichero
+
+[root@quercus ~]# cat /etc/elasticsearch/jvm.options 
+## JVM configuration
+
+################################################################
+## IMPORTANT: JVM heap size
+################################################################
+##
+## You should always set the min and max JVM heap
+## size to the same value. For example, to set
+## the heap to 4 GB, set:
+##
+## -Xms4g
+## -Xmx4g
+##
+## See https://www.elastic.co/guide/en/elasticsearch/reference/current/heap-size.html
+## for more information
+##
+################################################################
+
+# Xms represents the initial size of total heap space
+# Xmx represents the maximum size of total heap space
+
+-Xms4g
+-Xmx4g
+
+...
+...
+...
+
+- En los tres nodos del cluster puse 4GB (en ninguno de ellos era más del 50%
+de la memória física) pero entiendo que este valor puede ser personalizado para
+cada ordenador ya que pueden tener configuraciones de memoria muy diferentes.
+
+c.- Como se instaló usando RPM y yum, todos las cambios a nivel de sistema que pide que 
+se hagan en la docu de elasticsearch ya quedaban hechos. Diria que todos estos cambios
+están definidos directamente en la parte final del fichero de configuración del 
+servicio del systemd:
+
+/usr/lib/systemd/system/elasticsearch.service
+
+
+- La única configuración que tube que hacer y que no estaba dentro de este fichero 
+fué desactivar el uso de swap por parte del elasticsearch. Se ve que es importante 
+para evitar que tenga que ir al swap a buscar cosas. La docu explica varias maneras de hacer
+esto, al final apliqué la que llaman "Enable bootstrap.memory_lock" que consisitió en
+estos dos pasos:
+
+c.1.- descomentar y poner a true la siguiente directiva en el fichero de configuración del
+elasticsearch (/etc/elasticsearch/elasticsearch.yml):
+
+bootstrap.memory_lock: true
+
+c.2.-  Crear el fichero: /etc/systemd/system/elasticsearch.service.d/override.conf con
+el siguiente contenido:
+
+[Service]
+LimitMEMLOCK=infinity
+
+y decirle al systemd que actualice los cambios:
+
+systemctl daemon-reload
+
+(también se puede hacer ejecutando: systemctl edit elasticsearch.service)
+
+y hacer un restart del servicio. Para ver que s'ha desactivat, en el kibana podem executar
+aquesta comanda y es a de retornar un 'true' (aixó d'interactuar amb el elasticsearch des de
+la consola del kibana s'explica més endavant):
+
+GET _nodes?filter_path=**.mlockall
+
+d.- Que el nombre del host sea el HOSTNAME de la máquina:
+
+[root@quercus ~]# grep node.name /etc/elasticsearch/elasticsearch.yml 
+node.name: ${HOSTNAME}
+[root@quercus ~]# 
+
+e.- Para dejar de estar en modo devployment y entrar a funcionar en modo
+pruduction, hay que configurar el network.host con la ip del nodo (by default, 
+usa la de loopback). Al hacer esto, salimos del modo deployment y entramos 
+en el modo production. Este detalles es muy importante ya que esto implica 
+que ciertos errores de config, que en modo deployment son warnings, pasan a 
+ser errores críticos y el servicio no arrancará:
+
+[root@quercus ~]# grep network.host /etc/elasticsearch/elasticsearch.yml
+network.host: 172.20.16.10
+[root@quercus ~]# 
+
+Si queremos trabajar con la dirección de loopback pero entrando en modo 
+production hemos de activar un directiva en el fichero de configuración.
+
+Es posible tener varias instáncias de elasticsearch en la propia máquina, 
+todas ellas usando la dirección de loopback (pero diferente puerto) y que 
+trabajen en modo cluster. Esto se usa a modo de pruebas o desarrollo, no
+tiene sentido montar así un cluster de produccion por el mal rendimiento
+que tendríamos.
+
+1.7.1.- Activar el modo Cluster
+-------------------------------
+
+SIT: Como en el SIT solo hay un nodo en el cluster no fué necesario
+aplicar toda esta configuración.
+
+Para que los tres nodos empiecen a trabajar en modo cluster:
+
+a.- IMPORTANTE: cambiamos el cluster name !! El hecho de que varios nodos empiecen a
+funcionar en modo cluster es por que:
+
+- Todos ellos tienen el mismo clustername.
+- Pueden hablar entre ellos mediante el puerto 9300.
+
+[root@quercus ~]# grep cluster.name /etc/elasticsearch/elasticsearch.yml 
+cluster.name: grib-elastic
+[root@quercus ~]# 
+
+b.- En la docu recomiendan que es mejor hacer un unicast en vez de un broadcast para
+que los nodos del cluster se encuentren entre ellos. Para ello, hemos de activar y poner
+lo siguiente en el fichero de configuración del elasticsearch:
+
+[root@quercus ~]# grep discovery.zen.ping.unicast.hosts /etc/elasticsearch/elasticsearch.yml 
+discovery.zen.ping.unicast.hosts: ["172.11.61.27", "172.31.22.131","172.31.32.221"]
+[root@quercus ~]# 
+
+Entre ellos deciden quien es el master (by default todos lo pueden ser). Se puede
+forzar a que cada nodo tenga el role que nos interese indicándolo en el fichero de configuración:
+
+https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-node.html
+
+c.- Otro detalle importante es configurar una directiva para evitar un “Split Brain”. 
+Esto es que si hay un error de red y algún nodo del cluster queda incomunicado del resto, 
+este puede decidir que los otros han caido, coja el role de master y siga insertando info 
+y que cuando el problema de red desaparezca y vayan a sincronizar sus datos se lie parda para
+decidir quien tiene los datos correctos ya que los dos masters querrán tener la razón.
+
+Para que esto no pase se le indica un número mínimo de nodos en el cluster: si no se cumple, 
+se para todo para evitar que se produzca un "Split Brain":
+
+discovery.zen.minimum_master_nodes: 2
+
+La regla es: N/2 + 1. N (round down the result to the nearest integer)
+
+d.- Reiniciar los nodos. En el siguiente apartado se explica como interactuar con la consola
+y así comprovar que estan trabajando en modo cluster.
+
+1.8.- Fichero de log
+--------------------
+
+Los ficheros de log están en el directorio:
+
+/var/log/elasticsearch
+
+[root@quercus elasticsearch-HQ]# ls /var/log/elasticsearch/
+gc.log.0.current         grib-elastic_audit.log        grib-elastic_index_indexing_slowlog.log  grib-elastic.log
+grib-elastic_access.log  grib-elastic_deprecation.log  grib-elastic_index_search_slowlog.log
+[root@quercus elasticsearch-HQ]# 
+
+1.9.- Interactuar con la consola
+--------------------------------
+
+Las querys son en formato json. Tenemos dos maneras para interactuar con 
+el elasticsearch:
+
+a.- Por lineas de comandos usando la herramienta 'curl':
+
+curl -X <action> "<elastic_server>:<port>/<request>"
+
+ej:
+
+curl -X GET "quercus.prib.upf.edu:9200/_cat/nodes?v"
+
+b.- Usando la herramienta "Dev Tools" del Kibana (está en el menú de la izquierda)
+y metemos direactemte la consulta:
+
+GET /_cat/nodes?v
+
+Algunes consultas útiles que use son:
+
+- Estar del cluster: 
+
+GET _cluster/health
+
+- El mateix pero en otro formato (creo que da un poco más de info):
+
+GET /_cat/health?v
+
+- Ver la lista de nodos que forman el cluste y su estado: 
+
+GET /_cat/nodes?v
+
+- Obtener la configuración completa del cluster:
+
+GET /_cluster/settings?include_defaults=true
+
+- Obtener información de todos los índices con su estado:
+
+GET /_cat/indices?v
+
+* Configuración de todos los indices:
+
+GET /_all/_settings
+
+* Configuracion de solo un indice (o algunos con wildcards):
+
+GET /metricbeat-*/_settings
+
+* Con algún filtro: ver solo el valor index->number*
+
+GET /metricbeat-*/_settings/index.number_*
+
+También se puede hacer servir PUT que implica hacer cambios
+en algún indice o configuración.
+
+1.9.- Firewall final
+--------------------
+
+La configuración final del firewall que quedo en el nodo quercus del 
+cluster del GRIB fue esta (este nodo es que que lleva el servicio de kibana,
+grafana i elasticsearch-HQ):
+
+[root@quercus ~]# firewall-cmd --list-all
+public (active)
+  target: default
+  icmp-block-inversion: no
+  interfaces: em1
+  sources: 
+  services: 
+  ports: 
+  protocols: 
+  masquerade: no
+  forward-ports: 
+  source-ports: 
+  icmp-blocks: 
+  rich rules: 
+	rule family="ipv4" source address="172.22.2.234" service name="ssh" accept
+	rule family="ipv4" source address="172.20.16.0/24" service name="ssh" accept
+	rule family="ipv4" source address="172.20.16.0/24" service name="kibana" accept
+	rule family="ipv4" source address="172.20.16.0/24" service name="grafana" accept
+	rule family="ipv4" source address="172.20.16.0/24" service name="elasticsearch" accept
+	rule family="ipv4" source address="172.20.16.25" service name="bacula-client" accept
+	rule family="ipv4" source address="172.20.16.0/24" service name="http" accept
+	rule family="ipv4" source address="172.20.16.222" service name="dell-omsa" accept
+	rule family="ipv4" source address="172.20.16.221" service name="dell-omsa" accept
+	rule family="ipv4" source address="172.20.16.0/24" service name="elastichq" accept
+	rule family="ipv4" source address="84.89.134.128/25" service name="elasticsearch" accept
+	rule family="ipv4" source address="84.89.134.128/25" service name="kibana" accept
+[root@quercus ~]# 
+
+y en los otros dos nodos del cluster (no ofrecen el servicio de kibana, grafana i elasticsearch-HQ):
+
+[root@kabul ~]# firewall-cmd --list-all
+public (active)
+  target: default
+  icmp-block-inversion: no
+  interfaces: em1
+  sources: 
+  services: 
+  ports: 
+  protocols: 
+  masquerade: no
+  forward-ports: 
+  source-ports: 
+  icmp-blocks: 
+  rich rules: 
+	rule family="ipv4" source address="172.20.16.0/24" service name="ssh" accept
+	rule family="ipv4" source address="172.20.16.0/24" service name="elasticsearch" accept
+	rule family="ipv4" source address="172.22.16.25" service name="bacula-client" accept
+	rule family="ipv4" source address="172.20.16.222" service name="dell-omsa" accept
+	rule family="ipv4" source address="172.20.16.221" service name="dell-omsa" accept
+	rule family="ipv4" source address="84.89.134.128/25" service name="elasticsearch" accept
+[root@kabul ~]# 
+
+y el iptables de la máquina con el elasticsearch del SIT (es mas sencillo por que no tiene que 
+comunicarse con otros nodos del cluster de elasticsearch):
+
+[root@sit-metrics ~]# firewall-cmd --list-all
+public (active)
+  target: default
+  icmp-block-inversion: no
+  interfaces: eth0
+  sources: 
+  services: ssh dhcpv6-client elasticsearch kibana grafana http
+  ports: 
+  protocols: 
+  masquerade: no
+  forward-ports: 
+  source-ports: 
+  icmp-blocks: 
+  rich rules: 
+	
+[root@sit-metrics ~]# 
+
+Como detalle, para generar las reglas se hacen servir las definiciones de los servivios
+que usar el firewalld. Para ver los puertos que implican estos servicios hemos de ver su
+fichero de configuracion que está aquí:
+
+/usr/lib/firewalld/services/
+
+[root@kabul ~]# cat /usr/lib/firewalld/services/kibana.xml 
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <short>Kibana</short>
+  <description>Kibana is an open source data visualization platform that allows you to interact with your data through stunning, powerful graphics that can be combined into custom dashboards that help you share insights from your data far and wide.</description>
+  <port protocol="tcp" port="5601"/>
+</service>
+[root@kabul ~]# 
+
+
+(algunos los cree yo por que me gusta más que se vea así, queda mas aclaratorio a que
+puerto hace referencia la regla).
+
+2.- Elasticsearch-HQ
+====================
+
+SIT: Esta herramienta no esta instalada en el SIT ya que el elasticsearch
+esta solo formado por un nodo (no era necesario).
+
+Es una herramienta web que nos permite de un modo sencillo ver el estado del
+cluster, de los indices y de donde están los shards y sus réplicas. Esta hecho
+en python y no corre sobre apache (esto no me gusta pero es así como funciona).
+
+Según la docu no solo permite monitorizar el estado del cluster, también nos 
+permite modificar, añadir o eliminar indices pero no lo he probado.
+
+2.1.- Instalación
+-----------------
+
+Las instrucciones de como se hace la instalación aquí:
+
+http://docs.elastichq.org/installation.html#quick-start-guide
+
+Antes de seguir los pasos de instalación, instalé el python-3.4 en la máquina
+(la docu dice que xuta con python >= 3.4) y seguí estos pasos:
+
+0.- Install pyton3.4: yum install python34 python34-pip -y
+1.- Download or clone the repository https://github.com/ElasticHQ/elasticsearch-HQ
+	to the directory /usr/local.
+2.- Navigate to the root of the repository at /usr/local/elasticsearch-HQ and: 
+	a.- comment out the line in the requirements.txt: gunicorn==19.7.1
+	b.- pip3.4 install -r requirements.txt
+3.- Start the server: python3.4 application.py
+4.- Point your browser to: http://localhost:5000
+
+2.2.- Puerto
+------------
+
+Escucha por el puerto 5000 y por el localhost (no miro como cambiarlo, ya haré
+Luego un proxypass).
+
+2.3.- Modo produccion
+---------------------
+
+Para ponerlo en produccion, no nos sirve el paso 3 anterior, hemos de ejecutar:
+
+[root@quercus ~]# cat start_elasticsearch-HQ.sh 
+/bin/python3 /bin/gunicorn --daemon --chdir /usr/local/elasticsearch-HQ -w 1 -b :5000 --worker-class eventlet application:application
+[root@quercus ~]#
+
+Y hacemos que se ejecute en el arranque:
+
+root@quercus elasticsearch-HQ]# chmod u+x /etc/rc.d/rc.local
+[root@quercus elasticsearch-HQ]# systemctl start rc-local
+[root@quercus elasticsearch-HQ]# systemctl enable rc-local
+[root@quercus elasticsearch-HQ]# echo "/root/start_elasticsearch-HQ.sh" >> /etc/rc.d/rc.local 
+
+2.4.- Fichero de log
+--------------------
+
+El fitxer de log esta aqui:
+
+/usr/local/elasticsearch-HQ/application.log
+
+Creo que las opciones de log están en este fichero:
+
+/usr/local/elasticsearch-HQ/elastichq/config/logger.json
+
+3.- Kibana
+===========
+
+Solo lo instalamos en una máquina del cluster. Esta máquina es quercus por que es la que tiene más
+memoria (asumo que es la que puede llegar a soportar más carga). En el SIT, como solo hay una máquina
+se instala en esa.
+
+Como no tenemos activado (por que es de pago) el módulo de X-Pack, no podemos configurar usuarios
+para que el acceso quede más restringido (pondremos un user + password de apache).
+
+A pesar de las limitaciones por no instalar el X-Pak, es interesante esta herramienta ya que nos
+ofrece varias opciones interesantes (frame de la izquierda):
+
+- DevTools: una consola con la que interactuar con el elasticsearch (en este documento hay una mini-lista
+de comandos). Son instrucciones en formato json.
+
+- Discover: ver como van las inserciones de info en el elasticsearch por parte de los clientes de
+beats (metricbeat y filebeat) o logstash.
+
+A parte de que los beats (filebeat y metricbeat) autoinstalarn unos dashboards con los que ya podemos empezar
+a ver algo.
+
+3.1.- Instalacion
+-----------------
+
+Se instala con yum (se supone que con aterioridad ya hemos configurado el repo para yum de elasticsearch)
+
+yum install kibana -y
+
+3.2.- Puertos
+-------------
+
+Por defecto usa el puerto 5601 (mas adelante ya pondremos un proxypass). 
+
+http://localhost:5601
+
+3.3.- Configuracion
+-------------------
+
+Su fichero de configuración es:
+
+/etc/kibana/kibana.yml
+
+Y hacemos estos cambios
+
+1.- Dejamos el puerto by default:
+
+#server.port: 5601
+
+2.- Para que sea accesible por otras máquinas, ponemos el nombre del 
+host (si no, solo xuta por la dirección de loopback):
+
+server.host: "quercus.prib.upf.edu"
+
+3.- Donde está el elasticsearch con el que se tiene que comunicar:
+
+elasticsearch.url: "http://quercus.prib.upf.edu:9200"
+
+4.- Le pedimos que genere un fichero de log (por defecto no lo hace):
+
+logging.dest: /var/log/kibana.log
+
+Por último, al poner el proxypass para que esta web contestase a la url:
+
+http://quercus.prib.upf.edu/kibana
+
+se le tubo a hacer una modificacion mas con esta directiva:
+
+server.basePath: "/kibana"
+
+pero la pega fué que dejó de reponder correctamente mediante el puerto 5601.
+
+
+3.4.- Logs
+----------
+
+Ficheros de log:
+
+/var/log/kibana.log
+
+En el apartado DevTools podemos interactuar con elasticsearch com comandos en formato json (también se puede hacer desde el SO de donde está el elasticsearch pero usando el comando CURL)
+
+Cosas que he probado con la consola (DevTools) de Kibana:
+
+(no hace falta crear indices. Si se genera un nuevo documento con su indice, si el indice no
+exite lo crea)
+
+* añadir un documento
+* modificar un documento
+* eliminar un documento
+* consultar el estado de los indices (sirve para ver si tienen la replica, cuandos shards, etc)
+* version del elasticsearch:
+
+Cambios hechos en la configuración
+
+- Una vez le di al elasticsearch una ip para que dejase de ir por la dirección de loopback (dejó de estar en modo development y pasó a estar en modo producción), tube que cambiar en el kibana donde estaba el elasticsearch por que lo buscaba en el loopback pero ya no estaba allí. En el fichero de config del kibana (/etc/kibana/kibana.yml) puse:
+
+elasticsearch.url: "http://kabul.prib.upf.edu:9200"
+
+Ports
+
+5601 -> Per on escolta el kibana -> ¿ProxyPass cap el 80? Si, per poder connectar-me des de el SIT
+
+A l’hora de veure les mètriques es important l’hora del ordinador on tenim el browser, ja que si va avançada respecte al server amb el kibana pot ser que no veïem res ‘a temps real’.
+
+4.- Grafana
+===========
+
+
+XXXXXXXXXXXXXXX
+
+- Cambios hechos en elasticsearch.yml
+-------------------------------------
+* Para que podamos ver la info del servicio con el comando journalctl de systemd, se tuvo que quitar el --quiet de la línea ExecStart del fichero de servicio de systemd (/usr/lib/systemd/system/elasticsearch.service):
+
+#ExecStart=/usr/share/elasticsearch/bin/elasticsearch -p ${PID_DIR}/elasticsearch.pid --quiet
+ExecStart=/usr/share/elasticsearch/bin/elasticsearch -p ${PID_DIR}/elasticsearch.pid
+
+
+* Aumento el heap de java de 1Gb a 4GB. Siempre se ha de poner el min i el max con el mismo tamaño. No pasar del 50%
+    de la memoria física (hay una web de la docu con más recomendaciones sobre estos tamaños).
+
+* Cambio el cluster name.
+
+* Cambio el host name para que sea el HOSTNAME del s.o.
+
+* Para montar un cluster dice la docu que hay que configurar el network.host con la ip del node
+(by default, es la de loopback). al hacer esto, salimos del modo deployment y entramos en el modo
+production (ciertos errores de config, en modo deployment son warnings, pero en modo production
+son considerados errores y no arrancará el elasticsearch).
+
+network.host: 172.20.16.10
+
+* Al entrar en modo producción, algunos problemas de configuracion que en modo development eran warnings
+se convierteen en errores y por eso puede ser que no arranque.
+
+* Como se instaló usando RPM y yum, todos las cambios a nivel de sistema a configurar ya estaban hechos
+(están los nuevos valores definidos directamente en el fichero de configuración del servicio del systemd:
+
+/usr/lib/systemd/system/elasticsearch.service
+
+* De todas estas configuraciones, la única que tube que hacer fué desactivar el uso de swap por parte del elasticsearch. Se ve que es importante para evitar que tenga que ir al swap a buscar cosas. De las diversas manera de hacerlo, al final puse la que llaman: Enable bootstrap.memory_lock que consisitió en:
+
+- descomentar o poner a true (no recuerdo como lo hice) la linea
+
+bootstrap.memory_lock: true
+
+en el fichero:
+
+/etc/elasticsearch/elasticsearch.yml
+
+Para saber si xuta, ejecutar en la consola de kibana:
+
+como salia false (no se habia desactivado), tuve que
+
+1.- Crear el fichero: /etc/systemd/system/elasticsearch.service.d/override.conf
+2.- Meter el contenido:
+
+[Service]
+LimitMEMLOCK=infinity
+
+3.- y actualizamos el systemd
+
+systemctl daemon-reload
+
+Al hacer un restart del servicio del elasticsearch y volver a preguntar ya salio que el mlockall
+estaba a true.
+
+* Para forzar a que se haga el bootstrap check (por la configuració que tendremos no hará falta pero bueno, lo puse), pongo esto en el fichero elasticsearch.yml:
+
+-Des.enforce.bootstrap.checks=true -> Esto al final no lo hice
+
+Poner los nodos en cluster
+
+Hay que poner en el fichero de configuración del elasticsearch (/etc/elasticsearch/elasticsearch.yml) el mismo nombre de cluster para todos los nodos:
+
+cluster.name: my-cluster
+
+
+Todos los nodos han de estar en modo de producción (no usar su loopback, que usen su ip):
+
+network.host: 172.11.61.27
+
+Crear la lista de nodos a los cuales se tiene que preguntar.
+
+discovery.zen.ping.unicast.hosts: ["172.11.61.27", "172.31.22.131","172.31.32.221"]
+
+Entre ellos deciden quien es el master (by default todos lo pueden ser). Se puede forzar en el fichero de configuración:
+
+node.master: true -> por defecto es true. Si queremos forzar que sea master un nodo en concreto, supongo que es ponerlo en todos a false menos en ese nodo
+node.data: true -> por defecto es siempre true.
+
+Mas info sobre los roles:
+
+https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-node.html
+
+
+
+Otro detalle importante es configurar esta directiva para evitar un “Split Brain” que puede pasar si en algún momento hay un error de red, algún nodo deja de estar en conexión con los otros y hay que evitar que est piense que los otros han caido, coja el role de master y siga insertando info y que los otros hagan lo mismo: esto provoca inconsistencia de datos:
+
+discovery.zen.minimum_master_nodes: 2
+
+La regla es: N/2 + 1. N (round down the result to the nearest integer)
+
+XXX
+
+
+firewall  final
+
+Esta es la configuración final del firewall
+
+
+rule family="ipv4" source address="172.20.16.25" accept (bacula director)
+rule family="ipv4" source address="172.20.16.0/24" service name="ssh" accept
+rule family="ipv4" source address="172.20.16.222" port port="1311" protocol="tcp" accept (Dell OMSA access for cappra)
+rule family="ipv4" source address="172.20.16.221" port port="1311" protocol="tcp" accept (Dell OMSA access for moebius)
+rule family="ipv4" source address="172.22.2.234" service name="ssh" accept (SIT network)
+rule family="ipv4" source address="172.22.2.234" port port="5601" protocol="tcp" accept (SIT network)
+rule family="ipv4" source address="172.20.16.0/24" port port="5601" protocol="tcp" accept (kibana port)
+rule family="ipv4" source address="172.20.16.0/24" port port="9200" protocol="tcp" accept (elasticserdh http port)
+rule family="ipv4" source address="172.20.16.0/24" port port="9300" protocol="tcp" accept (elasticsearch tranport port)
+
+elasticsearch-HQ
+----------------
+
+Instalo en la máquina donde tendré el Kibana esta herramienta para monitorizar el estado del cluster del elasticserch:
+
+http://docs.elastichq.org/installation.html#quick-start-guide
+
+Nos muestra el estado del cluster de elasticsearch, cuantos indices tenemos, los shards de los indices, en que nodos del cluster están estos shards (y las réplicas). La docu dice que podemos gestios los indices (borrarlos y creo que más cosas) pero no veo como hacerlo.
+
+La pega es que para que corra en producción lo hace bajo una cosa de python que se llama gunicorn, no se si activarlo. 
+
+Comandos consola de kibana
+--------------------------
+
+* Status og elasticsearch cluster:
+
+GET _cluster/health
+
+*  El mateix pero afegeix el que es cada columna (dona més info)
+
+GET /_cat/health?v
+
+* Ara per veure la llista de nodes del cluster i l’estat de cadascú
+GET /_cat/nodes?v
+
+* Lo mismo pero preguntado también como están otros nodos delcluster:
+
+GET /_cluster/health/test1,test2
+
+* Obtener la configuración completa del cluster:
+
+GET /_cluster/settings?include_defaults=true
+
+* Obtener información de todos los índices con su estado:
+
+GET /_cat/indices?v
+
+* Configuración de todos los indices:
+
+GET /_all/_settings
+
+* de solo un indice (o algunos con wildcards):
+
+GET /twitter/_settings -> uno
+
+GET /log_2013_*/_settings -> varios con wildcards
+
+GET /twitter,kimchy/_settings -> mas de un índice
+
+GET /log_2013_-*/_settings/index.number_* -> con algun filtro
+
+Ports
+
+9200 -> Per on escolta el elasticsearch
+
+
+Kibana
+======
+
+Nomes ho tenim instal·lat a kabul !!
+
+http://localhost:5601
+
+http://localhost:5601 -> Web de gestion (Kibana)
+
+En el apartado DevTools podemos interactuar con elasticsearch com comandos en formato json (también se puede hacer desde el SO de donde está el elasticsearch pero usando el comando CURL)
+
+Cosas que he probado con la consola (DevTools) de Kibana:
+
+(no hace falta crear indices. Si se genera un nuevo documento con su indice, si el indice no
+exite lo crea)
+
+* añadir un documento
+* modificar un documento
+* eliminar un documento
+* consultar el estado de los indices (sirve para ver si tienen la replica, cuandos shards, etc)
+* version del elasticsearch:
+
+Cambios hechos en la configuración
+
+- Una vez le di al elasticsearch una ip para que dejase de ir por la dirección de loopback (dejó de estar en modo development y pasó a estar en modo producción), tube que cambiar en el kibana donde estaba el elasticsearch por que lo buscaba en el loopback pero ya no estaba allí. En el fichero de config del kibana (/etc/kibana/kibana.yml) puse:
+
+elasticsearch.url: "http://kabul.prib.upf.edu:9200"
+
+Ports
+
+5601 -> Per on escolta el kibana -> ¿ProxyPass cap el 80? Si, per poder connectar-me des de el SIT
+
+A l’hora de veure les mètriques es important l’hora del ordinador on tenim el browser, ja que si va avançada respecte al server amb el kibana pot ser que no veïem res ‘a temps real’.
+
+FileBeat
+---------
+
+De moment faig servir el metricbeat per enviar dades de métriques al elasticsearch (estat de la CPU, memoria, xarxa, etc).
+
+Instal·lacio fent servir el repositori per rpm
+
+Afegim el repo:
+
+[root@sauron ~]# cat /etc/yum.repos.d/elasticsearch.repo 
+[elasticsearch-6.x]
+name=Elasticsearch repository for 6.x packages
+baseurl=https://artifacts.elastic.co/packages/6.x/yum
+gpgcheck=1
+gpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch
+enabled=1
+autorefresh=1
+type=rpm-md
+Tiene correo nuevo en /var/spool/mail/root
+[root@sauron ~]# ^C
+[root@sauron ~]# 
+
+
+yum install filebeat -y
+
+La docu recomona instal·lar aixó en els nodes del elasticsearch. Es per veure info en un mapa interactiu, pero no hem funciona:
+
+sudo bin/elasticsearch-plugin install ingest-geoip
+sudo bin/elasticsearch-plugin install ingest-user-agent
+i si volem que engegui amb el inici del sistema:
+
+systemctl enable filebeat
+
+Configuració:
+
+El directori on está els fitxers de configuració es /etc/metricbeat
+
+En el subdirectori /etc/metricbeat/modules.d están els diferents serveis dels quals podem monitoritzar els logs. Els anomena móduls. Els podem editar per modificar el comportament. Per activar-los:
+
+filebeat modules enable system nginx mysql
+
+Para ver todos los modulos disponibles:
+
+filebeat modules list
+
+Un cop fet aixó hem de fer prepara el seu entorn amb (crec que s’ha de fet cada cop que afegim un nou modul o si el treïem):
+
+filebeat setup -e
+
+Canvis al fitxer de configuració /etc/filebeat/filebeat.yml:
+
+-> Que compruebe posibles cambios en los ficheros de configuración de los módulos y cada cuanto tiempo.
+filebeat.config.modules:
+  path: ${path.config}/modules.d/*.yml
+  reload.enabled: true
+  reload.period: 10s
+
+Le decimos que agregue automáticamente las plantillas de los dashboard al kibana (en un altre lloc li direm on está el kibana). Aqueste plantilles es poden afegir de una forma manual i fer mes coses, ho explica la docu. Jo ho deixo tot en default. Les plantilles que carrega automáticament després les podem modificar al nostre gust:
+
+setup.dashboards.enabled: true
+
+Ara indiquem on está el Kibana per que pugui carregar les plantilles dels dashboards:
+
+setup.kibana:
+host: "http://kabul.prib.upf.edu:5601"
+
+Ara li diem on està el elasticsearch on ha de ficar les dades. Al afegir mes de un node (tots els membres del cluster) va fent un RoundRobin entre tots. Mes endavant miraré com posar contrasenyes per poder accedir al elasticsearch
+
+output.elasticsearch:
+hosts: ["kabul.prib.upf.edu:9200", "sefarad.prib.upf.edu:9200", "quercus.prib.upf.edu:9200"]
+# Optional protocol and basic auth credentials.
+#protocol: "https"
+#username: "elastic"
+#password: "changeme"
+
+Canvis fets al modul del apache2
+
+No hem funcionava i era per que en el fitxer de configuració del módul del apache estava mal posat on estava els logs. Vaig editar el fitxer:
+
+/etc/filebeat/modules.d/apache2.yml
+i vaig posar be els paths del log d’accés i d’error:
+
+[root@sauron ~]# cat /etc/filebeat/modules.d/apache2.yml 
+- module: apache2
+  # Access logs
+  access:
+    enabled: true
+
+    # Set custom paths for the log files. If left empty,
+    # Filebeat will choose the paths depending on your OS.
+    var.paths: ["/var/log/httpd/access_log*"]
+
+  # Error logs
+  error:
+    enabled: true
+
+    # Set custom paths for the log files. If left empty,
+    # Filebeat will choose the paths depending on your OS.
+    var.paths: ["/var/log/httpd/error_log*"]
+[root@sauron ~]# 
+
+Un cop fet tot aixó ja vaig poder inicia el servei i anar al kibana i començar a veure que ja sortien métriques.
+
+Nota: en aquest fitxer es on es diu el numero de shards que faran servir els indexos. By default son 3.
+
+
+
+Metricbeat
+
+De moment faig servir el metricbeat per enviar les info dels logs al elasticsearch. 
+
+Explico aquí com ho configuro a Marvin:
+
+1.- Afegeixo el repo de rpms del elasticsearch al node:
+
+ [root@mr-00-01 ~]# cat /etc/yum.repos.d/elasticsearch.repo
+[elasticsearch-6.x]
+name=Elasticsearch repository for 6.x packages
+baseurl=https://artifacts.elastic.co/packages/6.x/yum
+gpgcheck=1
+gpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch
+enabled=1
+autorefresh=1
+type=rpm-md
+[root@mr-00-01 ~]#
+
+2.- Instal·lo el metricbeat:
+
+yum install metricbeat
+
+3.- El configurem per que trobi al elasticsearch i al kibana (afegeix dashboards als kibana, per si ho volem fer servir, es opcional).
+
+El fitxer de configuració es: 
+
+/etc/metricbeat/metricbeat.yml
+
+El que s’ha de canviar es:
+
+a.- Que comprovi automáticament si fem canvis en els fitxers de modules del metricbeat i apliqui els canvis. Que ho faci cada 60 segons. D’aquesta manera ens estalviem tindre que fer restarts del servei  (Opcional):
+
+metricbeat.config.modules:
+  # Glob pattern for configuration loading
+  path: ${path.config}/modules.d/*.yml
+
+  # Set to true to enable config reloading
+  reload.enabled: true
+
+  # Period on which files under path should be checked for changes
+  reload.period: 60s
+
+b.- Li diem que instali en el kibana les plantilles dels dashboards
+
+setup.dashboards.enabled: true
+
+c.- Ara indiquem on està el kibana:
+
+setup.kibana:
+
+  # Kibana Host
+  # Scheme and port can be left out and will be set to the default (http and 5601)
+  # In case you specify and additional path, the scheme is required: http://localhost:5601/path
+  # IPv6 addresses should always be defined as: https://[2001:db8::1]:5601
+  host: "http://sit-metrics.s.upf.edu:5601"
+
+d.- Ara li indiquem on está el elasticsearch. Si tinguesim més de un node en el cluster del elasticsearch afegiriem els nodes en format array, separats per comes (fa un round robin entre els nodes per afegir les dades):
+
+output.elasticsearch:
+  # Array of hosts to connect to.
+  hosts: ["sit-metrics.s.upf.edu:9200"]
+
+4.- El metricbeat funciona amb moduls. Cada modul controla es per quines métriques de quin servei volem gestionar. By default, només està activar el de “system” que es el que dona les mètriques de la CPU, memória, xarxa, etc.
+
+a.- Per veure els moduls que tenim disponibles (i quins estan activats)
+
+metricbeat modules list
+
+b.- per afegir un modul (metricbeat afegira al elasticsearch les métriques del servei que permet gestionar el nou módul):
+
+ metricbeat modules enable apache
+
+c.- Per modificar el comportament del modul:
+
+vi /etc/metricbeat/modules.d/system.yml
+
+5.- Ara que ja tenim el metricbeat configurar i preparat podem fer el setup (crec que genera els indexos al elasticsearch i copia els dashboards al kibana, so, es imporart mirar el missatges per si diu coses del tipus que no pot contactar amb el elasticsearch):
+
+metricbeat setup -e
+
+6.- Iniciem el serveri:
+
+systemctl start metricbeat
+
+i fem que que engegi amb el sistema:
+
+systemctl enable metricbeat
+
+7.- Ara ja podem connectar-nos amb el kibana o grafana i mirar si les mètriques estan arribant.
+
+----
+
+- Per que des de Marvin puguin connectar-se al elasticsearch de kabul, només necesitem que es puguin connectar amb el port 9002 del cluster de elasticsearch (el 9003 es l’intern per que entre els nodes del cluster puguin parlar entre ells). I si volem que el Beat pugui carregar els templates al kibana, que també puguin arribin al port 5601 de on està el kibana (de moment es kabul).
+
+
+How to secure elasticsearch cluster
+
+Con X-Pack: las instrucciones de como configurarlo dice que hay que activar el trial de 30 dias. No interesa.
+Shield: a partir de la version 5.0, shield es parte de X-Pack y X-Pack viene bye default con elasticsearh 6.x
+Activar seguridad:
+
+1.- Activar un usuario anonimo (el role lo encuentro en el Built-in roles):
+
+xpack.security.authc:
+  anonymous:
+    username: anonymous_user
+    roles: kibana_user
+    authz_exception: true
+
+2.- Activar la comunicacion entre los nodos por SSL/TLS
+
+./elasticsearch-certutil ca  -> Para generar nuestro propio CA
+    outputfile: elastic-stack-ca.pqw
+    password: collserola
+
+./elasticsearch-certutil cert --ca elastic-stack-ca.p12 -> genera un certificat and private key for each node in the cluster
+    outputfile: elastic-certificates.p12
+    password: pedraforca
+    
+    Copiar el fichero de output .p12 en cada nodo a /etc/elasticsearch/certs
+
+    Ficar al fitxer de config:
+
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.verification_mode: certificate
+xpack.security.transport.ssl.keystore.path: certs/elastic-certificates.p12
+xpack.security.transport.ssl.truststore.path: certs/elastic-certificates.p12
+
+
+
+    Com que hem posar una password al fitxer .p12 dels nodes, hem d’executar a cada node:
+
+elasticsearch-keystore add xpack.security.transport.ssl.keystore.secure_password
+elasticsearch-keystore add xpack.security.transport.ssl.truststore.secure_password
+
+
+
+3.- Activo seguridad. Para esto, es obligado estar usanto TLS
+
+xpack.security.enabled: true
+
+
+
+

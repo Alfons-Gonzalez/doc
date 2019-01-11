@@ -1,0 +1,168 @@
+Instalar FileBeat als web servers del GRIB
+==========================================
+
+De moment fem servir el filebeat i no el logstash per enviar les info dels logs 
+dels web servers al cluster del elasticsearch.
+
+El passos a seguir per instal·lar el FileBeat en un web server son:
+
+1.- Afegir el repo de rpms del elasticsearch:
+
+[root@nemo ~]# cat /etc/yum.repos.d/elasticsearch.repo
+[elasticsearch-6.x]
+name=Elasticsearch repository for 6.x packages
+baseurl=https://artifacts.elastic.co/packages/6.x/yum
+gpgcheck=1
+gpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch
+enabled=1
+autorefresh=1
+type=rpm-md
+[root@mr-00-01 ~]#
+
+2.- Instalar el FileBeat:
+
+yum install filebeat
+
+3.- El configurem per que trobi al elasticsearch i al kibana (afegeix dashboards 
+al kibana, per si ho volem fer servir, pero es opcional):
+
+El fitxer de configuració es: 
+
+/etc/filebeat/filebeat.yml
+
+I el que s’ha de canviar es:
+
+a.- Que comprovi automàticament si fem canvis en els fitxers de modules del metricbeat 
+i apliqui els canvis. Que ho faci cada 60 segons. D’aquesta manera ens estalviem tindre que 
+fer restarts del servei  (Opcional):
+
+filebeat.config.modules:
+  # Glob pattern for configuration loading
+  path: ${path.config}/modules.d/*.yml
+  # Set to true to enable config reloading
+  reload.enabled: true
+  # Period on which files under path should be checked for changes
+  reload.period: 60s
+
+b.- Li diem que afegeixi al kibana les plantilles dels dashboards:
+
+setup.dashboards.enabled: true
+
+c.- Ara indiquem on està el kibana:
+
+setup.kibana:
+  # Kibana Host
+  # Scheme and port can be left out and will be set to the default (http and 5601)
+  # In case you specify and additional path, the scheme is required: http://localhost:5601/path
+  # IPv6 addresses should always be defined as: https://[2001:db8::1]:5601
+  host: "http://quercus.prib.upf.edu:5601"
+
+d.- Ara toca indicar on està el elasticsearch (fa un round robin entre els 
+nodes per afegir les dades):
+
+output.elasticsearch:
+  # Array of hosts to connect to.
+  hosts: ["quercus.prib.upf.edu:9200","kabul.prib.upf.edu:9200","sefarad.prib.upf.edu:9200"]
+
+Ja tenim el fitxer de configuració del FileBeat configurat.
+
+4.- El filebeat funciona amb mòduls. Cada mòdul configura els logs d'un servei a 
+monitoritzar. By default, no hi ha cap mòdul activat:
+
+a.- Per veure els mòduls que tenim disponibles (i quins estan activats).
+
+filebeat modules list
+
+b.- Per afegir un mòdul (filebeat afegirà al elasticsearch la info dels logs 
+d’aquest servei):
+
+filebeat modules enable apache2
+
+c.- Per modificar el comportament del modul:
+
+vi /etc/filebeat/modules.d/apache2.yml
+
+5.- Ara que ja tenim el filebeat configurat i els mòduls instal·lats, ja podem 
+fer el setup (crec que genera els indexos al elasticsearch i copia els dashboards 
+al kibana, so, es imporant mirar el missatges per si diu coses del tipus que no 
+pot contactar amb el elasticsearch):
+
+filebeatbeat setup -e
+
+6.- Iniciem el servei:
+
+systemctl start filebeat
+
+i fem que que engegui amb el sistema:
+
+systemctl enable filebeat
+
+7.- Ara ja podem connectar-nos amb el kibana o grafana i mirar si les mètriques 
+estan arribant.
+
+IMPORTANT: Problema amb l’ubicació dels fitxers de log
+------------------------------------------------------
+
+Al executar el filebeat per obtenir la info dels logs del apache no obtenia cap 
+resultat, no veia cap index nou al elasticsearch (ho mirava fent servir la web 
+elasticsearch-HQ). 
+
+El problema era per que al no indicar al module del apache2 del filebeat on estaven 
+els logs del apache, aquest buscava els fitxers on li semblava, i ho feia malament. 
+Mirant els logs del filebeat (/var/log/filebeat/filebeat) vaig veure que els 
+buscaba en el path: 
+
+# grep -i configured paths /var/log/filebeat/filebeat
+Configured paths: [/var/log/apache2/access.log* /var/log/apache2/other_vhosts_access.log*]
+
+i aquest no es el path correcte on guara els logs un apache del repo de CentOS 7.
+
+Ho vaig arreglar editar el fitxer de configuració del módul del apache2 i afegint 
+on tenia que buscar els logs correctes:
+
+[root@nemo modules.d]# cat apache2.yml
+- module: apache2
+  # Access logs
+  access:
+    enabled: true
+
+    # Set custom paths for the log files. If left empty,
+    # Filebeat will choose the paths depending on your OS.
+    var.paths: ["/var/log/httpd/access_log*"]
+
+  # Error logs
+  error:
+    enabled: true
+
+    # Set custom paths for the log files. If left empty,
+    # Filebeat will choose the paths depending on your OS.
+    var.paths: ["/var/log/httpd/error_log*"]
+[root@nemo modules.d]#
+
+Al indicar el * al final del path, va carregar tots els fitxers, és a dir, 
+també tot l’històric. Ho va fer bé.
+
+Hem d'anar en compte de que si el apache no es del repo del Centos i es un
+compil·lat, haurem de fer el mateix, ficar bé el path i nom dels fitxers de 
+logs en el fitxer de configuració del módul de l'apache del filebeat.
+
+Altres opcions de configuració
+------------------------------
+
+En aquest fitxer de configuració (filebeat.yml) podem trovar més opcions de 
+configuració que poden ser molt útils, com per exemple, indicar uns patterns 
+que son expresions regulars amb les quals indicar quines linies dels fitxer de 
+logs volem excluir o incluir del procesament d’aquesta info per part del filebeat. 
+
+Una altre opció interesant a tindre en compre es que també podem especificar el 
+número de shards que tindrà cada index (by defatult son 3). Gracies a aquests 
+shards i al fet de que tenim de moment 3 nodes en el cluster de elasticsearch, es 
+quan podem aprofitar les aventatges de tindre un cluster: millora en el rendiment, 
+alta disponibilitat, i millor seguretat al tindre els shards distribuïts i duplicats 
+en varis nodes (aixó últim es molt fàcil de veure si fem servir la web del 
+elasticsearch-HQ).
+
+Mes info a: https://www.elastic.co/es/products/beats/metricbeat
+
+
+
