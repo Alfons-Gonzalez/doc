@@ -1,0 +1,82 @@
+Slurm Triggers
+==============
+
+La comanda ‘strigger’ ens permet configurar uns triggers per que quan passi un el 
+event X, que s’executi un script.
+
+Documentació a la web:
+
+https://slurm.schedmd.com/strigger.html
+
+La pena d’aquesta eina es que la llista d’events els quals poden llençar un trigger 
+no es gaire gran, bàsicament es:
+
+- Control·lar l’estat del controlador (slurmctld) i del seu backup.
+- Control·lar l’estat del gestod del accounting (slurmdbd) i el seu backup.
+- Control·lar quan un node es posa en Drain o Down
+- Control·lar quan a un job li queden x minuts per acabat (si s’ha definit un walltime)
+- Control·lar events de Down o Drainning dels nodes sobre els qual un job està en execució.
+
+Els triggers son comprovats cada 15 segons i tots els events que hagin passat durant els 
+últims 15 segons que facin saltar un trigger son executats.
+
+IMPORTANT: quan un trigger s’executa deixa d’existir, el hem de tornar a configurar. Si 
+volem que no sigui així, que estigui sempre actiu podem fer servir el flag "--flags=PERM", 
+o que el script que executa el trigger el torni a afegir.
+
+Triggers a Hydra
+=========================
+
+Hi han definits dos triggers: un per si un node es posa DOWN i un altre per si entra en DRAIN state. 
+Els scrips que executen aquests trigger estan al seguent directori de hydra:
+
+/etc/slurm/triggers
+
+Per veure la llista de triggers ho fem amb el flag “--get”:
+
+[root@hydra ~]# strigger --get
+TRIG_ID RES_TYPE   RES_ID TYPE                                OFFSET USER     FLAGS PROGRAM
+      4 node            * drained                                  0 root           /etc/slurm/triggers/slurm_admin_notify_node_drained
+      7 node            * down                                     0 root           /etc/slurm/triggers/slurm_admin_notify_node_down
+[root@hydra ~]# 
+
+Per afegir un nou trigger es fa amb el flag “--set”. Es van afegir així:
+
+strigger --set --node --drained --program=/etc/slurm/triggers/slurm_admin_notify_node_drained
+
+strigger --set --node --down --program=/etc/slurm/triggers/slurm_admin_notify_node_down
+
+
+i els scripts que executen, el que fan es:
+
+- Tornar a configurar el trigger
+- Enviar un mail als admins informant de que un node està Down o Drain:
+
+[root@hydra ~]# cat /etc/slurm/triggers/slurm_admin_notify_node_drained
+#!/bin/bash
+
+# Submit trigger for next event
+strigger --set --node --drained --program=/etc/slurm/triggers/slurm_admin_notify_node_drained
+:w
+
+# Notify administrator using by e-mail
+echo "" | /bin/mail itgrib@llista.upf.edu -s "[HYDRA] Nodes Drained !! : $*"
+[root@hydra ~]# 
+
+[root@hydra ~]# cat /etc/slurm/triggers/slurm_admin_notify_node_down
+#!/bin/bash
+
+# Submit trigger for next event
+strigger --set --node --down --program=/etc/slurm/triggers/slurm_admin_notify_node_down
+
+# Notify administrator using by e-mail
+echo "" | /bin/mail itgrib@llista.upf.edu -s "[HYDRA] Nodes Down !! : $*"
+[root@hydra ~]# 
+
+
+Si els volem treure, hem d’executar:
+
+strigger --clear --id=<trigger-id>
+
+(el <trigger-id> el podem veure amb la comanda “strigger --get”)
+
