@@ -1,0 +1,23 @@
+Per tenir un filesystem encriptat:
+
+yum install cryptsetup device-mapper util-linux
+modprobe dm_crypt
+lsmod | grep dm_crypt
+
+pvcreate /dev/sdb1
+vgcreate data /dev/sdb1
+lvcreate -l 100%VG -n etransafe data
+cryptsetup luksFormat /dev/data/etransafe
+
+demana que entrem una passphrase
+
+cryptsetup luksOpen /dev/data/etransafe
+cryptsetup luksOpen /dev/data/etransafe vol
+mkfs.ext4 /dev/mapper/vol
+vi /etc/crypttab
+vi /root/luks.key --> posem el contingut de la passphrase
+cryptsetup luksAddKey /dev/data/etransafe /root/luks.key --> per a que no demani cada cop que accedim al filesystem
+vi /etc/fstab 
+mkdir /data
+mount /data
+

@@ -109,6 +109,51 @@ L'script ha de mirar l'estatus dels arrays:
 
 [root@rabat ~]#
 
+7.- script the check: /usr/lib64/nagios/plugins/check_array
+
+----------------------- bof ---------------------------
+
+#!/bin/bash
+# checking array status
+# nombre d'arrays a controlar: 2, el de sistema i el de la cabina
+ARRAYS='0 1'
+# fitxer de control
+if [ ! /tmp/array-state.txt ]
+then
+	touch /tmp/array-state.txt
+fi
+cat /dev/null > /tmp/array-state.txt
+
+# comprovem els dos arrays, si tot va be, el fitxer /tmp/array-state.txt son una linea OK OK
+
+for element in $ARRAYS
+do
+	CHECK=`hpssacli ctrl slot=$element array all show status`
+        echo $CHECK |awk {'print $3'} >> /tmp/array-state.txt
+done
+
+RESULT=`grep -c "OK" /tmp/array-state.txt`
+
+# per testing purposes 
+#RESULT=1
+
+
+# RESULT ha de ser 2, otherwise tenim un problema i el nagios ens ha d'avisar
+EXPECTED=2
+
+if [ $RESULT -eq $EXPECTED ]
+then
+	echo "OK"
+	exit 0
+fi
+
+if [ $RESULT -lt $EXPECTED ]
+then
+	echo "CRITICAL: problemes al raid"
+	exit 2
+fi
+
+----------------------- eof --------------------------
 
 
 
