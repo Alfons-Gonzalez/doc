@@ -1,0 +1,99 @@
+
+Ejemplo:
+
+Tenemos un aplicativo ASAP que solo se distribuye en .deb (para Ubuntu 18.04) y queremos ejecutarlo usando singularity.
+
+
+I.- En la maquina kubo.prib.upf.edu he instalado docker & singularity.
+
+II.- Uso docker para crear un contenedor con el programa:
+
+Como usuario itgrib en kubo, creo un directorio test, donde creo un fichero Dockerfile:
+
+[itgrib@kubo ~]$ ls test/
+Dockerfile
+[itgrib@kubo ~]$ cat test/Dockerfile
+
+FROM ubuntu:18.04
+RUN apt-get update && apt-get install -y wget libboost-filesystem1.65.1 libboost-program-options1.65.1 libboost-regex1.65.1 \
+libboost-thread1.65.1 libdcmtk12 libopencv-core3.2 libopencv-imgproc3.2 libopenjp2-7 libopenslide0 libpython3.6 \
+ libqt5core5a  libqt5gui5  libqt5widgets5 libtiff5 libunittest++2 
+RUN wget https://github.com/computationalpathologygroup/ASAP/releases/download/1.9/ASAP-1.9-Linux-Ubuntu1804.deb
+RUN dpkg -i ASAP-1.9-Linux-Ubuntu1804.deb
+
+Con este Dockerfile generaremos la imagen de un contenedor en el que esta instalado el programa, haciendo
+
+[itgrib@kubo ~]$ cd test
+[itgrib@kubo ~]$ docker build -t ubuntu-asap .
+
+Tarda un rato, pero cuando acaba ya tenemos la imagen:
+
+[itgrib@kubo ~]$ docker images
+REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
+ubuntu-asap         latest              c95a0fc834ca        3 hours ago         404MB
+ubuntu              18.04               a2a15febcdf3        4 weeks ago         64.2MB
+[itgrib@kubo ~]$ 
+
+Podemos arrancarlo:
+
+[itgrib@kubo ~]$ docker run -d -it ubuntu-asap
+dbd0063029220e6bed637b82467d7c01f9b19f65e1a25a5c92125a839956696b
+[itgrib@kubo ~]$
+
+[itgrib@kubo ~]$ docker ps
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
+dbd006302922        ubuntu-asap         "/bin/bash"         15 seconds ago      Up 6 seconds                            fervent_hellman
+[itgrib@kubo ~]$
+
+Comprovar que ha instalado el programa:
+
+[itgrib@kubo ~]$ docker exec -it dbd006302922 ls /opt/ASAP/bin
+ASAP			_multiresolutionimageinterface.so
+MultiResImageConverter	_wholeslidefilters.so
+WSIArithmetic		formats
+WSIConnectedComponents	multiresolutionimageinterface.py
+WSIDistanceTransform	plugins
+WSILabelStatistics	testRunner
+WSIThreshold		wholeslidefilters.py
+[itgrib@kubo ~]$
+
+[itgrib@kubo ~]$ docker stop dbd006302922
+dbd006302922
+[itgrib@kubo ~]$ 
+
+
+Ahora a partir de la imagen vamos a generar un contenedor de singularity:
+
+[itgrib@kubo ~]$ singularity build ubuntu-asap.sif docker-daemon://ubuntu-asap:latest
+
+Cuando acaba:
+
+[itgrib@kubo ~]$ ls -lhtr
+total 147M
+drwxrwxr-x. 2 itgrib itgrib   24 Sep 16 12:41 test
+-rwxr-xr-x. 1 itgrib itgrib 147M Sep 16 14:19 ubuntu-asap.sif
+[itgrib@kubo ~]$ 
+
+
+Ya podemos ejecutar el contenedor con singularity
+
+[itgrib@kubo ~]$ singularity shell ubuntu-asap.sif 
+Singularity ubuntu-asap.sif:~> ls /opt/ASAP/
+bin  cmake  include  lib
+Singularity ubuntu-asap.sif:~> ls /opt/ASAP/bin/
+ASAP			_multiresolutionimageinterface.so
+MultiResImageConverter	_wholeslidefilters.so
+WSIArithmetic		formats
+WSIConnectedComponents	multiresolutionimageinterface.py
+WSIDistanceTransform	plugins
+WSILabelStatistics	testRunner
+WSIThreshold		wholeslidefilters.py
+Singularity ubuntu-asap.sif:~>
+
+I executar-lo:
+
+singularity exec ubuntu-asap.sif /opt/ASAP/bin/ASAP
+
+(es grafic, aixi que cal fer un ssh -X itgrib@kubo, i despres executar aquesta linea)
+
+

@@ -1,0 +1,72 @@
+Despres d'afegir un brick a un volum dsitribuit, esta be fer un rebalance per a que reparteixi de manera equilibrada les dades entre els bricks:
+
+[root@gluster1 ~]# gluster volume add-brick Genomics gluster3:/bricks/brick4/brick
+
+[root@gluster1 ~]# gluster volume rebalance Genomics start
+volume rebalance: Genomics: success: Rebalance on Genomics has been started successfully. Use rebalance status command to check status of the rebalance process.
+ID: fc597b69-a241-438d-8064-592883abf7dc
+[root@gluster1 ~]# gluster volume rebalance Genomics status
+                                    Node Rebalanced-files          size       scanned      failures       skipped               status  run time in h:m:s
+                               ---------      -----------   -----------   -----------   -----------   -----------         ------------     --------------
+                               localhost              120        24.9MB           382             0            52          in progress        0:00:12
+                                gluster2               14        24.5MB           350             0            69          in progress        0:00:12
+                                   aslan               70        24.6MB           350             0            10          in progress        0:00:12
+                                gluster3                0        0Bytes            11             0             1          in progress        0:00:12
+The estimated time for rebalance to complete will be unavailable for the first 10 minutes.
+volume rebalance: Genomics: success
+[root@gluster1 ~]#
+
+Al dia seguent mirem:
+[root@gluster1 ~]# gluster volume rebalance Genomics status
+                                    Node Rebalanced-files          size       scanned      failures       skipped               status  run time in h:m:s
+                               ---------      -----------   -----------   -----------   -----------   -----------         ------------     --------------
+                               localhost           591125       851.2GB       1645678             0        302921            completed       21:12:57
+                                gluster2           710087       979.7GB       1361169             0        191415            completed       21:13:52
+                                   aslan           512163       778.7GB       1774121             0        491416            completed       21:19:11
+                                gluster3              475        47.4KB         41687            14         31530            completed       14:01:38
+volume rebalance: Genomics: success
+[root@gluster1 ~]#
+
+
+
+
+---
+
+Podem veure com va el gluster amb 'gluster volume top'
+
+
+
+gluster volume top Genomics open list-cnt 5
+gluster volume top Genomics write list-cnt 5
+gluster volume top Genomics read list-cnt 5
+gluster volume top Soft read list-cnt 5
+
+gluster volume top Genomics read-perf bs 256 count 1 list-cnt 3
+gluster volume top Genomics write-perf bs 256 count 1 list-cnt 3
+
+
+----
+
+Per tenir info podem fer tambe gluster volume status:
+
+[root@gluster1 ~]# gluster volume status vol1
+Status of volume: vol1
+Gluster process                             TCP Port  RDMA Port  Online  Pid
+------------------------------------------------------------------------------
+Brick gluster1:/bricks/brick1/brick         49159     0          Y       2360 
+Brick gluster2:/bricks/brick1/brick         49158     0          Y       4555 
+Brick aslan:/bricks/brick1/brick            49158     0          Y       2817 
+Self-heal Daemon on localhost               N/A       N/A        Y       2176 
+Self-heal Daemon on aslan                   N/A       N/A        Y       2155 
+Self-heal Daemon on gluster2                N/A       N/A        Y       3469 
+Self-heal Daemon on gluster3                N/A       N/A        Y       1752 
+ 
+Task Status of Volume vol1
+------------------------------------------------------------------------------
+There are no active volume tasks
+ 
+[root@gluster1 ~]# 
+
+
+
+

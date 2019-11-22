@@ -1,0 +1,113 @@
+Centos 7
+selinux deshabilitado
+yum install -y curl policycoreutils-python openssh-server
+firewall-cmd --permanent --add-service=http
+firewall-cmd  --add-service=http
+yum install postfix
+systemctl enable postfix
+systemctl status postfix
+curl https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.rpm.sh | sudo bash
+EXTERNAL_URL="http://10.60.110.219" yum install -y gitlab-ce
+
+
+
+ja es pot accedir a la maquina, crear l'usuari root i despres usuaris per usar-la.
+
+Per fer backups:
+
+gitlab-rake gitlab:backup:create
+
+i posa l'arxiu a:
+
+/var/opt/gitlab/backups/
+
+[root@testgrib ~]# ls -lh /var/opt/gitlab/backups/
+total 6.2M
+-rw------- 1 git git 6.2M May 29 16:58 1559141939_2019_05_29_11.11.0_gitlab_backup.tar
+[root@testgrib ~]#
+
+mes info a:
+https://docs.gitlab.com/ee/raketasks/backup_restore.html
+
+------------
+
+HTTPS: 
+
+Per a fer que funcioni via https amb un certificat auto-generat i auto-signat:
+
+
+1.- Generem el certificat:
+
+mkdir self-signed
+cd self-signed/
+openssl genrsa -des3 -out server.key 1024
+(Passphrase: erase una vez)
+
+openssl req -new -key server.key -out server.csr
+
+cp server.key server.key.org
+openssl rsa -in server.key.org -out server.key
+openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
+
+2.- copiem els certificats on gitlab els vol:
+
+cp server.crt /etc/gitlab/trusted-certs/
+cp server.key /etc/gitlab/trusted-certs/
+
+
+
+
+
+3.- modifiquem la configuracio 
+
+vi /etc/gitlab/gitlab.rb
+
+i posem
+
+external_url 'https://10.60.110.219'
+
+letsencrypt['enable'] = false
+
+4.- reengeguem:
+
+gitlab-ctl reconfigure
+
+
+ I ja podem accedir a https://10.60.110.219/
+
+(el navegador es queixa que no es segur, pero la comunicacio ja viatja encriptada)
+
+
+COMPTE: A gitlabgrib.s.upf.edu vaig haver de fer a ma:
+
+mkdir /etc/gitlab/ssl
+cp /etc/gitlab/trusted-certs/server.crt /etc/gitlab/ssl/gitlabgrib.s.upf.edu.crt
+cp /etc/gitlab/trusted-certs/server.key /etc/gitlab/ssl/gitlabgrib.s.upf.edu.key
+i tornar a fer 
+gitlab-ctl reconfigure
+
+pq sino el nginx no arrencava
+
+Per veure els serveis qeu engega el gitlab i si estan up o no:
+
+[root@gitlabgrib ~]# gitlab-ctl status
+run: alertmanager: (pid 18813) 201s; run: log: (pid 4518) 4067s
+run: gitaly: (pid 18829) 200s; run: log: (pid 3942) 4190s
+run: gitlab-monitor: (pid 18850) 200s; run: log: (pid 4327) 4083s
+run: gitlab-workhorse: (pid 18862) 199s; run: log: (pid 4194) 4102s
+run: grafana: (pid 18876) 199s; run: log: (pid 4640) 4031s
+run: logrotate: (pid 18892) 198s; run: log: (pid 4244) 4095s
+run: nginx: (pid 18899) 198s; run: log: (pid 4210) 4101s
+run: node-exporter: (pid 18907) 197s; run: log: (pid 4261) 4089s
+run: postgres-exporter: (pid 18991) 197s; run: log: (pid 4557) 4061s
+run: postgresql: (pid 19002) 196s; run: log: (pid 3975) 4183s
+run: prometheus: (pid 19012) 196s; run: log: (pid 4401) 4073s
+run: redis: (pid 19026) 196s; run: log: (pid 3811) 4196s
+run: redis-exporter: (pid 19152) 195s; run: log: (pid 4378) 4077s
+run: sidekiq: (pid 19162) 193s; run: log: (pid 4167) 4108s
+run: unicorn: (pid 19173) 192s; run: log: (pid 4152) 4114s
+[root@gitlabgrib ~]#
+
+
+
+

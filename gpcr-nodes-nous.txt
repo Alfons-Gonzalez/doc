@@ -1,0 +1,89 @@
+
+Per anara passant metrocubos de pinsker a hydra
+
+- a pinsker els posem drain (o down directament si no hi ha jobs running)
+
+- entrem a la BIOS i desactivem hyperthreading , boot del DVD sense uefi
+
+- reinstalem amb el DVD de centos r1810 (si no hi ha problemes amb la grafica) i amb la opcio 'basic graphics' dins de Troubleshooting, per a que no posi el nouveau
+
+- seleccionem particionar a ma, per conservar /home (important! pq poden tenir dades dins de simulacions anteriors que necessiten) 
+
+- seleccionem paquets: Creative & Deveopment workstation i afegim
+	Additional development
+	Compatibilty Libraries
+	development tools
+- No configurem la xarxa
+- creem usuari acellera (per la instalacio de acemd despres)
+- primer boot: acceptem la llicencia
+- entrem i posem com a default el multi-user.target
+- desactivem selinux
+- desactivem libvirtd: systemctl disable libvirtd
+- editem /etc/default/grub i afegim a la linea GRUB_CMDLINE_LINUX
+
+net.ifnames=0 biosdevname=0
+
+- grub2-mkconfig -o /boot/grub2/grub.cfg 
+- reboot
+- configurem la xarxa amb nmtui (es possible que eth0 ara sigui l'altra interficie, si cal canviem el cable de xarxa de lloc)
+- yum update -y && reboot
+- instalem driver NVIDIA: NVIDIA-Linux-x86_64-396.54.run (a omega esta /root/gpcr)
+- executem nvidia-smi
+- instalem puppet configurant les maquines com pertanyents al lab gpcr
+- un cop el puppet ja ha configurat la maquina, afegim als authorized_keys la clau de hydra
+- afegim la maquina al /etc/hosts de hydra
+- afegim la maquina al /etc/ansible/hosts de hydra, dins del grup [nous]
+- a hydra executem els playbooks
+
+ansible-playbook playbook-slurm-update/playbook-update-slurm-install-packages-nodes.yml
+
+ansible-playbook playbook-slurm-install.yml
+
+- instalem acemd al node:
+
+mkdir /opt/acellera
+wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
+sh Miniconda3-latest-Linux-x86_64.sh
+
+instalarem a /opt/acellera/miniconda3
+
+/opt/acellera/miniconda3/bin/conda install -c acellera -c psi4 htmd 
+
+chown -R acellera /opt/acellera/
+
+- acabem de configurar l'slurm 
+
+al node executem:
+
+firewall-cmd --add-rich-rule='rule family=ipv4 source address=172.20.16.0/24 accept'
+firewall-cmd --add-rich-rule='rule family=ipv4 source address=172.20.16.0/24 accept' --permanent
+
+/usr/local/slurm/sbin/slurmd -C
+
+l'output l'afegim a /usr/local/slurm/etc/slurm.conf de hydra i afegim el node a la particio gpcr_gpu
+
+desde hydra:
+
+ansible nous -m copy -a "src=/usr/local/slurm/etc/gres.conf dest=/usr/local/slurm/etc/gres.conf"
+ansible nous -m mount -a "path=/users/gpcr src=gluster1:/Gpcr fstype=glusterfs opts=_netdev state=mounted"
+
+editem /etc/ansible/hosts i movem de la seccio [nous] a la seccio [gpcr] el node
+
+ansible-playbook playbook-slurm-config.yml (comprovem abans que el grup de hosts on s'executa es gpcr)
+
+- reengeguem el controler
+
+systemctl restart slurmctld
+
+- comprovem que tot va:
+
+[root@hydra ~]# sinfo -p gpcr_gpu
+PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST
+gpcr_gpu     up 300-00:00:      3    mix bombur,fili,kili
+gpcr_gpu     up 300-00:00:      2   idle balin,gimli
+[root@hydra ~]#
+
+ 
+
+
+

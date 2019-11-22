@@ -1,0 +1,37 @@
+para hacer un tar encriptado
+
+ejemplo para el backup de etransafe:
+
+
+PASS=/root/.pass
+cd /data/repo && tar czf - .| openssl enc -e -aes-256-cbc -out /data/repo.enc -pass env:PASS
+scp /data/repo.enc backup@circe:/backup/etransafe/repo.$DATE.encrypted.tgz
+
+
+
+si lo intentamos ver:
+[root@pandora etransafe]# tar -ztvf repo.Feb27.encrypted.tgz 
+
+gzip: stdin: not in gzip format
+tar: Child returned status 1
+tar: Error is not recoverable: exiting now
+[root@pandora etransafe]#
+
+
+
+Para desencriptar
+
+export PASS=/root/.pass
+openssl enc -d -aes-256-cbc -in repo.Feb27.encrypted.tgz -pass env:PASS | tar ztvf -
+[root@pandora etransafe]# openssl enc -d -aes-256-cbc -in repo.Feb27.encrypted.tgz -pass env:PASS | tar ztvf - 
+drwxr-x--- jsauch/apache     0 2019-02-27 12:17 ./
+drwxr-xr-x jsauch/ibi        0 2019-02-27 11:06 ./upload_1/
+-rw-r--r-- jsauch/ibi   386472 2019-02-27 11:06 ./upload_1/Gary H. Merrill-2009-Concepts and Synonymy in the UMLS Metathesaurus.pdf
+drwxr-xr-x jsauch/ibi        0 2019-02-27 11:16 ./upload_2/
+-rw-r--r-- jsauch/ibi    94497 2019-02-27 11:16 ./upload_2/Pedersen_et_al-2005-Measures of Semantic Similarity and Relatedness in the Medical Domain.pdf
+drwxr-xr-x jsauch/ibi        0 2019-02-27 11:41 ./upload_3/
+-rw-r--r-- jsauch/ibi     4378 2019-02-27 11:41 ./upload_3/proteinclass.html
+[root@pandora etransafe]#
+
+
+

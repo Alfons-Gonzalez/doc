@@ -1,0 +1,16 @@
+
+Problema amb paquets duplicats
+==============================
+
+Si al fer alguna instal·lació/update ens apareix un error que en diu
+que hi han paquets duplicats tipus:
+
+yum-3.4.3-158.el7.centos.noarch is a duplicate with yum-3.4.3-154.el7.centos.1.noarch
+yum-plugin-fastestmirror-1.1.31-45.el7.noarch is a duplicate with yum-plugin-fastestmirror-1.1.31-42.el7.noarch
+
+Es pot arreglar eliminant aquests duplicats amb la comanda:
+
+package-cleanup --cleandupes --removenewestdupes
+
+Aquest problema pot aparèixer després d'un 'yum update' que no ha
+acabat bé.

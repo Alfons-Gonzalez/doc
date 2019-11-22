@@ -14,6 +14,8 @@ Preparacio entorn al GRIB per fer servir EasyBuild + Moduls
 	2.2.- Fitxer de configuració
 	2.3.- .bashrc del usuario manager
 	2.4.- Modificacions al fitxer de configuració
+	2.5.- Actualització de EasyBuild
+		2.5.1.- Canvis al entorn amb el nou EasyBuild
 
 3.- ToolChain a fer servir
 
@@ -128,8 +130,12 @@ export MODULEPATH=/soft/devel:/soft/bio/sequence:/soft/bio/structure:/soft/bio/m
 
 [root@easybuild ~]# 
 
-2.- Instal·lació EasyBuild
-==========================
+2.- Instal·lació Inicial EasyBuild
+===================================
+
+NOTA: AQUESTA ES LA INSTAL·LACIÓ INICIAL DE EasyBuild. DESPRES ES VA FER SERVIR
+AQUESTA MATEIXA INSTAL·LACIÓ INICIAL DE EasyBuild PER ACTUALIZAR-HO I QUE QUEDES
+A /soft !!!.
 
 Ara el EasyBuild el tindrem instal·lat en el /usr/local de la màquina des de la cual
 farem les instal·lacions. 
@@ -305,6 +311,9 @@ cleanup-builddir=False
 2.4- module name scheme
 =======================
 
+AIXÓ VA SER UN GRAN ERROR !!! ES MILLOR DEIXAR LA NOMENCLATURA QUE DEIXA EasyBuild, SI
+NO ES UN LIO. 
+
 No nos gusta la nomenclatura que usaba by defaults EasyBuild para el soft ya que
 al añadir el ToolChain en la versión del soft hacía que fuera algo confuso:
 
@@ -376,11 +385,173 @@ que el return sigui (que de fet estava comentat):
 
 return os.path.join(ec['name'], ec['version'] + ec['versionsuffix'])
 
+2.5.- Actualització de EasyBuild
+================================
+
+Vam actualitzar el EasyBuild a la versió 3.8.0. Per actualitzar el EasyBuild el que vam fer
+va ser fer servir el propi EasyBuild ja instal·lat (el 3.1.2).
+
+Com a canvi important, ara el EasyBuild estará al /soft, no estarà al /usr/local de la màquina
+easybuild:
+
+1.- Baixem el fitxer .eb del easybuild
+
+wget https://raw.githubusercontent.com/easybuilders/easybuild-easyconfigs/master/easybuild/easyconfigs/e/EasyBuild/EasyBuild-3.8.0.eb
+
+2.- Decideixo que, per que els usuaris no puguin executar aquest soft, quedarà instal·lat a /soft/system/easybuild 
+(que no es vegi dintre del /soft/devel per que no ho vegin els usuaris). Genero un fitxer de configuració del entorn que es 
+diu EB_easybuild-noarch:
+
+[manager@easybuild easybuild]$ cat eb_config_env/EB_easybuild-noarch 
+#%Module1.0###################################################################
+proc ModulesHelp { } {
+   	global dotversion
+
+   	puts stderr "Prepara l'entorn per instal·lar una versió de EasyBuild a /soft/system/EasyBuild"
+}
+
+module-whatis   "Prepara l'entorn per instal·lar una versió de EasyBuild a /soft/system/EasyBuild"
+
+conflict EB_generic-goolf-1.7.20
+conflict EB_generic-foss-2016b
+conflict EB_graphic-goolf-1.7.20
+conflict EB_graphic-foss-2016b
+conflict EB_math-goolf-1.7.20
+conflict EB_math-foss-2016b
+conflict EB_md-goolf-1.7.20
+conflict EB_md-foss-2016b
+conflict EB_structure-goolf-1.7.20
+conflict EB_structure-foss-2016b
+conflict EB_sequence-goolf-1.7.20
+conflict EB_sequence-foss-2016b
+conflict EB_devel-goolf-1.7.20
+conflict EB_devel-foss-2016b
+
+set toolchain "noarch"
+
+#LOAD EASYBUILD MODULE
+# if { ![is-loaded  EB-common/2.4.0 ] } {
+# 	module load  EB-common/2.4.0
+# }
+
+#SET BASE INSTALL DIR IN /sit/aplic , SOFTWARE IN /sit/aplic/ICTCE/7.3.5 AND MODULES IN /sit/aplic/BASE/modulefiles/ICTCE/7.3.5
+setenv EASYBUILD_INSTALLPATH /soft/system/easybuild 
+setenv EASYBUILD_SUBDIR_SOFTWARE programs/${toolchain}/
+setenv EASYBUILD_SUBDIR_MODULES modulefiles/
+[manager@easybuild easybuild]$ 
+
+3.- Ara carreguem en un entorn net el EasyBuild i aques modulefile que ens configura l'entorn i ja podem fer la instal·lació del
+nou EasyBuild:
+
+module load EasyBuild
+module load EB_easybuild-noarch
+eb EasyBuild-3.8.0.eb
+
+i ja tenim el EasyBuild instal·lat a /soft/system/easybuild:
+
+[manager@easybuild easybuild]$ ll /soft/system/easybuild/modulefiles/all/EasyBuild/3.8.0.lua 
+-rw-rw-r-- 1 manager manager 1145 Apr  9 13:19 /soft/system/easybuild/modulefiles/all/EasyBuild/3.8.0.lua
+[manager@easybuild easybuild]$ 
+
+[manager@easybuild easybuild]$ ll /soft/system/easybuild/programs/noarch/EasyBuild/3.8.0/
+total 4
+drwxr-xr-x 2 manager manager 4096 Apr  9 13:09 bin
+drwxr-xr-x 2 manager manager  208 Apr  9 13:11 easybuild
+drwxr-xr-x 3 manager manager   31 Apr  9 13:08 lib
+drwxr-xr-x 3 manager manager   31 Apr  9 13:08 lib64
+[manager@easybuild easybuild]$ 
+
+ATENCIO: Per que els nom dels directoris sota el path /soft/system/easybuild sigui mes correcte, vaig
+renombrar el directori original /soft/system/easybuild/modulefiles (es on tenim els modulefiles
+que configuren el entorn per que la instal·lació de cada soft vagi a parar a on ha d'anar) com
+a /soft/system/easybuild/eb_config_env. Així en path /soft/system/easybuild/modulefiles queda
+per els modulefile del EasyBuild,
+
+2.5.1.- Canvis al entorn amb el nou EasyBuild
+=============================================
+
+Ara hem de fer que aques nou EasyBuild-3.8.0 sigui el que es carregui quan ens posem
+com a usuari manager a la màquina 'easybuild' i oblidar-nos del antic. Per fer aixó:
+
+1.- Editem el .bashrc del usuari manager i el deixem així:
+
+[manager@easybuild ~]$ cat .bashrc 
+# .bashrc
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+	. /etc/bashrc
+fi
+
+# Uncomment the following line if you don't like systemctl's auto-paging feature:
+# export SYSTEMD_PAGER=
+
+# User specific aliases and functions
+export EASYBUILD_MODULES_TOOL=Lmod
+
+# Cuando EasyBuild estaba instalado en el /usr/local de la máquina easybuild
+#EASYBUILD_PREFIX=/usr/local/EasyBuild
+#module use $EASYBUILD_PREFIX/modules/all
+
+# Estando EasyBuild en /soft/system
+EASYBUILD_PREFIX=/soft/system/easybuild
+module use $EASYBUILD_PREFIX/modulefiles/all
+
+[manager@easybuild ~]$ 
+
+2.- Li diem al seu propi modulefile que ha de carregar els modules que configuren el entorn
+on volem que quedin les coses instal·lades. Es afegir:
+
+-- Afegim el directori on volem que estigui el fitxer de configuración
+setenv("XDG_CONFIG_DIRS","/soft/system/easybuild")
+
+-- Afegim el modulepath on tenim els moduls a carregar abans de fer una instal·lació.
+prepend_path("MODULEPATH","/soft/system/easybuild/eb_config_env")
+
+i al final aquest module file queda així:
+
+[manager@easybuild ~]$ cat /soft/system/easybuild/modulefiles/
+all/   tools/ 
+[manager@easybuild ~]$ cat /soft/system/easybuild/modulefiles/all/EasyBuild/3.8.0.lua 
+help([[EasyBuild is a software build and installation framework
+ written in Python that allows you to install software in a structured,
+ repeatable and robust way. - Homepage: https://easybuilders.github.io/easybuild]])
+
+whatis([[Description: EasyBuild is a software build and installation framework
+ written in Python that allows you to install software in a structured,
+ repeatable and robust way. - Homepage: https://easybuilders.github.io/easybuild]])
+
+local root = "/soft/system/easybuild/programs/noarch/EasyBuild/3.8.0"
+
+conflict("EasyBuild")
+
+prepend_path("PATH", pathJoin(root, "bin"))
+setenv("EBROOTEASYBUILD", root)
+setenv("EBVERSIONEASYBUILD", "3.8.0")
+setenv("EBDEVELEASYBUILD", pathJoin(root, "easybuild/EasyBuild-3.8.0-easybuild-devel"))
+
+-- Afegim el directori on volem que estigui el fitxer de configuración
+setenv("XDG_CONFIG_DIRS","/soft/system/easybuild")
+
+-- Afegim el modulepath on tenim els moduls a carregar abans de fer una instal·lació.
+prepend_path("MODULEPATH","/soft/system/easybuild/eb_config_env")
+
+prepend_path("PYTHONPATH", pathJoin(root, "lib/python2.7/site-packages"))
+-- Built with EasyBuild version 3.1.2
+[manager@easybuild ~]$ 
+
+i no cal fer res mes, ja que aquest nou EasyBuild hereda tot el que hi ha sota
+el EASYBUILD_PREFIX (/soft/system/easybuild), com el seu fitxer de configuració:
+
+/soft/system/easybuild/easybuild.d/config.cfg
+
 
 3.- ToolChain a fer servir
 ==========================
 
-Ara que ja tenim tot l'entorn preparar em de tindre en consideració el toolchain
+NOTA: VAM COMENÇAR AMB EL goolf-17.2.20 I ARA FEM SERVIR foss-2016b
+
+Ara que ja tenim tot l'entorn preparat em de tindre en consideració el toolchain
 que farem servir. Nosaltres ho instal·larem tot amb:
 
 Goolf-1.7.20
@@ -466,12 +637,17 @@ Dintre del directori easybuild tenim:
 
 [manager@easybuild system]$ cd easybuild/
 [manager@easybuild easybuild]$ ll
-total 12
-drwxrwxr-x 70 manager manager 4096 Dec 19 10:43 build
-drwxrwxr-x  2 manager manager   23 Dec 20 11:14 easybuild.d
-drwxrwxr-x 72 manager manager 4096 Dec 19 11:28 ebfiles_repo
-drwxrwxr-x  2 manager manager  106 Dec 15 13:04 modulefiles
-drwxrwxr-x 23 manager manager 4096 Dec 16 11:05 sources
+total 20
+drwxrwxr-x 154 manager manager 4096 Apr  4 14:38 build
+drwxrwxr-x   2 manager manager   32 Apr  9 13:14 easybuild.d
+drwxrwxr-x   2 manager manager 4096 Apr  9 13:02 eb_config_env (abans es deia modulefiles)
+drwxrwxr-x 157 manager manager 4096 Apr  4 14:32 ebfiles_repo
+drwxrwxr-x   4 manager manager   42 Apr  9 13:08 modulefiles
+drwxr-xr-x  10 manager    1001  144 Dec 11 16:29 modules-old
+drwxrwxr-x   3 manager manager   28 Apr  9 12:53 programs
+drwxrwxr-x   2 manager manager    6 Apr  9 12:49 software
+drwxrwxr-x  11 manager manager  167 Dec 11 16:29 software-old
+drwxrwxr-x  26 manager manager  322 Sep 13  2018 sources
 [manager@easybuild easybuild]$ 
 
 on:
@@ -482,8 +658,9 @@ easybuild.d: on está el fitxer de configuració de EasyBuild.
 
 ebfiles_repo: on guardem els nostre .eb files tunejats.
 
-modulefiles: on fiquem els modulefiles per carregar configuracions que ens ajuda
-	a que els soft quedi instal·lat on volem.
+eb_config_env: on fiquem els modulefiles per carregar configuracions que ens ajuda
+	a que els soft quedi instal·lat on volem (abans el nom d'aquest
+	directori era modulefiles).
 sources: on tenim tots els sources del soft instal·lat, endreçat per l'inicial
 	del nom de cada programa.
 
@@ -673,12 +850,14 @@ o
 5.- Móduls de configuració
 ==========================
 
+AQUEST DIRECTORI AMB LA INSTAL·LACIÓ INICIAL DE EasyBuild ES VA DIR 'modulefiles'.
+
 Un cop tenim tot aixó en funcionament em de fer que quan instal·lem un nou programa, 
 aquest quedi instal·lat al directori on ha d'anar. Per fer aixó, abans de fer la 
 instal·lació primer em de carregar el módul que anomenem 'moduls de configuració'
 que son els modulefiles que son al directori:
 
-[manager@easybuild ~]$ ll /soft/system/easybuild/modulefiles/
+[manager@easybuild ~]$ ll /soft/system/easybuild/eb_config_env/
 total 24
 -rw-rw-r-- 1 manager manager  893 Nov 23 19:00 EB_devel
 -rw-rw-r-- 1 manager manager 1037 Nov 22 18:33 EB_generic

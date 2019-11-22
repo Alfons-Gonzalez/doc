@@ -1,0 +1,29 @@
+Yum repo not found per que variable de la URL falta
+====================================================
+
+Si ens surt un error dient que un repo no és accessible:
+
+http://mirror.centos.org/%24contentdir/7/storage/x86_64/gluster-3.12/repodata/repomd.xml: [Errno 14] HTTP Error 404 - Not Found
+
+Pot ser perque alguna de les variables que fa servir yum no l'estigui substituïnt bé. En
+l'exemple anterior es pot veure que està passant això perquè surt "%24contentdir".
+
+Aquestes variables d'entorn (o algunes de elles) estan en el path:
+
+root@node04 ~]# ll /etc/yum/vars/
+total 8
+-rw-r--r-- 1 root root 7 Apr  4 11:13 contentdir
+-rw-r--r-- 1 root root 6 Oct  8 17:38 infra
+[root@node04 ~]# 
+
+Hem de mirar en el fitxer de config del repo (/etc/yum.repo.d/<repo-name>) el nom de la variable
+que està fallant i veure si existeix el fitxer /etc/yum/vars/<variable-name> i que el 
+contingut del fitxer sigui el valor correcte per aquesta variable:
+
+[root@node04 ~]# cat /etc/yum/vars/contentdir 
+centos
+[root@node04 ~]# 
+
+Si no es així ho hem d'arreglar afegint el fitxer que correspon a la variable i/o afegint
+el contingut correcte.
+
