@@ -1,0 +1,41 @@
+Agrandar disco de una VM de Proxmox
+===================================
+
+1.- Parar la VM
+2.- Desde los settings de Proxmox, agrandar el HD de la VM:
+
+(Select the VM) -> Hardware -> (select Hard Disk (scsi0)) -> Resize Disk
+
+3.- Seleccionar arrancar con la ISO del GParted (ya está copiado en los nodos de
+Proxmox, o por lo menos en Delta):
+
+(Select the VM) -> Hardware -> (select CD/DVD Drive) -> Edit, Use CD/DVD disc image file (iso)
+
+y usando la GUI del GParted hacemos la partición mas grande.
+
+4.- Arrancamos la VM
+
+5.- Ahora hemos de hacer grande el LVM y el File System. Dependiendo de la VM tenemos varias opciones:
+
+a.- Si hay un volumen lógico:
+
+lvextend -L+50G /dev/centos_galton/root
+
+Una vez expandido el volumen lógico, si hay, toca aumentar el file system
+
+a.- XFS:
+
+(el path lo sacamos con lvdisplay: LV Path)
+xfs_growfs /dev/mapper/centos_galton-root
+
+b.- Ext4:
+
+resize2fs /dev/whatever
+
+
+
+
+
+
+
+

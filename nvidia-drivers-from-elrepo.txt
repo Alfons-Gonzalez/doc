@@ -1,0 +1,20 @@
+1.- Install ELRepo
+
+rpm --import https://www.elrepo.org/RPM-GPG-KEY-elrepo.org 
+yum install https://www.elrepo.org/elrepo-release-7.0-4.el7.elrepo.noarch.rpm
+
+2.- Instal·lar l'eina que ens diu quin driver s'ha d'instal·lar:
+
+ yum install nvidia-detect
+
+3.- I mirem quin driver necessitem:
+
+[root@meir ~]# nvidia-detect 
+kmod-nvidia-340xx
+[root@meir ~]# 
+
+4.- Instal·lem el driver l'eina nvidia-detect ens ha dit que necesitem:
+
+yum install kmod-nvidia-340xx
+
+5.- Reboot o restart de les X.

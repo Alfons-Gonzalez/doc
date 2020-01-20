@@ -1,0 +1,4 @@
+openssl req -new -newkey rsa:2048 -nodes -keyout etransafe.upf.edu.key -out etransafe.upf.edu.csr
+
+i enviar el .csr via CAU solicitant el certificat
+

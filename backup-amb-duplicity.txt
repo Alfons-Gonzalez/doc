@@ -1,0 +1,182 @@
+Fent backups amb duplicity de /bicoh/MARGenomics
+
+1. L'instal.lem (a dakar i corfu)
+yum install duplicity
+
+
+2.- creem la clau publica per poder fer ssh sense passwd
+
+ssh-keygen -t rsa
+scp .ssh/id_rsa.pub root@corfu:/root/.ssh/authorized_keys
+
+
+3.-  creem les claus GPG (per encriptar)
+
+gpg --gen-key
+gpg --list-keys
+
+
+
+4.- fem el backup
+
+duplicity --volsize=10240 /bicoh/MARGenomics sftp://root@corfu//backup/MARGenomics
+
+(demana la passphrase de gpg)
+
+El primer backup es full, a partir de llavors fa incrementals
+
+5. mirem el que ocupa el backup
+[root@corfu ~]# du -hs /backup/MARGenomics/
+1.7T	/backup/MARGenomics/
+[root@corfu ~]#
+
+
+6.- llistem el contingut del backup
+duplicity list-current-files sftp://root@corfu//backup/MARGenomics > /root/llistat.txt
+
+[root@dakar ~]# grep test_by_alfons llistat.txt 
+Tue Jan 14 09:44:08 2020 test_by_alfons
+Tue Jan 14 09:44:19 2020 test_by_alfons/a.txt
+[root@dakar ~]#
+
+7.- status dels backup
+[root@dakar ~]# duplicity collection-status sftp://root@corfu//backup/MARGenomics 
+Last full backup date: Wed Jan  8 11:44:22 2020
+Collection Status
+-----------------
+Connecting with backend: BackendWrapper
+Archive dir: /root/.cache/duplicity/1eaa3c55b33dd5bc0d873b4560b5999b
+
+Found 0 secondary backup chains.
+
+Found primary backup chain with matching signature chain:
+-------------------------
+Chain start time: Wed Jan  8 11:44:22 2020
+Chain end time: Tue Jan 14 09:45:00 2020
+Number of contained backup sets: 3
+Total number of contained volumes: 169
+ Type of backup set:                            Time:      Num volumes:
+                Full         Wed Jan  8 11:44:22 2020               167
+         Incremental         Fri Jan 10 09:14:32 2020                 1
+         Incremental         Tue Jan 14 09:45:00 2020                 1
+-------------------------
+No orphaned or incomplete backup sets found.
+[root@dakar ~]#
+
+8.- Restaurar (desde dakar):
+duplicity restore --file-to-restore test_by_alfons/ sftp://root@corfu//backup/MARGenomics /root/restore_test/
+
+pide la passphrase i
+
+[root@dakar ~]# cat restore_test/a.txt 
+Tue Jan 14 09:44:19 CET 2020
+[root@dakar ~]#
+
+root@dakar ~]# cat /bicoh/MARGenomics/test_by_alfons/a.txt 
+Tue Jan 14 09:44:19 CET 2020
+[root@dakar ~]#
+
+
+9.- podem estalviar-nos entrar la passphrase si definim la variable PASSPHRASE:
+[root@dakar ~]# export PASSPHRASE="en un lugar de la mancha"
+[root@dakar ~]# duplicity --volsize=10240 /bicoh/MARGenomics sftp://root@corfu//backup/MARGenomics
+Local and Remote metadata are synchronized, no sync needed.
+Last full backup date: Wed Jan  8 11:44:22 2020
+--------------[ Backup Statistics ]--------------
+StartTime 1579173907.04 (Thu Jan 16 12:25:07 2020)
+EndTime 1579174065.10 (Thu Jan 16 12:27:45 2020)
+ElapsedTime 158.05 (2 minutes 38.05 seconds)
+SourceFiles 32539
+SourceFileSize 2010982108445 (1.83 TB)
+NewFiles 2
+NewFileSize 73 (73 bytes)
+DeletedFiles 0
+ChangedFiles 1
+ChangedFileSize 58 (58 bytes)
+ChangedDeltaSize 0 (0 bytes)
+DeltaEntries 3
+RawDeltaSize 94 (94 bytes)
+TotalDestinationSizeChange 322 (322 bytes)
+Errors 0
+-------------------------------------------------
+
+
+
+
+10.-  desde una tercera maquina:
+
+A moebius:
+
+yum install duplicity -y
+ssh-keygen -t rsa
+scp .ssh/id_rsa.pub root@corfu:/root/.ssh/moebius-key
+[root@corfu ~]# cat .ssh/moebius-key >> .ssh/authorized_keys 
+
+de tal manera que hem instal.lat el duoplicity a moebius i hem configurat per a que es pugui connectar amb clau ssh a corfu
+
+Ara podem mirar quins backups hi ha:
+
+[root@moebius ~]# duplicity collection-status sftp://root@corfu//backup/MARGenomics
+Last full backup date: Wed Jan  8 11:44:22 2020
+Collection Status
+-----------------
+Connecting with backend: BackendWrapper
+Archive dir: /root/.cache/duplicity/1eaa3c55b33dd5bc0d873b4560b5999b
+
+Found 0 secondary backup chains.
+
+Found primary backup chain with matching signature chain:
+-------------------------
+Chain start time: Wed Jan  8 11:44:22 2020
+Chain end time: Mon Jan 20 09:59:45 2020
+Number of contained backup sets: 5
+Total number of contained volumes: 171
+ Type of backup set:                            Time:      Num volumes:
+                Full         Wed Jan  8 11:44:22 2020               167
+         Incremental         Fri Jan 10 09:14:32 2020                 1
+         Incremental         Tue Jan 14 09:45:00 2020                 1
+         Incremental         Thu Jan 16 12:25:06 2020                 1
+         Incremental         Mon Jan 20 09:59:45 2020                 1
+-------------------------
+No orphaned or incomplete backup sets found.
+[root@moebius ~]#
+
+I restaurar:
+[root@moebius ~]# duplicity restore --file-to-restore test_by_alfons/a.txt sftp://root@corfu//backup/MARGenomics /root/fitxer-a-darrera-versio.txt
+
+
+Triga una mica la primera vegada pq copia al cache local els fitxers de signatures de gpg.
+
+[root@moebius ~]# cat fitxer-a-darrera-versio.txt 
+Tue Jan 14 09:44:19 CET 2020
+Thu Jan 16 12:24:16 CET 2020
+Mon Jan 20 09:59:26 CET 2020
+[root@moebius ~]#
+
+11.- podem recuperar versions anteriors del fitxer:
+
+duplicity restore -t 3D --file-to-restore test_by_alfons/a.txt sftp://root@corfu//backup/MARGenomics /root/fitxer-a-versio-1.txt
+
+duplicity restore -t 5D --file-to-restore test_by_alfons/a.txt sftp://root@corfu//backup/MARGenomics /root/fitxer-a-versio-2.txt
+
+[root@moebius ~]# cat fitxer-a-versio-1.txt 
+Tue Jan 14 09:44:19 CET 2020
+Thu Jan 16 12:24:16 CET 2020
+[root@moebius ~]# cat fitxer-a-versio-2.txt 
+Tue Jan 14 09:44:19 CET 2020
+[root@moebius ~]#
+
+
+
+
+
+
+
+
+11.- A pandora:/backup/dakar hi ha backup de
+
+- passphrase gpg
+- claus gpg 
+- .cache/duplicity (ja que sembla que es on esta el cataleg)
+
+
